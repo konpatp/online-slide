@@ -1,0 +1,45 @@
+{
+  "hidden": [],
+  "order": [
+    "welcome",
+    "signal",
+    "pattern",
+    "interaction",
+    "save-protocol",
+    "close"
+  ],
+  "revision": 0,
+  "schema": "online-slide/demo@1",
+  "slides": {
+    "welcome": {
+      "accent": "#2f6fed",
+      "body": "A small, friendly deck for trying the editor. Turn on Edit mode and move this slide around.",
+      "title": "Welcome to the demo"
+    },
+    "signal": {
+      "accent": "#0f9d78",
+      "body": "A good slide has one signal: a clear headline, a little context, and enough breathing room.",
+      "title": "One idea per slide"
+    },
+    "pattern": {
+      "accent": "#c16a13",
+      "body": "Use the filmstrip to reorder slides. The canvas updates immediately while the save happens in the background.",
+      "title": "Edit without waiting"
+    },
+    "interaction": {
+      "accent": "#8458c7",
+      "body": "Hide a slide for a private rehearsal, then show it again. The saved state follows the presentation.",
+      "title": "Visibility is part of the deck"
+    },
+    "save-protocol": {
+      "accent": "#d14d68",
+      "body": "Rapid gestures are coalesced into the newest snapshot. A revision conflict is surfaced instead of silently overwriting another editor.",
+      "title": "Fast and safe saves"
+    },
+    "close": {
+      "accent": "#347f9d",
+      "body": "Fork this repository, replace the seed slides, and keep the edit protocol. Your own deck can start here.",
+      "title": "Make it yours"
+    }
+  }
+}

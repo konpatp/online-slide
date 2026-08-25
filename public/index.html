@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="A dependency-free online slide editing demo">
+    <title>online-slide · live editing demo</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="online-slide home">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <span>online-slide</span>
+        <small>live editing demo</small>
+      </a>
+      <div class="top-actions">
+        <span class="save-state saved" data-save-state role="status">Saved</span>
+        <button class="button quiet" type="button" data-undo disabled>Undo</button>
+        <button class="button primary" type="button" data-edit-toggle>Enable edit</button>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <aside class="filmstrip" aria-label="Slide navigator">
+        <div class="rail-heading">
+          <div>
+            <span class="eyebrow">DEMO DECK</span>
+            <strong>Slides</strong>
+          </div>
+          <span class="count" data-slide-count>0</span>
+        </div>
+        <div class="thumb-list" data-thumb-list></div>
+        <p class="rail-help">Enable edit to reorder, hide, or rewrite a slide. Changes save in the background.</p>
+      </aside>
+
+      <section class="workspace" aria-label="Presentation workspace">
+        <div class="workspace-bar">
+          <button class="icon-button" type="button" data-prev aria-label="Previous slide">←</button>
+          <span class="position" data-position>1 / 1</span>
+          <button class="icon-button" type="button" data-next aria-label="Next slide">→</button>
+          <span class="workspace-hint">Use ← → to present</span>
+        </div>
+        <div class="stage-wrap">
+          <div class="stage" data-stage aria-live="polite"></div>
+        </div>
+        <div class="workspace-footer">
+          <span><i class="dot" aria-hidden="true"></i> Optimistic editing</span>
+          <span>Latest snapshot wins · conflicts are visible</span>
+        </div>
+      </section>
+    </main>
+
+    <div class="toast" data-toast role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
