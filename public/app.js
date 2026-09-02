@@ -263,6 +263,9 @@
     img.draggable = false;
     img.style.setProperty("--image-scale", component.imageScale || 1);
     cell.appendChild(img);
+    if (component.caption) {
+      cell.appendChild(editableText(slide, component.caption, "figcaption", "gallery-cell-caption"));
+    }
     cell.addEventListener("click", function (event) {
       if (!editMode) return;
       event.stopPropagation();

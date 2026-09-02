@@ -155,6 +155,7 @@ button { font: inherit; }
 .gallery-row-label { display: grid; place-items: center; color: #65758c; font-size: calc(.92cqw * var(--component-scale, 1)); font-weight: 780; text-align: center; }
 .gallery-cell { position: relative; min-width: 0; min-height: 0; overflow: hidden; border: 1px solid #e1e6ee; border-radius: 10px; background: #f8fafc; }
 .gallery-cell img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transform: scale(var(--image-scale, 1)); transition: transform .16s ease; }
+.gallery-cell-caption { position: absolute; z-index: 2; left: 2.5%; right: 2.5%; bottom: 2.5%; padding: .28cqw .42cqw; border-radius: 7px; color: white; background: rgba(20,35,59,.82); font-size: calc(.7cqw * var(--component-scale, 1)); font-weight: 760; line-height: 1.1; text-align: center; }
 .gallery-cell.drop-ready { border: 3px dashed #2f6fed; background: #edf3ff; }
 
 .toast { position: fixed; right: 22px; bottom: 62px; z-index: 20; max-width: 360px; padding: 11px 14px; border: 1px solid #d4ddea; border-radius: 10px; color: #40536c; background: white; box-shadow: 0 10px 30px rgba(24, 43, 74, .13); font-size: 12px; opacity: 0; transform: translateY(8px); pointer-events: none; transition: .2s ease; }

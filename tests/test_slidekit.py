@@ -5,7 +5,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from slidekit import ContractError, catalog_receipt, load_catalog, reconcile_state
+from slidekit import (
+    ContractError,
+    catalog_receipt,
+    load_catalog,
+    reconcile_state,
+    validate_slide_spec,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,6 +34,19 @@ class SlideKitContractTests(unittest.TestCase):
         self.assertEqual(set(receipt["recipes"].values()), {1})
         self.assertEqual(receipt["semanticComponentIds"], 94)
         self.assertEqual(receipt["positionalComponentIds"], 0)
+
+    def test_gallery_image_caption_is_an_independent_semantic_text_leaf(self):
+        gallery = copy.deepcopy(self.catalog["mock-matched-gallery"])
+        page_set = next(iter(gallery["data"]["pageSets"].values()))
+        image_id = page_set[0]["rows"][0]["images"][0]
+        gallery["components"]["sample-caption"] = {
+            "kind": "text", "text": "class 12 · identity 03", "role": "image caption"
+        }
+        gallery["components"][image_id]["caption"] = "sample-caption"
+        validate_slide_spec(gallery)
+        gallery["components"][image_id]["caption"] = image_id
+        with self.assertRaisesRegex(ContractError, "must reference text"):
+            validate_slide_spec(gallery)
 
     def test_mechanism_and_gallery_sources_are_semantic_not_positional(self):
         diagram = self.catalog["mock-vector-construction"]

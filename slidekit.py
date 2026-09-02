@@ -214,6 +214,11 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                     for cell_index, component_id in enumerate(images):
                         ref(component_id,
                             f"pageSets.{page_set_id}[{page_index}].rows[{row_index}].images[{cell_index}]")
+                        image_component = components.get(component_id, {})
+                        caption = image_component.get("caption")
+                        if caption is not None:
+                            ref(caption,
+                                f"components.{component_id}.caption")
         seen_selections: set[tuple[tuple[str, str], ...]] = set()
         for view_index, view in enumerate(views):
             selection = view.get("selection")
@@ -235,6 +240,13 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     _require(not unknown, f"{source}: unknown component references: {', '.join(unknown)}")
     _require(spec["components"][spec["headline"]]["kind"] == "text",
              f"{source}: headline must reference text")
+    for component_id, component in components.items():
+        caption = component.get("caption")
+        if caption is not None:
+            _require(component["kind"] == "image",
+                     f"{source}: only images may reference captions")
+            _require(components[caption]["kind"] == "text",
+                     f"{source}: image caption {caption!r} must reference text")
     return spec
 
 
