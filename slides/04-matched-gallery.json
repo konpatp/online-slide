@@ -1,7 +1,7 @@
 {
   "schema": "online-slide/slide@1",
   "id": "mock-matched-gallery",
-  "recipe": "matched-gallery",
+  "recipe": "hierarchical-gallery",
   "createdAt": "2026-09-01T08:03:00Z",
   "placement": {"after": "mock-vector-construction"},
   "theme": {"accent": "#d46b32"},
@@ -9,39 +9,86 @@
   "headline": "headline",
   "footer": "protocol",
   "components": {
-    "eyebrow": {"kind": "text", "text": "RECIPE 04 · MATCHED GALLERY", "role": "eyebrow"},
-    "headline": {"kind": "text", "text": "Matched identities make qualitative changes comparable", "role": "headline"},
-    "column-a": {"kind": "text", "text": "Baseline", "role": "gallery-heading"},
-    "column-b": {"kind": "text", "text": "Variant A", "role": "gallery-heading"},
-    "column-c": {"kind": "text", "text": "Variant B", "role": "gallery-heading"},
-    "column-d": {"kind": "text", "text": "Variant C", "role": "gallery-heading"},
-    "column-e": {"kind": "text", "text": "Reference", "role": "gallery-heading"},
+    "eyebrow": {"kind": "text", "text": "RECIPE 04 · HIERARCHICAL GALLERY", "role": "eyebrow"},
+    "headline": {"kind": "text", "text": "Browse the hierarchy without shrinking the evidence wall", "role": "headline"},
+    "selector-class": {"kind": "text", "text": "Class", "role": "gallery-selector-label"},
+    "selector-method": {"kind": "text", "text": "Direction", "role": "gallery-selector-label"},
+    "selector-dose": {"kind": "text", "text": "Dose", "role": "gallery-selector-label"},
+    "option-heron": {"kind": "text", "text": "Heron", "role": "gallery-option"},
+    "option-fox": {"kind": "text", "text": "Fox", "role": "gallery-option"},
+    "option-native": {"kind": "text", "text": "Native", "role": "gallery-option"},
+    "option-correction": {"kind": "text", "text": "Correction", "role": "gallery-option"},
+    "option-low": {"kind": "text", "text": "Low", "role": "gallery-option"},
+    "option-high": {"kind": "text", "text": "High", "role": "gallery-option"},
+    "class-heron": {"kind": "text", "text": "Class 020 · blue heron", "role": "gallery-class-name"},
+    "class-fox": {"kind": "text", "text": "Class 277 · red fox", "role": "gallery-class-name"},
+    "metric-heron-native-low": {"kind": "text", "text": "FID 42.8", "role": "gallery-metric"},
+    "metric-heron-native-high": {"kind": "text", "text": "FID 38.6", "role": "gallery-metric"},
+    "metric-heron-correction-low": {"kind": "text", "text": "FID 31.2", "role": "gallery-metric"},
+    "metric-heron-correction-high": {"kind": "text", "text": "FID 24.1", "role": "gallery-metric"},
+    "metric-fox-native-low": {"kind": "text", "text": "FID 47.3", "role": "gallery-metric"},
+    "metric-fox-native-high": {"kind": "text", "text": "FID 41.5", "role": "gallery-metric"},
+    "metric-fox-correction-low": {"kind": "text", "text": "FID 33.8", "role": "gallery-metric"},
+    "metric-fox-correction-high": {"kind": "text", "text": "FID 26.6", "role": "gallery-metric"},
+    "column-baseline": {"kind": "text", "text": "Baseline", "role": "gallery-heading"},
+    "column-selected": {"kind": "text", "text": "Selected", "role": "gallery-heading"},
+    "column-reference": {"kind": "text", "text": "Reference", "role": "gallery-heading"},
+    "page-one": {"kind": "text", "text": "1–3", "role": "gallery-page"},
+    "page-two": {"kind": "text", "text": "4–6", "role": "gallery-page"},
     "row-one": {"kind": "text", "text": "Identity 01", "role": "gallery-row-label"},
     "row-two": {"kind": "text", "text": "Identity 02", "role": "gallery-row-label"},
     "row-three": {"kind": "text", "text": "Identity 03", "role": "gallery-row-label"},
     "image-01-a": {"kind": "image", "src": "assets/gallery/01-a.svg", "alt": "Synthetic identity 1 baseline"},
-    "image-01-b": {"kind": "image", "src": "assets/gallery/01-b.svg", "alt": "Synthetic identity 1 variant A"},
-    "image-01-c": {"kind": "image", "src": "assets/gallery/01-c.svg", "alt": "Synthetic identity 1 variant B"},
-    "image-01-d": {"kind": "image", "src": "assets/gallery/01-d.svg", "alt": "Synthetic identity 1 variant C"},
+    "image-01-b": {"kind": "image", "src": "assets/gallery/01-b.svg", "alt": "Synthetic identity 1 low variant"},
+    "image-01-c": {"kind": "image", "src": "assets/gallery/01-c.svg", "alt": "Synthetic identity 1 medium variant"},
+    "image-01-d": {"kind": "image", "src": "assets/gallery/01-d.svg", "alt": "Synthetic identity 1 strong variant"},
     "image-01-e": {"kind": "image", "src": "assets/gallery/01-e.svg", "alt": "Synthetic identity 1 reference"},
     "image-02-a": {"kind": "image", "src": "assets/gallery/02-a.svg", "alt": "Synthetic identity 2 baseline"},
-    "image-02-b": {"kind": "image", "src": "assets/gallery/02-b.svg", "alt": "Synthetic identity 2 variant A"},
-    "image-02-c": {"kind": "image", "src": "assets/gallery/02-c.svg", "alt": "Synthetic identity 2 variant B"},
-    "image-02-d": {"kind": "image", "src": "assets/gallery/02-d.svg", "alt": "Synthetic identity 2 variant C"},
+    "image-02-b": {"kind": "image", "src": "assets/gallery/02-b.svg", "alt": "Synthetic identity 2 low variant"},
+    "image-02-c": {"kind": "image", "src": "assets/gallery/02-c.svg", "alt": "Synthetic identity 2 medium variant"},
+    "image-02-d": {"kind": "image", "src": "assets/gallery/02-d.svg", "alt": "Synthetic identity 2 strong variant"},
     "image-02-e": {"kind": "image", "src": "assets/gallery/02-e.svg", "alt": "Synthetic identity 2 reference"},
     "image-03-a": {"kind": "image", "src": "assets/gallery/03-a.svg", "alt": "Synthetic identity 3 baseline"},
-    "image-03-b": {"kind": "image", "src": "assets/gallery/03-b.svg", "alt": "Synthetic identity 3 variant A"},
-    "image-03-c": {"kind": "image", "src": "assets/gallery/03-c.svg", "alt": "Synthetic identity 3 variant B"},
-    "image-03-d": {"kind": "image", "src": "assets/gallery/03-d.svg", "alt": "Synthetic identity 3 variant C"},
+    "image-03-b": {"kind": "image", "src": "assets/gallery/03-b.svg", "alt": "Synthetic identity 3 low variant"},
+    "image-03-c": {"kind": "image", "src": "assets/gallery/03-c.svg", "alt": "Synthetic identity 3 medium variant"},
+    "image-03-d": {"kind": "image", "src": "assets/gallery/03-d.svg", "alt": "Synthetic identity 3 strong variant"},
     "image-03-e": {"kind": "image", "src": "assets/gallery/03-e.svg", "alt": "Synthetic identity 3 reference"},
-    "protocol": {"kind": "text", "text": "Same synthetic identity across each row · images always use contain, never crop · drop a file to replace", "role": "protocol"}
+    "protocol": {"kind": "text", "text": "Synthetic fixed identities · selection and page persist across slide changes · images never crop", "role": "protocol"}
   },
   "data": {
-    "columns": ["column-a", "column-b", "column-c", "column-d", "column-e"],
-    "rows": [
-      {"label": "row-one", "images": ["image-01-a", "image-01-b", "image-01-c", "image-01-d", "image-01-e"]},
-      {"label": "row-two", "images": ["image-02-a", "image-02-b", "image-02-c", "image-02-d", "image-02-e"]},
-      {"label": "row-three", "images": ["image-03-a", "image-03-b", "image-03-c", "image-03-d", "image-03-e"]}
+    "columns": ["column-baseline", "column-selected", "column-reference"],
+    "selectors": [
+      {"id": "class", "label": "selector-class", "options": [{"value": "heron", "label": "option-heron"}, {"value": "fox", "label": "option-fox"}]},
+      {"id": "method", "label": "selector-method", "options": [{"value": "native", "label": "option-native"}, {"value": "correction", "label": "option-correction"}]},
+      {"id": "dose", "label": "selector-dose", "options": [{"value": "low", "label": "option-low"}, {"value": "high", "label": "option-high"}]}
+    ],
+    "pageSets": {
+      "native-low": [
+        {"label": "page-one", "rows": [{"label": "row-one", "images": ["image-01-a", "image-01-b", "image-01-e"]}, {"label": "row-two", "images": ["image-02-a", "image-02-b", "image-02-e"]}, {"label": "row-three", "images": ["image-03-a", "image-03-b", "image-03-e"]}]},
+        {"label": "page-two", "rows": [{"label": "row-one", "images": ["image-02-a", "image-02-b", "image-02-e"]}, {"label": "row-two", "images": ["image-03-a", "image-03-b", "image-03-e"]}, {"label": "row-three", "images": ["image-01-a", "image-01-b", "image-01-e"]}]}
+      ],
+      "native-high": [
+        {"label": "page-one", "rows": [{"label": "row-one", "images": ["image-01-a", "image-01-c", "image-01-e"]}, {"label": "row-two", "images": ["image-02-a", "image-02-c", "image-02-e"]}, {"label": "row-three", "images": ["image-03-a", "image-03-c", "image-03-e"]}]},
+        {"label": "page-two", "rows": [{"label": "row-one", "images": ["image-02-a", "image-02-c", "image-02-e"]}, {"label": "row-two", "images": ["image-03-a", "image-03-c", "image-03-e"]}, {"label": "row-three", "images": ["image-01-a", "image-01-c", "image-01-e"]}]}
+      ],
+      "correction-low": [
+        {"label": "page-one", "rows": [{"label": "row-one", "images": ["image-01-a", "image-01-d", "image-01-e"]}, {"label": "row-two", "images": ["image-02-a", "image-02-d", "image-02-e"]}, {"label": "row-three", "images": ["image-03-a", "image-03-d", "image-03-e"]}]},
+        {"label": "page-two", "rows": [{"label": "row-one", "images": ["image-02-a", "image-02-d", "image-02-e"]}, {"label": "row-two", "images": ["image-03-a", "image-03-d", "image-03-e"]}, {"label": "row-three", "images": ["image-01-a", "image-01-d", "image-01-e"]}]}
+      ],
+      "correction-high": [
+        {"label": "page-one", "rows": [{"label": "row-one", "images": ["image-01-a", "image-01-e", "image-01-c"]}, {"label": "row-two", "images": ["image-02-a", "image-02-e", "image-02-c"]}, {"label": "row-three", "images": ["image-03-a", "image-03-e", "image-03-c"]}]},
+        {"label": "page-two", "rows": [{"label": "row-one", "images": ["image-02-a", "image-02-e", "image-02-c"]}, {"label": "row-two", "images": ["image-03-a", "image-03-e", "image-03-c"]}, {"label": "row-three", "images": ["image-01-a", "image-01-e", "image-01-c"]}]}
+      ]
+    },
+    "views": [
+      {"selection": {"class": "heron", "method": "native", "dose": "low"}, "metric": "metric-heron-native-low", "classLabel": "class-heron", "pageSet": "native-low"},
+      {"selection": {"class": "heron", "method": "native", "dose": "high"}, "metric": "metric-heron-native-high", "classLabel": "class-heron", "pageSet": "native-high"},
+      {"selection": {"class": "heron", "method": "correction", "dose": "low"}, "metric": "metric-heron-correction-low", "classLabel": "class-heron", "pageSet": "correction-low"},
+      {"selection": {"class": "heron", "method": "correction", "dose": "high"}, "metric": "metric-heron-correction-high", "classLabel": "class-heron", "pageSet": "correction-high"},
+      {"selection": {"class": "fox", "method": "native", "dose": "low"}, "metric": "metric-fox-native-low", "classLabel": "class-fox", "pageSet": "native-low"},
+      {"selection": {"class": "fox", "method": "native", "dose": "high"}, "metric": "metric-fox-native-high", "classLabel": "class-fox", "pageSet": "native-high"},
+      {"selection": {"class": "fox", "method": "correction", "dose": "low"}, "metric": "metric-fox-correction-low", "classLabel": "class-fox", "pageSet": "correction-low"},
+      {"selection": {"class": "fox", "method": "correction", "dose": "high"}, "metric": "metric-fox-correction-high", "classLabel": "class-fox", "pageSet": "correction-high"}
     ]
   }
 }

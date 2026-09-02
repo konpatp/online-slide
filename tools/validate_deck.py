@@ -21,19 +21,20 @@ def validate(root: Path) -> dict:
     catalog = load_catalog(root / "slides")
     findings = []
     for slide_id, spec in catalog.items():
-        if spec["recipe"] == "matched-gallery":
-            for component_id, component in spec["components"].items():
-                if component["kind"] != "image":
-                    continue
-                path = root / "public" / component["src"]
-                if not path.is_file():
-                    findings.append(f"{slide_id}@{component_id}: missing asset {component['src']}")
+        for component_id, component in spec["components"].items():
+            if component["kind"] != "image":
+                continue
+            path = root / "public" / component["src"]
+            if not path.is_file():
+                findings.append(f"{slide_id}@{component_id}: missing asset {component['src']}")
         for required in ("headline", "footer"):
             if not spec.get(required):
                 findings.append(f"{slide_id}: {required} is required by the pilot")
     css = (root / "public" / "styles.css").read_text(encoding="utf-8")
     if ".gallery-cell img" not in css or "object-fit: contain" not in css:
         findings.append("gallery renderer must enforce object-fit: contain")
+    if not (root / "public" / "joint-diagram.js").is_file():
+        findings.append("mechanism pipeline requires the pinned JointJS browser bundle")
     receipt = catalog_receipt(catalog)
     receipt.update({
         "elapsedMs": round((time.perf_counter() - started) * 1000, 2),

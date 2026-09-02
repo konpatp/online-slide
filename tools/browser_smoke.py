@@ -120,6 +120,46 @@ def main() -> int:
                 if "uploads/" not in page.locator('[data-component-id="image-01-a"] img').get_attribute("src"):
                     findings.append("dropped image did not survive reload as a content-addressed asset")
 
+                # Hierarchical gallery state is presenter state: facet and page
+                # choices survive leaving the slide without entering deck overlays.
+                page.get_by_role("button", name="Correction", exact=True).click()
+                page.get_by_role("button", name="High", exact=True).click()
+                page.get_by_role("button", name="4–6", exact=True).click()
+                metric_before = page.locator(".gallery-metric").text_content()
+                page.goto(base + "/#mock-growth-trajectories", wait_until="networkidle")
+                page.goto(base + "/#mock-matched-gallery", wait_until="networkidle")
+                if page.get_by_role("button", name="Correction", exact=True).get_attribute("aria-pressed") != "true":
+                    findings.append("hierarchical gallery method selection did not persist")
+                if page.get_by_role("button", name="High", exact=True).get_attribute("aria-pressed") != "true":
+                    findings.append("hierarchical gallery dose selection did not persist")
+                if page.get_by_role("button", name="4–6", exact=True).get_attribute("aria-pressed") != "true":
+                    findings.append("hierarchical gallery page did not persist")
+                if page.locator(".gallery-metric").text_content() != metric_before:
+                    findings.append("hierarchical gallery metric changed after slide round-trip")
+
+                # A real node drag must reroute its semantic connector. This is
+                # the behavior that fixed SVG arrow coordinates could not supply.
+                page.goto(base + "/#mock-vector-construction", wait_until="networkidle")
+                if "edit" not in page.locator("[data-edit-toggle]").text_content().lower():
+                    page.locator("[data-edit-toggle]").click()
+                elif page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                page.wait_for_selector('g[model-id="student-node"]')
+                node = page.locator('g[model-id="student-node"]')
+                link = page.locator('g[model-id="student-to-prediction"] path[joint-selector="line"]')
+                if node.count() != 1 or link.count() != 1:
+                    findings.append("JointJS semantic node/link DOM was not rendered")
+                else:
+                    before = link.get_attribute("d")
+                    box = node.bounding_box()
+                    page.mouse.move(box["x"] + 5, box["y"] + box["height"] / 2)
+                    page.mouse.down()
+                    page.mouse.move(box["x"] + 5, box["y"] + box["height"] / 2 + 72, steps=8)
+                    page.mouse.up()
+                    after = link.get_attribute("d")
+                    if before == after:
+                        findings.append("dragging a JointJS node did not reroute its connector")
+
                 # Capture the editor and each clean recipe. Geometry checks use actual pixels.
                 editor_path = output / "editor-gallery.png"
                 page.screenshot(path=str(editor_path))
@@ -165,6 +205,12 @@ def main() -> int:
                         fits = clean.locator(".gallery-cell img").evaluate_all("nodes => nodes.map(n => getComputedStyle(n).objectFit)")
                         if set(fits) != {"contain"}:
                             findings.append("gallery does not enforce non-cropping contain behavior")
+                        if clean.locator(".hierarchical-gallery-grid .gallery-cell").count() != 9:
+                            findings.append("gallery must show three large rows by three conditions")
+                    if slide_id == "mock-vector-construction":
+                        engine = clean.locator(".joint-paper").get_attribute("data-diagram-engine")
+                        if engine != "jointjs-directed-graph":
+                            findings.append("mechanism slide did not use the JointJS layout runtime")
                     clean.close()
                 browser.close()
         finally:
@@ -185,6 +231,8 @@ def main() -> int:
             "semantic edit survives unrelated source insertion and component reorder",
             "human slide order survives save/reload",
             "external image drop persists by content hash",
+            "hierarchical gallery facets, metric, and page survive slide navigation",
+            "JointJS node drag physically reroutes its semantic connector",
             "all semantic components remain inside the 16:9 canvas",
             "gallery images use object-fit: contain",
         ],

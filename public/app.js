@@ -1,4 +1,4 @@
-/* ScientificSlideKit pilot: four recipes, no framework or build step. */
+/* ScientificSlideKit pilot: declarative recipes plus a bundled diagram engine. */
 (function () {
   "use strict";
 
@@ -286,7 +286,9 @@
   var renderRecipe = window.createScientificSlideRecipes({
     svgElement: svgElement,
     editableText: editableText,
-    galleryImage: galleryImage
+    galleryImage: galleryImage,
+    effectiveComponent: effectiveComponent,
+    isEditMode: function () { return editMode; }
   });
 
   function renderStage() {

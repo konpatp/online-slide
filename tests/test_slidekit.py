@@ -26,8 +26,24 @@ class SlideKitContractTests(unittest.TestCase):
         receipt = catalog_receipt(self.catalog)
         self.assertEqual(receipt["slides"], 4)
         self.assertEqual(set(receipt["recipes"].values()), {1})
-        self.assertEqual(receipt["semanticComponentIds"], 73)
+        self.assertEqual(receipt["semanticComponentIds"], 94)
         self.assertEqual(receipt["positionalComponentIds"], 0)
+
+    def test_mechanism_and_gallery_sources_are_semantic_not_positional(self):
+        diagram = self.catalog["mock-vector-construction"]
+        self.assertEqual(diagram["recipe"], "mechanism-pipeline")
+        self.assertEqual({node["id"] for node in diagram["data"]["nodes"]}, {
+            "query-node", "teacher-node", "student-node", "target-node",
+            "prediction-node", "loss-node",
+        })
+        self.assertTrue(all("id" in edge for edge in diagram["data"]["edges"]))
+        gallery = self.catalog["mock-matched-gallery"]
+        self.assertEqual(gallery["recipe"], "hierarchical-gallery")
+        selectors = gallery["data"]["selectors"]
+        expected = 1
+        for selector in selectors:
+            expected *= len(selector["options"])
+        self.assertEqual(len(gallery["data"]["views"]), expected)
 
     def test_human_order_and_edit_survive_unrelated_source_insertions(self):
         state = self.initial_state()

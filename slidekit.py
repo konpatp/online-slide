@@ -17,7 +17,7 @@ from typing import Any, Iterable
 
 SLIDE_SCHEMA = "online-slide/slide@1"
 STATE_SCHEMA = "online-slide/state@2"
-RECIPES = {"hero-plot", "evidence-table", "mechanism-diagram", "matched-gallery"}
+RECIPES = {"hero-plot", "evidence-table", "mechanism-pipeline", "hierarchical-gallery"}
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -134,15 +134,13 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             best = row.get("best")
             _require(isinstance(best, int) and 0 <= best < len(cells),
                      f"{source}: row {row_index} needs a valid best index")
-    elif recipe == "mechanism-diagram":
+    elif recipe == "mechanism-pipeline":
         nodes = data.get("nodes")
         edges = data.get("edges")
         _require(isinstance(nodes, list) and len(nodes) >= 2,
                  f"{source}: diagram needs at least two nodes")
         _require(isinstance(edges, list) and edges, f"{source}: diagram needs edges")
         node_ids: set[str] = set()
-        node_roles: set[str] = set()
-        valid_roles = {"origin", "raw", "base", "tangent", "result"}
         for index, node in enumerate(nodes):
             _require(isinstance(node, dict), f"{source}: node {index} must be an object")
             node_id = node.get("id")
@@ -150,33 +148,87 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                      f"{source}: node {index} needs a semantic id")
             _require(node_id not in node_ids, f"{source}: duplicate node id {node_id}")
             node_ids.add(node_id)
-            role = node.get("role")
-            _require(role in valid_roles, f"{source}: node {node_id} needs a supported semantic role")
-            _require(role not in node_roles, f"{source}: duplicate diagram role {role}")
-            node_roles.add(role)
             ref(node.get("label"), f"nodes[{index}].label")
-        _require(node_roles == valid_roles,
-                 f"{source}: mechanism diagram requires origin/raw/base/tangent/result roles")
+            if node.get("detail") is not None:
+                ref(node["detail"], f"nodes[{index}].detail")
+        edge_ids: set[str] = set()
         for index, edge in enumerate(edges):
             _require(isinstance(edge, dict), f"{source}: edge {index} must be an object")
+            edge_id = edge.get("id")
+            _require(isinstance(edge_id, str) and COMPONENT_ID.fullmatch(edge_id),
+                     f"{source}: edge {index} needs a semantic id")
+            _require(edge_id not in edge_ids, f"{source}: duplicate edge id {edge_id}")
+            edge_ids.add(edge_id)
             _require(edge.get("from") in node_ids and edge.get("to") in node_ids,
                      f"{source}: edge {index} must reference nodes")
             if edge.get("label") is not None:
                 ref(edge["label"], f"edges[{index}].label")
     else:
         columns = data.get("columns")
-        rows = data.get("rows")
+        selectors = data.get("selectors")
+        views = data.get("views")
+        page_sets = data.get("pageSets")
         _require(isinstance(columns, list) and columns, f"{source}: gallery needs columns")
-        _require(isinstance(rows, list) and rows, f"{source}: gallery needs rows")
+        _require(isinstance(selectors, list) and selectors, f"{source}: gallery needs selectors")
+        _require(isinstance(views, list) and views, f"{source}: gallery needs views")
+        _require(isinstance(page_sets, dict) and page_sets, f"{source}: gallery needs pageSets")
         for index, component_id in enumerate(columns):
             ref(component_id, f"columns[{index}]")
-        for row_index, row in enumerate(rows):
-            ref(row.get("label"), f"rows[{row_index}].label")
-            images = row.get("images")
-            _require(isinstance(images, list) and len(images) == len(columns),
-                     f"{source}: gallery row {row_index} must fill every column")
-            for cell_index, component_id in enumerate(images):
-                ref(component_id, f"rows[{row_index}].images[{cell_index}]")
+        selector_ids: set[str] = set()
+        selector_values: dict[str, set[str]] = {}
+        for selector_index, selector in enumerate(selectors):
+            selector_id = selector.get("id")
+            _require(isinstance(selector_id, str) and COMPONENT_ID.fullmatch(selector_id),
+                     f"{source}: selector {selector_index} needs a semantic id")
+            _require(selector_id not in selector_ids, f"{source}: duplicate selector {selector_id}")
+            selector_ids.add(selector_id)
+            ref(selector.get("label"), f"selectors[{selector_index}].label")
+            options = selector.get("options")
+            _require(isinstance(options, list) and len(options) >= 2,
+                     f"{source}: selector {selector_id} needs options")
+            values: set[str] = set()
+            for option_index, option in enumerate(options):
+                value = option.get("value")
+                _require(isinstance(value, str) and COMPONENT_ID.fullmatch(value),
+                         f"{source}: selector {selector_id} option {option_index} needs a value")
+                _require(value not in values, f"{source}: duplicate option {selector_id}={value}")
+                values.add(value)
+                ref(option.get("label"), f"selectors[{selector_index}].options[{option_index}].label")
+            selector_values[selector_id] = values
+        for page_set_id, pages in page_sets.items():
+            _require(COMPONENT_ID.fullmatch(page_set_id) is not None,
+                     f"{source}: invalid page set id {page_set_id!r}")
+            _require(isinstance(pages, list) and pages,
+                     f"{source}: page set {page_set_id} needs pages")
+            for page_index, page in enumerate(pages):
+                ref(page.get("label"), f"pageSets.{page_set_id}[{page_index}].label")
+                rows = page.get("rows")
+                _require(isinstance(rows, list) and rows,
+                         f"{source}: gallery page {page_set_id}[{page_index}] needs rows")
+                for row_index, row in enumerate(rows):
+                    ref(row.get("label"),
+                        f"pageSets.{page_set_id}[{page_index}].rows[{row_index}].label")
+                    images = row.get("images")
+                    _require(isinstance(images, list) and len(images) == len(columns),
+                             f"{source}: gallery row {row_index} must fill every column")
+                    for cell_index, component_id in enumerate(images):
+                        ref(component_id,
+                            f"pageSets.{page_set_id}[{page_index}].rows[{row_index}].images[{cell_index}]")
+        seen_selections: set[tuple[tuple[str, str], ...]] = set()
+        for view_index, view in enumerate(views):
+            selection = view.get("selection")
+            _require(isinstance(selection, dict) and set(selection) == selector_ids,
+                     f"{source}: view {view_index} must select every gallery facet")
+            for selector_id, value in selection.items():
+                _require(value in selector_values[selector_id],
+                         f"{source}: view {view_index} has unknown {selector_id}={value}")
+            key = tuple(sorted(selection.items()))
+            _require(key not in seen_selections, f"{source}: duplicate gallery selection {dict(key)}")
+            seen_selections.add(key)
+            ref(view.get("metric"), f"views[{view_index}].metric")
+            ref(view.get("classLabel"), f"views[{view_index}].classLabel")
+            _require(view.get("pageSet") in page_sets,
+                     f"{source}: view {view_index} references an unknown pageSet")
 
     known = _component_ids(spec)
     unknown = sorted(set(referenced) - known)

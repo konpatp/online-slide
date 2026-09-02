@@ -6,6 +6,7 @@
     var svgElement = api.svgElement;
     var editableText = api.editableText;
     var galleryImage = api.galleryImage;
+    var effectiveComponent = api.effectiveComponent;
 
     function heroPlot(canvas, slide) {
       var data = slide.data;
@@ -102,87 +103,160 @@
       canvas.appendChild(body);
     }
 
-    function mechanismDiagram(canvas, slide) {
+    function mechanismPipeline(canvas, slide) {
       var body = document.createElement("div");
       body.className = "recipe-body diagram-body";
       var plane = document.createElement("div");
       plane.className = "diagram-plane";
-      var svg = svgElement("svg", {viewBox: "0 0 1000 500", "aria-hidden": "true"});
-      var defs = svgElement("defs");
-      var marker = svgElement("marker", {id: "arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "14", markerHeight: "14", orient: "auto-start-reverse", markerUnits: "userSpaceOnUse"});
-      marker.appendChild(svgElement("path", {d: "M 0 0 L 10 5 L 0 10 z", fill: "context-stroke"}));
-      defs.appendChild(marker);
-      svg.appendChild(defs);
-      var positions = {
-        origin: {x: 10, y: 62}, raw: {x: 29, y: 28}, base: {x: 29, y: 76},
-        tangent: {x: 57, y: 28}, result: {x: 82, y: 54}
-      };
-      var labelLanes = {
-        "raw>tangent": {x: 43, y: 13},
-        "base>tangent": {x: 43, y: 56},
-        "tangent>result": {x: 72, y: 14}
-      };
-      var nodes = {};
-      slide.data.nodes.forEach(function (node) { nodes[node.id] = Object.assign({}, node, positions[node.role]); });
-      slide.data.edges.forEach(function (edge) {
-        var from = nodes[edge.from], to = nodes[edge.to];
-        var x1 = from.x * 10, y1 = from.y * 5, x2 = to.x * 10, y2 = to.y * 5;
-        var dx = x2 - x1, dy = y2 - y1, length = Math.max(1, Math.sqrt(dx * dx + dy * dy));
-        var inset = 70;
-        x1 += dx / length * inset; y1 += dy / length * inset;
-        x2 -= dx / length * inset; y2 -= dy / length * inset;
-        svg.appendChild(svgElement("line", {
-          x1: x1, y1: y1, x2: x2, y2: y2, stroke: edge.color || "#8b98aa",
-          "stroke-width": "6", "stroke-linecap": "round",
-          "stroke-dasharray": edge.dash ? "12 11" : "none",
-          "marker-end": edge.directed ? "url(#arrow)" : "none"
-        }));
-        if (edge.label) {
-          var edgeLabel = editableText(slide, edge.label, "div", "edge-label");
-          var lane = labelLanes[from.role + ">" + to.role];
-          edgeLabel.style.left = (lane ? lane.x : (from.x + to.x) / 2) + "%";
-          edgeLabel.style.top = (lane ? lane.y : (from.y + to.y) / 2) + "%";
-          plane.appendChild(edgeLabel);
-        }
-      });
-      plane.appendChild(svg);
+      var paperHost = document.createElement("div");
+      paperHost.className = "joint-paper";
+      plane.appendChild(paperHost);
+      var nodeLabels = {};
+      var edgeLabels = {};
       slide.data.nodes.forEach(function (node) {
-        var position = positions[node.role];
         var block = document.createElement("div");
-        block.className = "diagram-node tone-" + (node.tone || "quiet");
-        block.style.left = position.x + "%";
-        block.style.top = position.y + "%";
+        block.className = "diagram-node-copy tone-" + (node.tone || "quiet");
+        block.setAttribute("data-diagram-node-id", node.id);
         block.appendChild(editableText(slide, node.label, "div", "node-label"));
+        if (node.detail) block.appendChild(editableText(slide, node.detail, "div", "node-detail"));
+        nodeLabels[node.id] = block;
         plane.appendChild(block);
+      });
+      slide.data.edges.forEach(function (edge) {
+        if (!edge.label) return;
+        var label = editableText(slide, edge.label, "div", "edge-label");
+        label.setAttribute("data-diagram-edge-id", edge.id);
+        edgeLabels[edge.id] = label;
+        plane.appendChild(label);
       });
       body.appendChild(plane);
       canvas.appendChild(body);
+      if (!window.ScientificDiagramRuntime) throw new Error("JointJS diagram runtime is missing");
+      requestAnimationFrame(function () {
+        window.ScientificDiagramRuntime.renderPipeline(paperHost, slide.data, {
+          interactive: api.isEditMode(),
+          onNodePosition: function (id, box, size) {
+            var node = nodeLabels[id];
+            if (!node) return;
+            var inset = 12;
+            node.style.left = ((box.x + inset) / size.width * 100) + "%";
+            node.style.top = ((box.y + inset) / size.height * 100) + "%";
+            node.style.width = ((box.width - inset * 2) / size.width * 100) + "%";
+            node.style.height = ((box.height - inset * 2) / size.height * 100) + "%";
+          },
+          onEdgePosition: function (id, point, size) {
+            var label = edgeLabels[id];
+            if (!label) return;
+            label.style.left = (point.x / size.width * 100) + "%";
+            label.style.top = (point.y / size.height * 100) + "%";
+          }
+        });
+      });
     }
 
-    function matchedGallery(canvas, slide) {
+    function hierarchicalGallery(canvas, slide) {
       var body = document.createElement("div");
-      body.className = "recipe-body gallery-body";
-      var grid = document.createElement("div");
-      grid.className = "gallery-grid";
-      var corner = document.createElement("div");
-      corner.className = "gallery-corner";
-      grid.appendChild(corner);
-      slide.data.columns.forEach(function (componentId) {
-        grid.appendChild(editableText(slide, componentId, "div", "gallery-heading"));
-      });
-      slide.data.rows.forEach(function (row) {
-        grid.appendChild(editableText(slide, row.label, "div", "gallery-row-label"));
-        row.images.forEach(function (componentId) { grid.appendChild(galleryImage(slide, componentId)); });
-      });
-      body.appendChild(grid);
+      body.className = "recipe-body hierarchical-gallery-body";
+      var controls = document.createElement("div");
+      controls.className = "gallery-controls";
+      var summary = document.createElement("div");
+      summary.className = "gallery-summary";
+      var viewHost = document.createElement("div");
+      viewHost.className = "hierarchical-gallery-view";
+      var storageKey = "online-slide.gallery." + slide.id;
+      var defaults = {};
+      slide.data.selectors.forEach(function (selector) { defaults[selector.id] = selector.options[0].value; });
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch (_) { saved = {}; }
+      var galleryState = {selection: Object.assign(defaults, saved.selection || {}), page: Number(saved.page || 0)};
+
+      function componentText(componentId) { return effectiveComponent(slide, componentId).text; }
+      function activeView() {
+        return slide.data.views.find(function (view) {
+          return slide.data.selectors.every(function (selector) {
+            return view.selection[selector.id] === galleryState.selection[selector.id];
+          });
+        }) || slide.data.views[0];
+      }
+      function saveGalleryState() {
+        localStorage.setItem(storageKey, JSON.stringify(galleryState));
+      }
+      function renderGallery() {
+        controls.textContent = "";
+        slide.data.selectors.forEach(function (selector) {
+          var group = document.createElement("div");
+          group.className = "gallery-selector";
+          group.appendChild(editableText(slide, selector.label, "span", "gallery-selector-label"));
+          var options = document.createElement("div");
+          options.className = "gallery-option-row";
+          selector.options.forEach(function (option) {
+            var button = document.createElement("button");
+            button.type = "button";
+            button.textContent = componentText(option.label);
+            button.setAttribute("aria-pressed", String(galleryState.selection[selector.id] === option.value));
+            button.addEventListener("click", function (event) {
+              event.stopPropagation();
+              galleryState.selection[selector.id] = option.value;
+              galleryState.page = 0;
+              saveGalleryState();
+              renderGallery();
+            });
+            options.appendChild(button);
+          });
+          group.appendChild(options);
+          controls.appendChild(group);
+        });
+
+        var view = activeView();
+        var viewPages = slide.data.pageSets[view.pageSet];
+        galleryState.page = Math.max(0, Math.min(viewPages.length - 1, galleryState.page));
+        var page = viewPages[galleryState.page];
+        summary.textContent = "";
+        summary.appendChild(editableText(slide, view.classLabel, "div", "gallery-class-name"));
+        summary.appendChild(editableText(slide, view.metric, "div", "gallery-metric"));
+        var pages = document.createElement("div");
+        pages.className = "gallery-pages";
+        viewPages.forEach(function (candidate, index) {
+          var button = document.createElement("button");
+          button.type = "button";
+          button.textContent = componentText(candidate.label);
+          button.setAttribute("aria-pressed", String(index === galleryState.page));
+          button.addEventListener("click", function (event) {
+            event.stopPropagation();
+            galleryState.page = index;
+            saveGalleryState();
+            renderGallery();
+          });
+          pages.appendChild(button);
+        });
+        summary.appendChild(pages);
+
+        viewHost.textContent = "";
+        var grid = document.createElement("div");
+        grid.className = "hierarchical-gallery-grid";
+        grid.style.setProperty("--gallery-columns", String(slide.data.columns.length));
+        grid.appendChild(document.createElement("div"));
+        slide.data.columns.forEach(function (componentId) {
+          grid.appendChild(editableText(slide, componentId, "div", "gallery-heading"));
+        });
+        page.rows.forEach(function (row) {
+          grid.appendChild(editableText(slide, row.label, "div", "gallery-row-label"));
+          row.images.forEach(function (componentId) { grid.appendChild(galleryImage(slide, componentId)); });
+        });
+        viewHost.appendChild(grid);
+      }
+      body.appendChild(controls);
+      body.appendChild(summary);
+      body.appendChild(viewHost);
       canvas.appendChild(body);
+      renderGallery();
     }
 
     return {
       "hero-plot": heroPlot,
       "evidence-table": evidenceTable,
-      "mechanism-diagram": mechanismDiagram,
-      "matched-gallery": matchedGallery
+      "mechanism-pipeline": mechanismPipeline,
+      "hierarchical-gallery": hierarchicalGallery
     };
   };
 }(window));

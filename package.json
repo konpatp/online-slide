@@ -1,0 +1,17 @@
+{
+  "name": "online-slide",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Declarative scientific slides with revision-safe live editing",
+  "scripts": {
+    "build:diagram": "node scripts/build-diagram.mjs",
+    "test": "./scripts/test.sh"
+  },
+  "dependencies": {
+    "@joint/core": "4.3.2",
+    "@joint/layout-directed-graph": "4.3.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.9"
+  }
+}

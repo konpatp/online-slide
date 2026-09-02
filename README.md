@@ -1,6 +1,6 @@
-# online-slide · ScientificSlideKit pilot
+# online-slide · ScientificSlideKit
 
-A public, dependency-free vertical slice for fast scientific slide authoring
+A public reference implementation for fast scientific slide authoring
 and revision-safe browser editing. All content and data in this repository are
 synthetic. It contains no private research evidence or internal project names.
 
@@ -22,6 +22,9 @@ git clone git@github.com:konpatp/online-slide.git
 cd online-slide
 python3 server.py --host 127.0.0.1 --port 8000
 ```
+
+The compiled JointJS diagram runtime is committed, so viewing and editing do
+not require Node. To change that runtime, run `npm ci && npm run build:diagram`.
 
 Open <http://127.0.0.1:8000/>. Enable edit mode to:
 
@@ -45,12 +48,14 @@ slide id plus stable semantic component ids.
 |---|---|---|
 | `hero-plot` | Multi-series line plot with an incomplete trace | Axes, ticks, grid, legend, line endpoints, protocol strip |
 | `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing |
-| `mechanism-diagram` | Semantic nodes and anchored directed connectors | Node placement, connector endpoints, arrowheads, edge labels |
-| `matched-gallery` | Three identities across five matched conditions | Non-cropping grid, row/column alignment, image drop zones |
+| `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
+| `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, three large rows, persistent view state, non-cropping image slots |
 
 The source gives scientific intent and data. The recipe owns repeated spatial
 decisions. Custom layout remains possible by adding another recipe rather than
-embedding arbitrary markup into a slide file.
+embedding arbitrary markup into a slide file. The diagram and gallery
+dependency decisions are recorded in
+[`docs/technology-decisions.md`](docs/technology-decisions.md).
 
 ## Concurrency and human authority
 
@@ -81,15 +86,17 @@ than silently moving or discarding the human change.
 
 ## Fast path and browser acceptance
 
-The normal source gate uses only Python's standard library:
+The normal source gate uses Python's standard library and the already-built
+browser bundle:
 
 ```bash
 ./scripts/test.sh
 ```
 
 `validate_deck.py` checks every independent source, permanent id, component
-reference, recipe contract, gallery asset, and non-cropping invariant. It emits
-a machine-readable receipt and should complete in milliseconds.
+reference, complete gallery facet matrix, diagram node/edge identity, gallery
+asset, and non-cropping invariant. It emits a machine-readable receipt and
+completes in milliseconds.
 
 The optional browser acceptance gate requires Playwright and exercises actual
 click/type/format/save/reload, slide ordering, external image drop, semantic
@@ -100,7 +107,9 @@ ONLINE_SLIDE_BROWSER_CHECK=1 ./scripts/test.sh
 ```
 
 It writes captures and `receipt.json` under `artifacts/browser-smoke/`, which is
-ignored by Git.
+ignored by Git. The browser gate also physically drags a JointJS node and proves
+that its connector reroutes, then leaves and re-enters the gallery to prove its
+selection and page return intact.
 
 ## Add a slide independently
 
@@ -120,5 +129,5 @@ human owns the accepted order.
 This is a deliberately small reference implementation, not a hosted
 multi-tenant service. Add authentication, authorization, durable object
 storage, and production observability before exposing it outside a trusted
-environment. The code remains intentionally framework-free so another coding
-agent can inspect the complete source-to-render path without a build tool.
+environment. The application shell remains framework-free; only the mature
+diagram engine is bundled behind one narrow recipe boundary.
