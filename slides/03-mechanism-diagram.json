@@ -1,0 +1,40 @@
+{
+  "schema": "online-slide/slide@1",
+  "id": "mock-vector-construction",
+  "recipe": "mechanism-diagram",
+  "createdAt": "2026-09-01T08:02:00Z",
+  "placement": {"after": "mock-angle-evidence"},
+  "theme": {"accent": "#0f9d78"},
+  "eyebrow": "eyebrow",
+  "headline": "headline",
+  "footer": "protocol",
+  "components": {
+    "eyebrow": {"kind": "text", "text": "RECIPE 03 · MECHANISM DIAGRAM", "role": "eyebrow"},
+    "headline": {"kind": "text", "text": "Normalize the correction, then rotate the base", "role": "headline"},
+    "node-origin-label": {"kind": "text", "text": "shared origin", "role": "diagram-label"},
+    "node-base-label": {"kind": "text", "text": "base velocity", "role": "diagram-label"},
+    "node-raw-label": {"kind": "text", "text": "raw signal", "role": "diagram-label"},
+    "node-tangent-label": {"kind": "text", "text": "unit tangent", "role": "diagram-label"},
+    "node-rotated-label": {"kind": "text", "text": "rotated velocity", "role": "diagram-label"},
+    "edge-remove-label": {"kind": "text", "text": "remove parallel component", "role": "diagram-edge-label"},
+    "edge-normalize-label": {"kind": "text", "text": "normalize", "role": "diagram-edge-label"},
+    "edge-rotate-label": {"kind": "text", "text": "fixed angle · same norm", "role": "diagram-edge-label"},
+    "protocol": {"kind": "text", "text": "Semantic nodes and anchored connectors · labels never share an arrow identity", "role": "protocol"}
+  },
+  "data": {
+    "nodes": [
+      {"id": "origin-node", "role": "origin", "label": "node-origin-label", "tone": "quiet"},
+      {"id": "raw-node", "role": "raw", "label": "node-raw-label", "tone": "raw"},
+      {"id": "base-node", "role": "base", "label": "node-base-label", "tone": "base"},
+      {"id": "tangent-node", "role": "tangent", "label": "node-tangent-label", "tone": "tangent"},
+      {"id": "rotated-node", "role": "result", "label": "node-rotated-label", "tone": "result"}
+    ],
+    "edges": [
+      {"from": "origin-node", "to": "raw-node", "color": "#8b98aa", "directed": true},
+      {"from": "origin-node", "to": "base-node", "color": "#2f6fed", "directed": true},
+      {"from": "raw-node", "to": "tangent-node", "label": "edge-remove-label", "color": "#8b98aa", "directed": true, "dash": true},
+      {"from": "base-node", "to": "tangent-node", "label": "edge-normalize-label", "color": "#0f9d78", "directed": true},
+      {"from": "tangent-node", "to": "rotated-node", "label": "edge-rotate-label", "color": "#8458c7", "directed": true}
+    ]
+  }
+}

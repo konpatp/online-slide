@@ -1,3 +1,4 @@
+# test-tier: every-time
 import json
 import tempfile
 import threading
@@ -15,9 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 class ServerProtocolTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.state_path = Path(self.temp.name) / "state.json"
+        root = Path(self.temp.name)
+        self.state_path = root / "state.json"
+        self.uploads_path = root / "uploads"
         self.http = server.make_server(
-            ROOT / "public", ROOT / "data" / "seed.json", self.state_path
+            ROOT / "public", ROOT / "slides", ROOT / "data" / "seed-state.json",
+            self.state_path, self.uploads_path,
         )
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
         self.thread.start()
@@ -32,52 +36,85 @@ class ServerProtocolTests(unittest.TestCase):
 
     def get(self, path):
         with urlopen(self.base + path, timeout=2) as response:
-            return response.status, json.loads(response.read())
+            content_type = response.headers.get("Content-Type", "")
+            body = response.read()
+            if "json" in content_type:
+                body = json.loads(body)
+            return response.status, body
 
-    def post(self, path, value):
-        request = Request(
-            self.base + path,
-            data=json.dumps(value).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+    def post(self, path, value, content_type="application/json"):
+        raw = json.dumps(value).encode() if content_type == "application/json" else value
+        request = Request(self.base + path, data=raw, headers={"Content-Type": content_type}, method="POST")
         with urlopen(request, timeout=2) as response:
             return response.status, json.loads(response.read())
 
-    def test_static_page_and_state_are_available(self):
+    @staticmethod
+    def mutable_snapshot(state):
+        return {key: json.loads(json.dumps(state[key])) for key in ("schema", "order", "hidden", "overlays")}
+
+    def test_static_page_catalog_and_state_are_available(self):
         status, state = self.get("/api/deck-state")
         self.assertEqual(status, 200)
-        self.assertEqual(state["schema"], server.SCHEMA)
-        self.assertEqual(len(state["order"]), 6)
+        self.assertEqual(state["schema"], "online-slide/state@2")
+        self.assertEqual(len(state["order"]), 4)
+        self.assertEqual(set(state["slides"]), set(state["order"]))
+        self.assertEqual(len(state["sourceRevision"]), 64)
+        status, health = self.get("/api/health")
+        self.assertEqual(status, 200)
+        self.assertEqual(health["catalog"]["recipes"]["hero-plot"], 1)
         with urlopen(self.base + "/", timeout=2) as response:
-            self.assertIn(b"online-slide", response.read())
+            self.assertIn(b"ScientificSlideKit", response.read())
 
-    def test_revision_checked_atomic_save(self):
+    def test_revision_checked_semantic_overlay_save(self):
         _, state = self.get("/api/deck-state")
-        changed = json.loads(json.dumps(state))
+        changed = self.mutable_snapshot(state)
         changed["order"] = list(reversed(changed["order"]))
-        changed["slides"][changed["order"][0]]["title"] = "Edited in the demo"
-        status, saved = self.post(
-            "/api/deck-state", {"baseRevision": state["revision"], "snapshot": changed}
-        )
+        changed["overlays"] = {
+            "mock-growth-trajectories": {
+                "headline": {"text": "Edited through a semantic overlay", "fontScale": 0.9}
+            }
+        }
+        status, saved = self.post("/api/deck-state", {
+            "baseRevision": state["revision"], "baseSourceRevision": state["sourceRevision"],
+            "snapshot": changed,
+        })
         self.assertEqual(status, 200)
         self.assertEqual(saved["revision"], state["revision"] + 1)
         self.assertEqual(saved["order"], changed["order"])
-        self.assertEqual(json.loads(self.state_path.read_text())["revision"], 1)
+        self.assertEqual(saved["overlays"], changed["overlays"])
+        durable = json.loads(self.state_path.read_text())
+        self.assertNotIn("slides", durable)
+        self.assertEqual(durable["overlays"], changed["overlays"])
 
         with self.assertRaises(HTTPError) as conflict:
-            self.post("/api/deck-state", {"baseRevision": 0, "snapshot": changed})
+            self.post("/api/deck-state", {
+                "baseRevision": state["revision"], "baseSourceRevision": state["sourceRevision"],
+                "snapshot": changed,
+            })
         self.assertEqual(conflict.exception.code, 409)
-        payload = json.loads(conflict.exception.read())
-        self.assertEqual(payload["state"]["revision"], 1)
 
-    def test_unknown_slide_cannot_be_saved(self):
+    def test_unknown_component_cannot_be_saved(self):
         _, state = self.get("/api/deck-state")
-        bad = json.loads(json.dumps(state))
-        bad["order"][0] = "not-published"
+        changed = self.mutable_snapshot(state)
+        changed["overlays"] = {"mock-growth-trajectories": {"block-3": {"text": "wrong"}}}
         with self.assertRaises(HTTPError) as error:
-            self.post("/api/deck-state", {"baseRevision": 0, "snapshot": bad})
+            self.post("/api/deck-state", {
+                "baseRevision": state["revision"], "baseSourceRevision": state["sourceRevision"],
+                "snapshot": changed,
+            })
         self.assertEqual(error.exception.code, 400)
+        self.assertIn("overlay target disappeared", json.loads(error.exception.read())["error"])
+
+    def test_asset_upload_is_content_addressed_and_immutable(self):
+        image = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'
+        status, receipt = self.post("/api/assets", image, "image/svg+xml")
+        self.assertEqual(status, 201)
+        self.assertRegex(receipt["src"], r"^uploads/[0-9a-f]{64}\.svg$")
+        stored = self.uploads_path / receipt["src"].split("/", 1)[1]
+        self.assertEqual(stored.read_bytes(), image)
+        status, served = self.get("/" + receipt["src"])
+        self.assertEqual(status, 200)
+        self.assertEqual(served, image)
 
 
 if __name__ == "__main__":

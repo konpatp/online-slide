@@ -1,0 +1,30 @@
+{
+  "schema": "online-slide/slide@1",
+  "id": "mock-growth-trajectories",
+  "recipe": "hero-plot",
+  "createdAt": "2026-09-01T08:00:00Z",
+  "placement": {"after": null},
+  "theme": {"accent": "#2f6fed"},
+  "eyebrow": "eyebrow",
+  "headline": "headline",
+  "footer": "protocol",
+  "components": {
+    "eyebrow": {"kind": "text", "text": "RECIPE 01 · HERO PLOT", "role": "eyebrow"},
+    "headline": {"kind": "text", "text": "A stronger treatment separates early—and keeps improving", "role": "headline"},
+    "x-axis-label": {"kind": "text", "text": "Training epoch", "role": "axis-label"},
+    "y-axis-label": {"kind": "text", "text": "Validation score ↓", "role": "axis-label"},
+    "series-baseline": {"kind": "text", "text": "Baseline", "role": "legend-label"},
+    "series-moderate": {"kind": "text", "text": "Moderate dose", "role": "legend-label"},
+    "series-strong": {"kind": "text", "text": "Strong dose · incomplete", "role": "legend-label"},
+    "protocol": {"kind": "text", "text": "Synthetic data · raw checkpoints · incomplete traces stop at their last measurement", "role": "protocol"}
+  },
+  "data": {
+    "xAxis": {"label": "x-axis-label", "domain": [0, 40], "ticks": [0, 10, 20, 30, 40]},
+    "yAxis": {"label": "y-axis-label", "domain": [10, 100], "ticks": [20, 40, 60, 80, 100]},
+    "series": [
+      {"label": "series-baseline", "color": "#8b98aa", "points": [[0, 96], [4, 82], [8, 71], [12, 63], [20, 55], [30, 49], [40, 45]]},
+      {"label": "series-moderate", "color": "#2f6fed", "points": [[0, 96], [4, 76], [8, 59], [12, 48], [20, 37], [30, 30], [40, 26]]},
+      {"label": "series-strong", "color": "#d46b32", "dash": true, "points": [[0, 96], [4, 69], [8, 48], [12, 37], [20, 27], [24, 24]]}
+    ]
+  }
+}

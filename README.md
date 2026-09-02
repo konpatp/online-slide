@@ -1,21 +1,19 @@
-# online-slide
+# online-slide · ScientificSlideKit pilot
 
-A small, dependency-free reference implementation of a browser-based slide
-editor. It is deliberately filled with synthetic demo content so it can be
-shared publicly and used as a starting point for another project.
+A public, dependency-free vertical slice for fast scientific slide authoring
+and revision-safe browser editing. All content and data in this repository are
+synthetic. It contains no private research evidence or internal project names.
 
-The demo shows the interaction pattern that matters for a high-latency link:
+The pilot answers four practical questions with working code:
 
-- the slide canvas changes immediately (optimistic UI);
-- rapid moves, visibility changes, and text edits are coalesced into the newest
-  snapshot rather than waiting for each previous gesture;
-- the server persists JSON atomically and checks a revision before accepting a
-  write; and
-- a stale editor receives a visible `409 Conflict` state instead of silently
-  overwriting someone else's changes.
-
-There are no framework or runtime dependencies. The browser uses ordinary DOM
-APIs and `fetch()`, and the server uses Python's standard library.
+1. Can authors describe plots, tables, diagrams, and galleries without solving
+   slide geometry from scratch?
+2. Can contributors add independent slide files without editing one shared
+   deck source or order file?
+3. Can human order, visibility, text formatting, and image replacement survive
+   source rebuilds?
+4. Can the common validation path remain nearly instantaneous while a real
+   1920×1080 browser check is reserved for acceptance?
 
 ## Run it
 
@@ -25,59 +23,102 @@ cd online-slide
 python3 server.py --host 127.0.0.1 --port 8000
 ```
 
-Open <http://127.0.0.1:8000/>. Click **Enable edit**, then try:
+Open <http://127.0.0.1:8000/>. Enable edit mode to:
 
-1. moving a thumbnail with ↑/↓;
-2. hiding a slide with the eye button;
-3. editing a title or body directly on the canvas; and
-4. making several changes before the save indicator returns to **Saved**.
+- edit any semantic text leaf directly;
+- change the selected leaf's font size or theme color;
+- reorder or hide slides without changing their source;
+- drop an external image onto a gallery cell;
+- resize the selected image inside its non-cropping slot; and
+- undo an optimistic edit burst.
 
-The browser stores the latest accepted snapshot in `data/live-state.json`.
-That file is ignored by Git; `data/seed.json` is the resettable demo deck.
+Use `?present=1#slide-id` for an exact 16:9 presentation surface, for example:
 
-## Edit protocol
+<http://127.0.0.1:8000/?present=1#mock-growth-trajectories>
 
-`GET /api/deck-state` returns:
+## Four canonical recipes
 
-```json
-{
-  "schema": "online-slide/demo@1",
-  "revision": 3,
-  "order": ["welcome", "signal"],
-  "hidden": [],
-  "slides": {"welcome": {"title": "...", "body": "...", "accent": "#2f6fed"}}
-}
+Each file in [`slides/`](slides/) is independently authored and has a permanent
+slide id plus stable semantic component ids.
+
+| Recipe | Demonstrates | Geometry owned by the recipe |
+|---|---|---|
+| `hero-plot` | Multi-series line plot with an incomplete trace | Axes, ticks, grid, legend, line endpoints, protocol strip |
+| `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing |
+| `mechanism-diagram` | Semantic nodes and anchored directed connectors | Node placement, connector endpoints, arrowheads, edge labels |
+| `matched-gallery` | Three identities across five matched conditions | Non-cropping grid, row/column alignment, image drop zones |
+
+The source gives scientific intent and data. The recipe owns repeated spatial
+decisions. Custom layout remains possible by adding another recipe rather than
+embedding arbitrary markup into a slide file.
+
+## Concurrency and human authority
+
+The repository separates three kinds of state:
+
+```text
+slides/*.json                 immutable contributor-owned SlideSpecs
+data/live-state.json          service-owned order, visibility, and overlays
+data/uploads/<sha256>.*       content-addressed human image replacements
 ```
 
-The client sends the same snapshot to `POST /api/deck-state` together with its
-`baseRevision`. The server returns the new revision on success. If another
-editor has already saved, the server returns `409` and the accepted snapshot;
-the client shows that conflict instead of guessing how to merge prose or
-ordering.
+The service discovers new slide files and inserts them through their optional
+`placement.after` intention. Existing human order is never regenerated from
+source. Two contributors can therefore add two different files without
+touching a shared order document.
 
-The server write uses a temporary file plus `os.replace`, so a refresh cannot
-observe a partially written state file. The browser has one in-flight request
-and one pending latest snapshot; this is the key coalescing rule that keeps a
-remote editor responsive.
+Human edits are stored against semantic targets such as:
 
-## Tests
+```text
+mock-growth-trajectories @ headline
+mock-matched-gallery @ image-01-a
+```
+
+The server checks both the mutable state revision and a hash of the complete
+source catalog. An edited semantic leaf may move among siblings without losing
+its override. Removing an edited leaf or a published slide fails closed rather
+than silently moving or discarding the human change.
+
+## Fast path and browser acceptance
+
+The normal source gate uses only Python's standard library:
 
 ```bash
-python3 -m unittest discover -s tests -v
-node --check public/app.js
-python3 -m py_compile server.py
+./scripts/test.sh
 ```
 
-## Extending the demo
+`validate_deck.py` checks every independent source, permanent id, component
+reference, recipe contract, gallery asset, and non-cropping invariant. It emits
+a machine-readable receipt and should complete in milliseconds.
 
-The project is intentionally easy for another coding agent to pick up:
+The optional browser acceptance gate requires Playwright and exercises actual
+click/type/format/save/reload, slide ordering, external image drop, semantic
+overlay persistence, component geometry, and four 1920×1080 captures:
 
-- change only `data/seed.json` to provide different mock slides;
-- keep the revision and atomic-write contract when adding fields;
-- put presentation-only behavior in `public/app.js` and visual styling in
-  `public/styles.css`; and
-- add a server test before changing conflict or persistence behavior.
+```bash
+ONLINE_SLIDE_BROWSER_CHECK=1 ./scripts/test.sh
+```
 
-This repository is a reference demo, not an authentication or multi-tenant
-production service. Put it behind your own identity layer before exposing
-private material.
+It writes captures and `receipt.json` under `artifacts/browser-smoke/`, which is
+ignored by Git.
+
+## Add a slide independently
+
+Copy the closest file from [`slides/`](slides/) and change:
+
+- `id` to a new permanent id;
+- `createdAt` for deterministic simultaneous insertion;
+- `placement.after` to the intended narrative anchor;
+- semantic `components`; and
+- the selected recipe's `data`.
+
+Do not edit `data/live-state.json`. The service owns reconciliation and the
+human owns the accepted order.
+
+## Scope
+
+This is a deliberately small reference implementation, not a hosted
+multi-tenant service. Add authentication, authorization, durable object
+storage, and production observability before exposing it outside a trusted
+environment. The code remains intentionally framework-free so another coding
+agent can inspect the complete source-to-render path without a build tool.

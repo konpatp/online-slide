@@ -1,0 +1,47 @@
+{
+  "schema": "online-slide/slide@1",
+  "id": "mock-matched-gallery",
+  "recipe": "matched-gallery",
+  "createdAt": "2026-09-01T08:03:00Z",
+  "placement": {"after": "mock-vector-construction"},
+  "theme": {"accent": "#d46b32"},
+  "eyebrow": "eyebrow",
+  "headline": "headline",
+  "footer": "protocol",
+  "components": {
+    "eyebrow": {"kind": "text", "text": "RECIPE 04 · MATCHED GALLERY", "role": "eyebrow"},
+    "headline": {"kind": "text", "text": "Matched identities make qualitative changes comparable", "role": "headline"},
+    "column-a": {"kind": "text", "text": "Baseline", "role": "gallery-heading"},
+    "column-b": {"kind": "text", "text": "Variant A", "role": "gallery-heading"},
+    "column-c": {"kind": "text", "text": "Variant B", "role": "gallery-heading"},
+    "column-d": {"kind": "text", "text": "Variant C", "role": "gallery-heading"},
+    "column-e": {"kind": "text", "text": "Reference", "role": "gallery-heading"},
+    "row-one": {"kind": "text", "text": "Identity 01", "role": "gallery-row-label"},
+    "row-two": {"kind": "text", "text": "Identity 02", "role": "gallery-row-label"},
+    "row-three": {"kind": "text", "text": "Identity 03", "role": "gallery-row-label"},
+    "image-01-a": {"kind": "image", "src": "assets/gallery/01-a.svg", "alt": "Synthetic identity 1 baseline"},
+    "image-01-b": {"kind": "image", "src": "assets/gallery/01-b.svg", "alt": "Synthetic identity 1 variant A"},
+    "image-01-c": {"kind": "image", "src": "assets/gallery/01-c.svg", "alt": "Synthetic identity 1 variant B"},
+    "image-01-d": {"kind": "image", "src": "assets/gallery/01-d.svg", "alt": "Synthetic identity 1 variant C"},
+    "image-01-e": {"kind": "image", "src": "assets/gallery/01-e.svg", "alt": "Synthetic identity 1 reference"},
+    "image-02-a": {"kind": "image", "src": "assets/gallery/02-a.svg", "alt": "Synthetic identity 2 baseline"},
+    "image-02-b": {"kind": "image", "src": "assets/gallery/02-b.svg", "alt": "Synthetic identity 2 variant A"},
+    "image-02-c": {"kind": "image", "src": "assets/gallery/02-c.svg", "alt": "Synthetic identity 2 variant B"},
+    "image-02-d": {"kind": "image", "src": "assets/gallery/02-d.svg", "alt": "Synthetic identity 2 variant C"},
+    "image-02-e": {"kind": "image", "src": "assets/gallery/02-e.svg", "alt": "Synthetic identity 2 reference"},
+    "image-03-a": {"kind": "image", "src": "assets/gallery/03-a.svg", "alt": "Synthetic identity 3 baseline"},
+    "image-03-b": {"kind": "image", "src": "assets/gallery/03-b.svg", "alt": "Synthetic identity 3 variant A"},
+    "image-03-c": {"kind": "image", "src": "assets/gallery/03-c.svg", "alt": "Synthetic identity 3 variant B"},
+    "image-03-d": {"kind": "image", "src": "assets/gallery/03-d.svg", "alt": "Synthetic identity 3 variant C"},
+    "image-03-e": {"kind": "image", "src": "assets/gallery/03-e.svg", "alt": "Synthetic identity 3 reference"},
+    "protocol": {"kind": "text", "text": "Same synthetic identity across each row · images always use contain, never crop · drop a file to replace", "role": "protocol"}
+  },
+  "data": {
+    "columns": ["column-a", "column-b", "column-c", "column-d", "column-e"],
+    "rows": [
+      {"label": "row-one", "images": ["image-01-a", "image-01-b", "image-01-c", "image-01-d", "image-01-e"]},
+      {"label": "row-two", "images": ["image-02-a", "image-02-b", "image-02-c", "image-02-d", "image-02-e"]},
+      {"label": "row-three", "images": ["image-03-a", "image-03-b", "image-03-c", "image-03-d", "image-03-e"]}
+    ]
+  }
+}

@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A dependency-free online slide editing demo">
-    <title>online-slide · live editing demo</title>
+    <meta name="description" content="A dependency-free scientific slide recipe and live editing pilot">
+    <title>ScientificSlideKit · online-slide</title>
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
@@ -12,7 +12,7 @@
       <a class="brand" href="./" aria-label="online-slide home">
         <span class="brand-mark" aria-hidden="true">✦</span>
         <span>online-slide</span>
-        <small>live editing demo</small>
+        <small>ScientificSlideKit pilot</small>
       </a>
       <div class="top-actions">
         <span class="save-state saved" data-save-state role="status">Saved</span>
@@ -25,13 +25,13 @@
       <aside class="filmstrip" aria-label="Slide navigator">
         <div class="rail-heading">
           <div>
-            <span class="eyebrow">DEMO DECK</span>
+          <span class="eyebrow">FOUR RECIPE PILOT</span>
             <strong>Slides</strong>
           </div>
           <span class="count" data-slide-count>0</span>
         </div>
         <div class="thumb-list" data-thumb-list></div>
-        <p class="rail-help">Enable edit to reorder, hide, or rewrite a slide. Changes save in the background.</p>
+        <p class="rail-help">Every thumbnail comes from an independent SlideSpec. Human order and edits are stored separately.</p>
       </aside>
 
       <section class="workspace" aria-label="Presentation workspace">
@@ -39,19 +39,34 @@
           <button class="icon-button" type="button" data-prev aria-label="Previous slide">←</button>
           <span class="position" data-position>1 / 1</span>
           <button class="icon-button" type="button" data-next aria-label="Next slide">→</button>
-          <span class="workspace-hint">Use ← → to present</span>
+          <span class="workspace-hint" data-selected-component>Select a component in edit mode</span>
+          <div class="component-tools" data-component-tools aria-label="Selected component controls">
+            <button class="tool-button" type="button" data-font-delta="-0.1" disabled aria-label="Decrease text size">A−</button>
+            <button class="tool-button" type="button" data-font-delta="0.1" disabled aria-label="Increase text size">A+</button>
+            <span class="palette" aria-label="Theme colors">
+              <button type="button" data-color="#14233b" style="--swatch:#14233b" disabled aria-label="Ink"></button>
+              <button type="button" data-color="#2f6fed" style="--swatch:#2f6fed" disabled aria-label="Blue"></button>
+              <button type="button" data-color="#0f9d78" style="--swatch:#0f9d78" disabled aria-label="Green"></button>
+              <button type="button" data-color="#d46b32" style="--swatch:#d46b32" disabled aria-label="Orange"></button>
+              <button type="button" data-color="#8458c7" style="--swatch:#8458c7" disabled aria-label="Violet"></button>
+            </span>
+            <button class="tool-button" type="button" data-image-delta="-0.1" disabled aria-label="Shrink selected image">Image−</button>
+            <button class="tool-button" type="button" data-image-delta="0.1" disabled aria-label="Grow selected image">Image+</button>
+            <button class="tool-button" type="button" data-reset-component disabled>Reset</button>
+          </div>
         </div>
         <div class="stage-wrap">
           <div class="stage" data-stage aria-live="polite"></div>
         </div>
         <div class="workspace-footer">
-          <span><i class="dot" aria-hidden="true"></i> Optimistic editing</span>
-          <span>Latest snapshot wins · conflicts are visible</span>
+          <span><i class="dot" aria-hidden="true"></i> Semantic overlays · optimistic saves</span>
+          <span>Drop images onto gallery cells · source and state revisions are checked</span>
         </div>
       </section>
     </main>
 
     <div class="toast" data-toast role="status" aria-live="polite"></div>
+    <script src="recipes.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

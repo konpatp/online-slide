@@ -1,0 +1,50 @@
+{
+  "schema": "online-slide/slide@1",
+  "id": "mock-angle-evidence",
+  "recipe": "evidence-table",
+  "createdAt": "2026-09-01T08:01:00Z",
+  "placement": {"after": "mock-growth-trajectories"},
+  "theme": {"accent": "#8458c7"},
+  "eyebrow": "eyebrow",
+  "headline": "headline",
+  "footer": "protocol",
+  "components": {
+    "eyebrow": {"kind": "text", "text": "RECIPE 02 · EVIDENCE TABLE", "role": "eyebrow"},
+    "headline": {"kind": "text", "text": "The best setting depends on the direction", "role": "headline"},
+    "column-direction": {"kind": "text", "text": "Direction", "role": "table-heading"},
+    "column-low": {"kind": "text", "text": "Low dose", "role": "table-heading"},
+    "column-mid": {"kind": "text", "text": "Medium dose", "role": "table-heading"},
+    "column-high": {"kind": "text", "text": "High dose", "role": "table-heading"},
+    "column-best": {"kind": "text", "text": "Best", "role": "table-heading"},
+    "row-random": {"kind": "text", "text": "Random tangent", "role": "table-row-label"},
+    "random-low": {"kind": "text", "text": "55.4", "role": "table-value"},
+    "random-mid": {"kind": "text", "text": "57.0", "role": "table-value"},
+    "random-high": {"kind": "text", "text": "67.2", "role": "table-value"},
+    "random-best": {"kind": "text", "text": "Low", "role": "table-value"},
+    "row-depth": {"kind": "text", "text": "Depth direction", "role": "table-row-label"},
+    "depth-low": {"kind": "text", "text": "35.0", "role": "table-value"},
+    "depth-mid": {"kind": "text", "text": "33.5", "role": "table-value"},
+    "depth-high": {"kind": "text", "text": "40.4", "role": "table-value"},
+    "depth-best": {"kind": "text", "text": "Medium", "role": "table-value"},
+    "row-class": {"kind": "text", "text": "Class direction", "role": "table-row-label"},
+    "class-low": {"kind": "text", "text": "18.0", "role": "table-value"},
+    "class-mid": {"kind": "text", "text": "18.9", "role": "table-value"},
+    "class-high": {"kind": "text", "text": "20.7", "role": "table-value"},
+    "class-best": {"kind": "text", "text": "Low", "role": "table-value"},
+    "row-ensemble": {"kind": "text", "text": "Ensemble direction", "role": "table-row-label"},
+    "ensemble-low": {"kind": "text", "text": "28.4", "role": "table-value"},
+    "ensemble-mid": {"kind": "text", "text": "24.1", "role": "table-value"},
+    "ensemble-high": {"kind": "text", "text": "26.6", "role": "table-value"},
+    "ensemble-best": {"kind": "text", "text": "Medium", "role": "table-value"},
+    "protocol": {"kind": "text", "text": "Synthetic matched evaluation · lower is better · bold marks each row minimum", "role": "protocol"}
+  },
+  "data": {
+    "columns": ["column-direction", "column-low", "column-mid", "column-high", "column-best"],
+    "rows": [
+      {"label": "row-random", "cells": ["random-low", "random-mid", "random-high", "random-best"], "best": 0},
+      {"label": "row-depth", "cells": ["depth-low", "depth-mid", "depth-high", "depth-best"], "best": 1},
+      {"label": "row-class", "cells": ["class-low", "class-mid", "class-high", "class-best"], "best": 0, "globalBest": 0},
+      {"label": "row-ensemble", "cells": ["ensemble-low", "ensemble-mid", "ensemble-high", "ensemble-best"], "best": 1}
+    ]
+  }
+}
