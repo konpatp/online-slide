@@ -205,6 +205,11 @@ def main() -> int:
                         fits = clean.locator(".gallery-cell img").evaluate_all("nodes => nodes.map(n => getComputedStyle(n).objectFit)")
                         if set(fits) != {"contain"}:
                             findings.append("gallery does not enforce non-cropping contain behavior")
+                        image_boxes = clean.locator(".gallery-cell img").evaluate_all(
+                            "nodes => nodes.map(n => { const i=n.getBoundingClientRect(); const c=n.parentElement.getBoundingClientRect(); return {iw:i.width,ih:i.height,cw:c.width,ch:c.height,nw:n.naturalWidth,nh:n.naturalHeight}; })"
+                        )
+                        if any(box["iw"] > box["cw"] + 1 or box["ih"] > box["ch"] + 1 for box in image_boxes):
+                            findings.append("gallery image element overflows its evidence cell")
                         if clean.locator(".hierarchical-gallery-grid .gallery-cell").count() != 9:
                             findings.append("gallery must show three large rows by three conditions")
                     if slide_id == "mock-vector-construction":
