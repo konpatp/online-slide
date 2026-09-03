@@ -41,8 +41,10 @@ def validate(root: Path) -> dict:
     if ".slide-canvas::before" in css:
         findings.append("decorative slide accent rails are not part of the default theme")
     gallery_rule = css.split(".gallery-cell {", 1)[-1].split("}", 1)[0]
-    if "border: 0" not in gallery_rule:
-        findings.append("gallery evidence cells must be borderless by default")
+    if "aspect-ratio: 1" not in gallery_rule or "overflow: hidden" not in gallery_rule:
+        findings.append("gallery evidence frames must hug and clip to the image aspect ratio")
+    if "__ASSET_REVISION__" not in (root / "public" / "index.html").read_text(encoding="utf-8"):
+        findings.append("runtime assets must be cache-busted by the server revision")
     receipt = catalog_receipt(catalog)
     receipt.update({
         "elapsedMs": round((time.perf_counter() - started) * 1000, 2),

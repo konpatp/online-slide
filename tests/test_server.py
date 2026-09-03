@@ -42,6 +42,9 @@ class ServerProtocolTests(unittest.TestCase):
                 body = json.loads(body)
             return response.status, body
 
+    def get_response(self, path):
+        return urlopen(self.base + path, timeout=2)
+
     def post(self, path, value, content_type="application/json"):
         raw = json.dumps(value).encode() if content_type == "application/json" else value
         request = Request(self.base + path, data=raw, headers={"Content-Type": content_type}, method="POST")
@@ -63,7 +66,15 @@ class ServerProtocolTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(health["catalog"]["recipes"]["hero-plot"], 1)
         with urlopen(self.base + "/", timeout=2) as response:
-            self.assertIn(b"ScientificSlideKit", response.read())
+            page = response.read()
+            self.assertIn(b"ScientificSlideKit", page)
+            self.assertNotIn(b"__ASSET_REVISION__", page)
+            self.assertEqual(response.headers["Cache-Control"], "no-cache, must-revalidate")
+            self.assertRegex(page.decode(), r"geometry-runtime\.js\?v=[0-9a-f]{16}")
+        with self.get_response("/geometry-runtime.js?v=1234") as response:
+            self.assertEqual(response.headers["Cache-Control"], "public, max-age=31536000, immutable")
+        with self.get_response("/geometry-runtime.js") as response:
+            self.assertEqual(response.headers["Cache-Control"], "no-cache, must-revalidate")
 
     def test_revision_checked_semantic_overlay_save(self):
         _, state = self.get("/api/deck-state")

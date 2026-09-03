@@ -104,6 +104,13 @@ def make_server(
 
     lock = threading.RLock()
     uploads_dir = uploads_dir or state_path.parent / "uploads"
+    runtime_assets = [
+        "styles.css", "app.js", "recipes.js", "joint-diagram.js",
+        "geometry-runtime.js", "geometry-runtime.css",
+    ]
+    asset_revision = hashlib.sha256(b"".join(
+        (public_dir / name).read_bytes() for name in runtime_assets
+    )).hexdigest()[:16]
     catalog = load_catalog(slides_dir)
     source_revision = catalog_revision(catalog)
     state, changed = reconcile_state(load_state(seed_path, state_path), catalog)
@@ -118,6 +125,18 @@ def make_server(
         handler.send_header("Content-Length", str(len(raw)))
         handler.end_headers()
         handler.wfile.write(raw)
+
+    def static_response(handler: SimpleHTTPRequestHandler, path: Path, cache_control: str) -> None:
+        raw = path.read_bytes()
+        handler.send_response(200)
+        handler.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        handler.send_header("Cache-Control", cache_control)
+        handler.send_header("Content-Length", str(len(raw)))
+        handler.end_headers()
+        try:
+            handler.wfile.write(raw)
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def refresh_sources() -> None:
         nonlocal catalog, source_revision, state
@@ -194,7 +213,26 @@ def make_server(
                 self.end_headers()
                 self.wfile.write(raw)
                 return
-            super().do_GET()
+            if route in {"/", "/index.html"}:
+                raw = (public_dir / "index.html").read_text(encoding="utf-8")
+                raw = raw.replace("__ASSET_REVISION__", asset_revision).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-cache, must-revalidate")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+                return
+            candidate = (public_dir / route.lstrip("/")).resolve()
+            if not candidate.is_relative_to(public_dir.resolve()) or not candidate.is_file():
+                response(self, 404, {"error": "not found"})
+                return
+            static_response(
+                self,
+                candidate,
+                "public, max-age=31536000, immutable"
+                if urlsplit(self.path).query else "no-cache, must-revalidate",
+            )
 
         def do_POST(self) -> None:  # noqa: N802
             nonlocal state

@@ -12,6 +12,7 @@
   var position = document.querySelector("[data-position]");
   var status = document.querySelector("[data-save-state]");
   var editToggle = document.querySelector("[data-edit-toggle]");
+  var fullscreenToggle = document.querySelector("[data-fullscreen-toggle]");
   var undoButton = document.querySelector("[data-undo]");
   var toast = document.querySelector("[data-toast]");
   var selectedLabel = document.querySelector("[data-selected-component]");
@@ -51,6 +52,30 @@
     toast.classList.add("visible");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { toast.classList.remove("visible"); }, 2700);
+  }
+
+  function setPresentationMode(enabled) {
+    document.body.classList.toggle("present-only", enabled);
+    fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
+  }
+
+  function toggleFullscreenPresentation() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+      return;
+    }
+    if (document.body.classList.contains("present-only") &&
+        new URLSearchParams(location.search).get("present") !== "1") {
+      setPresentationMode(false);
+      return;
+    }
+    setPresentationMode(true);
+    var request = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+    if (request && request.catch) {
+      request.catch(function () {
+        showToast("Presentation view is active. Use the browser fullscreen control if needed.");
+      });
+    }
   }
 
   function slideById(id) { return state.slides[id]; }
@@ -473,6 +498,12 @@
     render();
     if (editMode) showToast("Edit mode on — select text or drop an image into the gallery.");
   });
+  fullscreenToggle.addEventListener("click", toggleFullscreenPresentation);
+  document.addEventListener("fullscreenchange", function () {
+    if (!document.fullscreenElement && new URLSearchParams(location.search).get("present") !== "1") {
+      setPresentationMode(false);
+    }
+  });
   undoButton.addEventListener("click", undo);
 
   document.querySelectorAll("[data-font-delta]").forEach(function (button) {
@@ -516,6 +547,7 @@
     if (event.target && event.target.isContentEditable) return;
     if (event.key === "ArrowLeft") step(-1);
     if (event.key === "ArrowRight") step(1);
+    if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault(); undo();
     }

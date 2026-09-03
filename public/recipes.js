@@ -266,6 +266,7 @@
         var grid = document.createElement("div");
         grid.className = "hierarchical-gallery-grid";
         grid.style.setProperty("--gallery-columns", String(slide.data.columns.length));
+        grid.style.setProperty("--gallery-rows", String(page.rows.length));
         grid.appendChild(document.createElement("div"));
         slide.data.columns.forEach(function (componentId) {
           grid.appendChild(editableText(slide, componentId, "div", "gallery-heading"));

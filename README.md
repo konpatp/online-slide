@@ -36,6 +36,11 @@ Open <http://127.0.0.1:8000/>. Enable edit mode to:
 - resize the selected image inside its non-cropping slot; and
 - undo an optimistic edit burst.
 
+Choose **Present fullscreen** (or press `F`) to enter a chrome-free browser
+presentation and `F`/Escape to return. The server normalizes mounted URLs with
+or without a trailing slash and fingerprints the browser runtime, so a newly
+published math or layout engine cannot be mixed with stale cached code.
+
 Use `?present=1#slide-id` for an exact 16:9 presentation surface, for example:
 
 <http://127.0.0.1:8000/?present=1#mock-growth-trajectories>
@@ -51,7 +56,7 @@ slide id plus stable semantic component ids.
 | `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing |
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
 | `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors and arcs, KaTeX labels and equations |
-| `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, three large rows, persistent view state, non-cropping image slots |
+| `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, persistent view state, snug rounded image frames, non-cropping images |
 
 The source gives scientific intent and data. The recipe owns repeated spatial
 decisions. Custom layout remains possible by adding another recipe rather than
@@ -97,12 +102,13 @@ browser bundle:
 
 `validate_deck.py` checks every independent source, permanent id, component
 reference, complete gallery facet matrix, diagram node/edge identity, gallery
-asset, and non-cropping invariant. It emits a machine-readable receipt and
-completes in milliseconds.
+asset, snug-frame/non-cropping invariant, and cache-versioned runtime. It emits
+a machine-readable receipt and completes in milliseconds.
 
 The optional browser acceptance gate requires Playwright and exercises actual
 click/type/format/save/reload, slide ordering, external image drop, semantic
-overlay persistence, component geometry, and five 1920×1080 captures:
+overlay persistence, editor-mode KaTeX hydration, fullscreen entry/exit,
+component geometry, and five 1920×1080 captures:
 
 ```bash
 ONLINE_SLIDE_BROWSER_CHECK=1 ./scripts/test.sh

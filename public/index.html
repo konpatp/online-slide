@@ -5,8 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="A declarative scientific slide recipe and live editing pilot">
     <title>ScientificSlideKit · online-slide</title>
-    <link rel="stylesheet" href="geometry-runtime.css">
-    <link rel="stylesheet" href="styles.css">
+    <base href="/">
+    <script>
+      document.querySelector("base").href = location.pathname.endsWith("/")
+        ? location.pathname : location.pathname + "/";
+    </script>
+    <link rel="stylesheet" href="geometry-runtime.css?v=__ASSET_REVISION__">
+    <link rel="stylesheet" href="styles.css?v=__ASSET_REVISION__">
   </head>
   <body>
     <header class="topbar">
@@ -18,6 +23,7 @@
       <div class="top-actions">
         <span class="save-state saved" data-save-state role="status">Saved</span>
         <button class="button quiet" type="button" data-undo disabled>Undo</button>
+        <button class="button quiet" type="button" data-fullscreen-toggle>Present fullscreen</button>
         <button class="button primary" type="button" data-edit-toggle>Enable edit</button>
       </div>
     </header>
@@ -67,9 +73,9 @@
     </main>
 
     <div class="toast" data-toast role="status" aria-live="polite"></div>
-    <script src="joint-diagram.js"></script>
-    <script src="geometry-runtime.js"></script>
-    <script src="recipes.js"></script>
-    <script src="app.js"></script>
+    <script src="joint-diagram.js?v=__ASSET_REVISION__"></script>
+    <script src="geometry-runtime.js?v=__ASSET_REVISION__"></script>
+    <script src="recipes.js?v=__ASSET_REVISION__"></script>
+    <script src="app.js?v=__ASSET_REVISION__"></script>
   </body>
 </html>

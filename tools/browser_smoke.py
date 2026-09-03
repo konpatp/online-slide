@@ -138,6 +138,21 @@ def main() -> int:
                 if page.locator(".gallery-metric").text_content() != metric_before:
                     findings.append("hierarchical gallery metric changed after slide round-trip")
 
+                # Fullscreen presentation is an explicit, reversible user action.
+                page.locator("[data-fullscreen-toggle]").click()
+                page.wait_for_function("document.body.classList.contains('present-only')")
+                if page.locator(".topbar").is_visible():
+                    findings.append("fullscreen presentation did not remove editor chrome")
+                page.keyboard.press("f")
+                page.wait_for_function("!document.body.classList.contains('present-only')")
+
+                # Math must hydrate in the editor route too, not only in a
+                # presentation-only capture where stale assets are easier to miss.
+                page.goto(base + "/#mock-guidance-vector-geometry", wait_until="networkidle")
+                math_sources = page.locator("[data-latex-source]").count()
+                if not math_sources or page.locator('[data-math-engine="katex"]').count() != math_sources:
+                    findings.append("editor route left authored LaTeX unhydrated")
+
                 # A real node drag must reroute its semantic connector. This is
                 # the behavior that fixed SVG arrow coordinates could not supply.
                 page.goto(base + "/#mock-vector-construction", wait_until="networkidle")
@@ -213,11 +228,16 @@ def main() -> int:
                             findings.append("gallery image element overflows its evidence cell")
                         if clean.locator(".hierarchical-gallery-grid .gallery-cell").count() != 9:
                             findings.append("gallery must show three large rows by three conditions")
-                        borders = clean.locator(".gallery-cell").evaluate_all(
-                            "nodes => nodes.map(n => getComputedStyle(n).borderStyle)"
+                        frame_fit = clean.locator(".gallery-cell").evaluate_all(
+                            "nodes => nodes.map(n => { const b=n.getBoundingClientRect(); return Math.abs(b.width-b.height); })"
                         )
-                        if set(borders) != {"none"}:
-                            findings.append("gallery evidence cells must be borderless")
+                        if any(delta > 2 for delta in frame_fit):
+                            findings.append("gallery frames do not snugly match the square evidence images")
+                        caption_size = clean.locator(".gallery-cell-caption").evaluate_all(
+                            "nodes => nodes.map(n => parseFloat(getComputedStyle(n).fontSize))"
+                        )
+                        if caption_size and min(caption_size) < 20:
+                            findings.append("gallery class labels are too small")
                     if slide_id == "mock-vector-construction":
                         engine = clean.locator(".joint-paper").get_attribute("data-diagram-engine")
                         if engine != "jointjs-directed-graph":
@@ -267,7 +287,9 @@ def main() -> int:
             "JointJS and JSXGraph compositions remain centered and contained",
             "all semantic components remain inside the 16:9 canvas",
             "gallery images use object-fit: contain",
-            "gallery evidence cells are borderless",
+            "gallery frames are snug, rounded, and captions are readable",
+            "fullscreen presentation mode is explicit and reversible",
+            "LaTeX hydrates through KaTeX in editor and presentation modes",
             "all vector geometry mathematics renders through KaTeX",
         ],
         "findings": findings,
