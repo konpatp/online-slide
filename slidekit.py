@@ -258,8 +258,10 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                     ref(row.get("label"),
                         f"pageSets.{page_set_id}[{page_index}].rows[{row_index}].label")
                     images = row.get("images")
-                    _require(isinstance(images, list) and len(images) == len(columns),
-                             f"{source}: gallery row {row_index} must fill every column")
+                    _require(isinstance(images, list) and 0 < len(images) <= len(columns),
+                             f"{source}: gallery row {row_index} must fit the declared columns")
+                    _require(len(images) == len(columns) or row_index == len(rows) - 1,
+                             f"{source}: only the final gallery row may be partial")
                     for cell_index, component_id in enumerate(images):
                         ref(component_id,
                             f"pageSets.{page_set_id}[{page_index}].rows[{row_index}].images[{cell_index}]")

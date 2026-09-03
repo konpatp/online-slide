@@ -59,6 +59,15 @@ class SlideKitContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "must reference text"):
             validate_slide_spec(gallery)
 
+    def test_gallery_allows_only_a_partial_final_row(self):
+        gallery = copy.deepcopy(self.catalog["mock-matched-gallery"])
+        rows = next(iter(gallery["data"]["pageSets"].values()))[0]["rows"]
+        rows[-1]["images"].pop()
+        validate_slide_spec(gallery)
+        rows[0]["images"].pop()
+        with self.assertRaisesRegex(ContractError, "only the final gallery row may be partial"):
+            validate_slide_spec(gallery)
+
     def test_mechanism_and_gallery_sources_are_semantic_not_positional(self):
         diagram = self.catalog["mock-vector-construction"]
         self.assertEqual(diagram["recipe"], "mechanism-pipeline")
