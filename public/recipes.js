@@ -154,7 +154,7 @@
             // intrinsic safety allowance so a correctly sized node never
             // exposes a scrollbar or clips the last glyph.
             width: Math.ceil(Math.max(minWidth, Math.min(maxWidth, measured.width + 6))),
-            height: Math.ceil(Math.max(96, measured.height + 4))
+            height: Math.ceil(Math.max(96, measured.height + 10))
           };
           block.classList.remove("diagram-node-measuring");
         });
@@ -197,6 +197,12 @@
           }, 40);
         }
         plane.addEventListener("input", scheduleReflow);
+        // One settled pass absorbs late font and KaTeX metrics without asking
+        // authors to nudge boxes after content hydration.
+        setTimeout(scheduleReflow, 80);
+        if (document.fonts && document.fonts.ready) {
+          document.fonts.ready.then(scheduleReflow);
+        }
         if (window.ResizeObserver) {
           var observer = new ResizeObserver(function () {
             if (!plane.isConnected) {
