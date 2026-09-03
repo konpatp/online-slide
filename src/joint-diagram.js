@@ -12,6 +12,7 @@ const PALETTE = {
 function renderPipeline(host, spec, options = {}) {
   const graph = new dia.Graph({}, { cellNamespace: shapes });
   const nodeModels = new Map();
+  const nodeSpecs = new Map();
   const linkModels = new Map();
   const width = Math.max(900, host.clientWidth || 1200);
   const height = Math.max(360, host.clientHeight || 480);
@@ -32,6 +33,7 @@ function renderPipeline(host, spec, options = {}) {
     });
     rect.set("z", 2);
     nodeModels.set(node.id, rect);
+    nodeSpecs.set(node.id, node);
     graph.addCell(rect);
   });
 
@@ -63,19 +65,7 @@ function renderPipeline(host, spec, options = {}) {
 
   let scale = 1;
 
-  function layoutGraph() {
-    DirectedGraph.layout(graph, {
-      rankDir: spec.direction || "LR",
-      nodeSep: spec.nodeGap || 62,
-      rankSep: spec.rankGap || 110,
-      edgeSep: 38,
-      marginX: 54,
-      marginY: 42,
-      setLinkVertices: false,
-    });
-    graph.getLinks().forEach((link) => link.vertices([]));
-
-    const bounds = graph.getCellsBBox(graph.getElements());
+  function centerAndFit(bounds) {
     const paddingX = 54;
     const paddingY = 42;
     scale = Math.min(
@@ -91,6 +81,65 @@ function renderPipeline(host, spec, options = {}) {
         (box.y - bounds.y) * scale + (height - bounds.height * scale) / 2,
       );
     });
+  }
+
+  function layoutLanes() {
+    const natural = [...nodeModels.entries()].map(([id, model]) => ({
+      id,
+      model,
+      spec: nodeSpecs.get(id),
+      box: model.getBBox(),
+    }));
+    const lanes = natural.map((item) => item.spec.lane);
+    const steps = natural.map((item) => item.spec.step);
+    const minLane = Math.min(...lanes);
+    const maxLane = Math.max(...lanes);
+    const orderedSteps = [...new Set(steps)].sort((left, right) => left - right);
+    const stepWidths = new Map(orderedSteps.map((step) => [
+      step,
+      Math.max(...natural.filter((item) => item.spec.step === step).map((item) => item.box.width)),
+    ]));
+    const stepStarts = new Map();
+    let nextStepStart = 0;
+    orderedSteps.forEach((step, index) => {
+      stepStarts.set(step, nextStepStart);
+      nextStepStart += stepWidths.get(step);
+      if (index < orderedSteps.length - 1) nextStepStart += spec.rankGap || 90;
+    });
+    const cellHeight = Math.max(...natural.map((item) => item.box.height));
+    const lanePitch = cellHeight + (spec.nodeGap || 52);
+
+    natural.forEach((item) => {
+      item.model.position(
+        stepStarts.get(item.spec.step) + (stepWidths.get(item.spec.step) - item.box.width) / 2,
+        (item.spec.lane - minLane) * lanePitch + (cellHeight - item.box.height) / 2,
+      );
+    });
+    const bounds = {
+      x: 0,
+      y: 0,
+      width: nextStepStart,
+      height: (maxLane - minLane) * lanePitch + cellHeight,
+    };
+    centerAndFit(bounds);
+  }
+
+  function layoutGraph() {
+    if (spec.layout === "lanes") {
+      layoutLanes();
+    } else {
+      DirectedGraph.layout(graph, {
+        rankDir: spec.direction || "LR",
+        nodeSep: spec.nodeGap || 62,
+        rankSep: spec.rankGap || 110,
+        edgeSep: 38,
+        marginX: 54,
+        marginY: 42,
+        setLinkVertices: false,
+      });
+      centerAndFit(graph.getCellsBBox(graph.getElements()));
+    }
+    graph.getLinks().forEach((link) => link.vertices([]));
     host.dataset.diagramScale = scale.toFixed(4);
   }
 
@@ -142,6 +191,7 @@ function renderPipeline(host, spec, options = {}) {
   host.dataset.diagramNodes = String(spec.nodes.length);
   host.dataset.diagramEdges = String(spec.edges.length);
   host.dataset.diagramContentSizing = "measured";
+  host.dataset.diagramLayout = spec.layout || "directed";
   return { graph, paper, publishPositions, resizeNodes };
 }
 

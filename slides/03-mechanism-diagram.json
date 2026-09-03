@@ -24,16 +24,17 @@
     "protocol": {"kind": "text", "text": "JointJS auto-layout · orthogonal obstacle-aware routes · drag a node in edit mode to reroute", "role": "protocol"}
   },
   "data": {
+    "layout": "lanes",
     "direction": "LR",
     "rankGap": 112,
     "nodeGap": 70,
     "nodes": [
-      {"id": "query-node", "label": "query-label", "detail": "query-detail", "tone": "quiet"},
-      {"id": "teacher-node", "label": "teacher-label", "detail": "teacher-detail", "tone": "teacher"},
-      {"id": "student-node", "label": "student-label", "detail": "student-detail", "tone": "student"},
-      {"id": "target-node", "label": "target-label", "tone": "output"},
-      {"id": "prediction-node", "label": "prediction-label", "tone": "output"},
-      {"id": "loss-node", "label": "loss-label", "detail": "loss-detail", "tone": "result", "emphasis": true}
+      {"id": "query-node", "label": "query-label", "detail": "query-detail", "tone": "quiet", "lane": 0.5, "step": 0},
+      {"id": "teacher-node", "label": "teacher-label", "detail": "teacher-detail", "tone": "teacher", "lane": 0, "step": 1},
+      {"id": "student-node", "label": "student-label", "detail": "student-detail", "tone": "student", "lane": 1, "step": 1},
+      {"id": "target-node", "label": "target-label", "tone": "output", "lane": 0, "step": 2},
+      {"id": "prediction-node", "label": "prediction-label", "tone": "output", "lane": 1, "step": 2},
+      {"id": "loss-node", "label": "loss-label", "detail": "loss-detail", "tone": "result", "emphasis": true, "lane": 0.5, "step": 3}
     ],
     "edges": [
       {"id": "query-to-teacher", "from": "query-node", "to": "teacher-node", "color": "#2f6fed"},

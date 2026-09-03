@@ -145,6 +145,17 @@ def main() -> int:
                     findings.append("fullscreen presentation did not remove editor chrome")
                 page.keyboard.press("f")
                 page.wait_for_function("!document.body.classList.contains('present-only')")
+                page.goto(base + "/?present=1#mock-matched-gallery", wait_until="networkidle")
+                direct_exit = page.locator("[data-presentation-exit]")
+                if not direct_exit.is_visible():
+                    findings.append("direct presentation URL did not reveal an exit control")
+                else:
+                    direct_exit.click()
+                    page.wait_for_function("!document.body.classList.contains('present-only')")
+                    if "present=1" in page.url:
+                        findings.append("presentation exit left the sticky present query in the URL")
+                    if not page.locator(".topbar").is_visible():
+                        findings.append("presentation exit did not restore editor chrome")
 
                 # Math must hydrate in the editor route too, not only in a
                 # presentation-only capture where stale assets are easier to miss.
@@ -216,6 +227,13 @@ def main() -> int:
                     t0 = time.perf_counter()
                     clean.goto(base + f"/?present=1#{slide_id}", wait_until="networkidle")
                     timings[slide_id] = round((time.perf_counter() - t0) * 1000, 1)
+                    # The exit stays discoverable; remove only the transient
+                    # emphasis so clean receipts show its settled appearance.
+                    clean.locator("[data-presentation-exit]").evaluate(
+                        "node => node.classList.remove('visible')"
+                    )
+                    if not clean.locator("[data-presentation-exit]").is_visible():
+                        findings.append(f"{slide_id}: presentation exit is not persistently discoverable")
                     path = output / f"{slide_id}.png"
                     clean.screenshot(path=str(path))
                     captures[slide_id] = str(path)
@@ -263,6 +281,8 @@ def main() -> int:
                             findings.append("mechanism slide did not use the JointJS layout runtime")
                         if clean.locator(".joint-paper").get_attribute("data-diagram-content-sizing") != "measured":
                             findings.append("mechanism slide did not declare measured content sizing")
+                        if clean.locator(".joint-paper").get_attribute("data-diagram-layout") != "lanes":
+                            findings.append("parallel mechanism paths did not use semantic lane layout")
                         node_geometry = clean.evaluate("""() => [...document.querySelectorAll('.diagram-node-copy')].map(copy => {
                           const shape = document.querySelector(`g[model-id="${copy.dataset.diagramNodeId}"]`);
                           const c = copy.getBoundingClientRect();
@@ -279,6 +299,24 @@ def main() -> int:
                             findings.append(f"content-sized diagram nodes overflow in clean render: {overflowing}")
                         if misaligned:
                             findings.append(f"diagram copy and measured node frames disagree: {misaligned}")
+                        lane_centers = clean.evaluate("""() => {
+                          const center = id => { const r=document.querySelector(`[data-diagram-node-id="${id}"]`).getBoundingClientRect(); return [r.left+r.width/2,r.top+r.height/2]; };
+                          return Object.fromEntries(['query-node','teacher-node','student-node','target-node','prediction-node','loss-node'].map(id => [id,center(id)]));
+                        }""")
+                        aligned_pairs = [
+                            ("teacher-node", "target-node"),
+                            ("student-node", "prediction-node"),
+                            ("query-node", "loss-node"),
+                        ]
+                        if any(abs(lane_centers[a][1] - lane_centers[b][1]) > 6 for a, b in aligned_pairs):
+                            findings.append("semantic lane nodes do not share stable centerlines")
+                        audience_sizes = clean.evaluate("""() => [...document.querySelectorAll('.node-label,.node-detail')].map(node => {
+                          const parent=getComputedStyle(node.closest('.diagram-node-copy')).transform;
+                          const scale=parent === 'none' ? 1 : new DOMMatrix(parent).a;
+                          return parseFloat(getComputedStyle(node).fontSize) * scale;
+                        })""")
+                        if audience_sizes and min(audience_sizes) < 34:
+                            findings.append(f"mechanism audience text fell below the 26pt floor: {min(audience_sizes):.1f}px")
                         graph_bounds = clean.evaluate("""() => {
                           const host = document.querySelector('.joint-paper').getBoundingClientRect();
                           const cells = [...document.querySelectorAll('.joint-paper .joint-cell')]
@@ -328,8 +366,10 @@ def main() -> int:
             "gallery images use object-fit: contain",
             "gallery frames are snug, rounded, and captions are readable",
             "fullscreen presentation mode is explicit and reversible",
+            "shared presentation URLs expose a clickable exit and clear sticky presentation state",
             "LaTeX hydrates through KaTeX in editor and presentation modes",
             "all vector geometry mathematics renders through KaTeX",
+            "parallel diagrams preserve semantic lane centerlines and a 26pt audience-text floor",
         ],
         "findings": findings,
     }

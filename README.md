@@ -37,7 +37,8 @@ Open <http://127.0.0.1:8000/>. Enable edit mode to:
 - undo an optimistic edit burst.
 
 Choose **Present fullscreen** (or press `F`) to enter a chrome-free browser
-presentation and `F`/Escape to return. The server normalizes mounted URLs with
+presentation. Use the briefly revealed **Exit presentation** control, `F`, or
+Escape to return—even from a shared `?present=1` URL. The server normalizes mounted URLs with
 or without a trailing slash and fingerprints the browser runtime, so a newly
 published math or layout engine cannot be mixed with stale cached code.
 
@@ -69,6 +70,12 @@ actual label, detail, and rendered math before JointJS lays out the graph, then
 reflows the graph after live text edits. Authors do not tune box dimensions. A
 deliberately fixed box must opt in with `"sizing": "fixed"` and positive
 `width` and `height` values.
+
+Parallel conceptual paths use `"layout": "lanes"`: each node declares a
+semantic `lane` and `step`, while the runtime owns sizing, aligned coordinates,
+centering, and connector routing. This avoids both Dagre rank drift and manual
+pixel placement. Audience-facing recipe labels default to at least 26 pt;
+compact controls, protocol metadata, and presenter chrome remain smaller.
 
 ## Concurrency and human authority
 

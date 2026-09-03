@@ -3,7 +3,8 @@
   "use strict";
 
   var SVG_NS = "http://www.w3.org/2000/svg";
-  if (new URLSearchParams(location.search).get("present") === "1") {
+  var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1";
+  if (enteredFromPresentationUrl) {
     document.body.classList.add("present-only");
   }
   var stage = document.querySelector("[data-stage]");
@@ -13,6 +14,7 @@
   var status = document.querySelector("[data-save-state]");
   var editToggle = document.querySelector("[data-edit-toggle]");
   var fullscreenToggle = document.querySelector("[data-fullscreen-toggle]");
+  var presentationExit = document.querySelector("[data-presentation-exit]");
   var undoButton = document.querySelector("[data-undo]");
   var toast = document.querySelector("[data-toast]");
   var selectedLabel = document.querySelector("[data-selected-component]");
@@ -26,6 +28,7 @@
   var undoBase = null;
   var inputTimer = null;
   var toastTimer = null;
+  var presentationExitTimer = null;
 
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
@@ -54,19 +57,44 @@
     toastTimer = setTimeout(function () { toast.classList.remove("visible"); }, 2700);
   }
 
+  function revealPresentationExit() {
+    if (!document.body.classList.contains("present-only")) return;
+    presentationExit.classList.add("visible");
+    clearTimeout(presentationExitTimer);
+    presentationExitTimer = setTimeout(function () {
+      presentationExit.classList.remove("visible");
+    }, 2400);
+  }
+
+  function removePresentationQuery() {
+    var url = new URL(location.href);
+    url.searchParams.delete("present");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+    enteredFromPresentationUrl = false;
+  }
+
   function setPresentationMode(enabled) {
     document.body.classList.toggle("present-only", enabled);
     fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
+    if (enabled) revealPresentationExit();
+    else {
+      clearTimeout(presentationExitTimer);
+      presentationExit.classList.remove("visible");
+    }
+  }
+
+  function exitFullscreenPresentation() {
+    removePresentationQuery();
+    setPresentationMode(false);
+    if (document.fullscreenElement && document.exitFullscreen) {
+      var request = document.exitFullscreen();
+      if (request && request.catch) request.catch(function () {});
+    }
   }
 
   function toggleFullscreenPresentation() {
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-      return;
-    }
-    if (document.body.classList.contains("present-only") &&
-        new URLSearchParams(location.search).get("present") !== "1") {
-      setPresentationMode(false);
+    if (document.fullscreenElement || document.body.classList.contains("present-only")) {
+      exitFullscreenPresentation();
       return;
     }
     setPresentationMode(true);
@@ -499,10 +527,13 @@
     if (editMode) showToast("Edit mode on — select text or drop an image into the gallery.");
   });
   fullscreenToggle.addEventListener("click", toggleFullscreenPresentation);
+  presentationExit.addEventListener("click", exitFullscreenPresentation);
+  document.addEventListener("pointermove", function (event) {
+    if (event.clientY < 110 && event.clientX > window.innerWidth - 360) revealPresentationExit();
+  });
   document.addEventListener("fullscreenchange", function () {
-    if (!document.fullscreenElement && new URLSearchParams(location.search).get("present") !== "1") {
-      setPresentationMode(false);
-    }
+    if (!document.fullscreenElement && document.body.classList.contains("present-only") &&
+        !enteredFromPresentationUrl) setPresentationMode(false);
   });
   undoButton.addEventListener("click", undo);
 
@@ -548,6 +579,9 @@
     if (event.key === "ArrowLeft") step(-1);
     if (event.key === "ArrowRight") step(1);
     if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();
+    if (event.key === "Escape" && document.body.classList.contains("present-only")) {
+      exitFullscreenPresentation();
+    }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
       event.preventDefault(); undo();
     }
@@ -575,4 +609,5 @@
     setStatus("Load failed", "error");
     stage.textContent = error.message;
   });
+  if (enteredFromPresentationUrl) revealPresentationExit();
 }());

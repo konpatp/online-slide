@@ -96,6 +96,14 @@ class SlideKitContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "positive width and height"):
             validate_slide_spec(diagram)
 
+    def test_lane_layout_requires_semantic_lane_and_step_for_every_node(self):
+        diagram = copy.deepcopy(self.catalog["mock-vector-construction"])
+        self.assertEqual(diagram["data"]["layout"], "lanes")
+        validate_slide_spec(diagram)
+        del diagram["data"]["nodes"][0]["lane"]
+        with self.assertRaisesRegex(ContractError, "needs numeric lane and step"):
+            validate_slide_spec(diagram)
+
     def test_human_order_and_edit_survive_unrelated_source_insertions(self):
         state = self.initial_state()
         state["order"] = ["mock-matched-gallery", "mock-growth-trajectories",

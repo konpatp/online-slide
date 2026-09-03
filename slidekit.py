@@ -150,6 +150,9 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                  f"{source}: diagram needs at least two nodes")
         _require(isinstance(edges, list) and edges, f"{source}: diagram needs edges")
         node_ids: set[str] = set()
+        lane_layout = data.get("layout", "directed")
+        _require(lane_layout in {"directed", "lanes"},
+                 f"{source}: diagram layout must be directed or lanes")
         for index, node in enumerate(nodes):
             _require(isinstance(node, dict), f"{source}: node {index} must be an object")
             node_id = node.get("id")
@@ -170,6 +173,10 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             else:
                 _require("width" not in node and "height" not in node,
                          f"{source}: node {index} dimensions require sizing=fixed; content sizing is the default")
+            if lane_layout == "lanes":
+                _require(all(isinstance(node.get(key), (int, float)) and not isinstance(node.get(key), bool)
+                             for key in ("lane", "step")),
+                         f"{source}: lane layout node {index} needs numeric lane and step")
         edge_ids: set[str] = set()
         for index, edge in enumerate(edges):
             _require(isinstance(edge, dict), f"{source}: edge {index} must be an object")
