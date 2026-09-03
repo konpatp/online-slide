@@ -249,6 +249,19 @@ def main() -> int:
                         findings.append(f"editor-sized diagram nodes overlap: {editor_geometry['overlaps']}")
                     if editor_geometry["outside"]:
                         findings.append(f"editor-sized diagram nodes leave their layout region: {editor_geometry['outside']}")
+                    split_words = page.evaluate("""() => [...document.querySelectorAll('.node-label,.node-detail')]
+                      .filter(node => !node.dataset.latexSource && node.firstChild && node.firstChild.nodeType === Node.TEXT_NODE)
+                      .flatMap(node => {
+                        const source=node.firstChild, text=source.textContent || '', findings=[];
+                        for (const match of text.matchAll(/[A-Za-z][A-Za-z-]{3,}/g)) {
+                          const range=document.createRange();
+                          range.setStart(source,match.index); range.setEnd(source,match.index+match[0].length);
+                          if (range.getClientRects().length > 1) findings.push(match[0]);
+                        }
+                        return findings;
+                      })""")
+                    if split_words:
+                        findings.append(f"editor-sized diagram split readable words: {split_words}")
                     before = link.get_attribute("d")
                     drag_point = page.evaluate("""() => {
                       const node=document.querySelector('g[model-id="student-node"]');

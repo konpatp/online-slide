@@ -161,7 +161,11 @@
           var minWidth = Math.max(154, Math.min(220, planeWidth * .13));
           var detail = node.detail && slide.components[node.detail];
           var mathDetail = detail && detail.render === "latex";
-          var maxWidth = Math.max(minWidth, Math.min(mathDetail ? 380 : 340, planeWidth * .27));
+          // A readable word is the minimum semantic unit. Give ordinary
+          // prose enough width to wrap at spaces before the group fitter
+          // scales the complete composition; do not force mid-word breaks
+          // merely because the editor stage is narrower than fullscreen.
+          var maxWidth = Math.max(minWidth, Math.min(mathDetail ? 400 : 360, planeWidth * .32));
           block.style.setProperty("--diagram-node-min-width", minWidth + "px");
           block.style.setProperty("--diagram-node-max-width", maxWidth + "px");
           block.classList.add("diagram-node-measuring");
