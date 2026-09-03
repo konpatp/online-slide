@@ -150,6 +150,7 @@ body.present-only .presentation-exit.visible, body.present-only .presentation-ex
 .vector-label.tone-muted { color: #7b899c; font-size: calc(max(1.12cqw, 34.67px) * var(--component-scale, 1)); }
 .vector-label.tone-result { color: #7652b5; font-weight: 850; }
 .vector-equations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; justify-items: center; gap: 1.2cqw 2.4cqw; min-height: 18%; }
+.vector-equations:has(> .vector-equation:only-child) { grid-template-columns: minmax(0, 1fr); }
 .vector-equation { color: #344961; font-size: calc(max(1.28cqw, 34.67px) * var(--component-scale, 1)); text-align: center; white-space: nowrap; }
 .katex-display { margin: 0; }
 
@@ -183,6 +184,7 @@ body.present-only .topbar, body.present-only .filmstrip, body.present-only .work
 body.present-only .app-shell, body.present-only .workspace, body.present-only .stage-wrap { display: block; width: 100%; height: 100%; padding: 0; }
 body.present-only .stage { width: 100vw; height: 100vh; aspect-ratio: 16 / 9; }
 body.present-only .slide-canvas { border-radius: 0; box-shadow: none; }
+body.present-only .hidden-ribbon { right: 13.5%; }
 html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: white; }
 
 @media (max-width: 960px) {

@@ -331,6 +331,18 @@ def main() -> int:
                             findings.append("vector slide did not use JSXGraph")
                         if clean.locator('[data-math-engine="katex"]').count() < 8:
                             findings.append("vector geometry mathematics did not render through KaTeX")
+                        single_equation = clean.evaluate("""() => {
+                          const host = document.querySelector('.vector-equations');
+                          [...host.children].slice(1).forEach(node => node.remove());
+                          const h=host.getBoundingClientRect(), e=host.firstElementChild.getBoundingClientRect();
+                          return {
+                            columns:getComputedStyle(host).gridTemplateColumns.split(' ').length,
+                            contained:e.left >= h.left-1 && e.right <= h.right+1,
+                            centered:Math.abs((e.left+e.right)/2-(h.left+h.right)/2) <= 2,
+                          };
+                        }""")
+                        if single_equation["columns"] != 1 or not single_equation["contained"] or not single_equation["centered"]:
+                            findings.append("one vector equation did not span and center in the full equation band")
                     accent_rail = clean.evaluate("""() => {
                       const style = getComputedStyle(document.querySelector('.slide-canvas'), '::before');
                       return style.content !== 'none' && style.content !== 'normal';
@@ -369,6 +381,7 @@ def main() -> int:
             "shared presentation URLs expose a clickable exit and clear sticky presentation state",
             "LaTeX hydrates through KaTeX in editor and presentation modes",
             "all vector geometry mathematics renders through KaTeX",
+            "one vector equation spans and centers in the full equation band",
             "parallel diagrams preserve semantic lane centerlines and a 26pt audience-text floor",
         ],
         "findings": findings,
