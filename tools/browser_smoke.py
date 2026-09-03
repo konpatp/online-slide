@@ -196,6 +196,8 @@ def main() -> int:
                 elif page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                     page.locator("[data-edit-toggle]").click()
                 page.wait_for_selector('g[model-id="student-node"]')
+                if page.locator(".joint-paper").get_attribute("data-diagram-measurement") != "untransformed-slide-coordinates":
+                    findings.append("diagram nodes were not measured in stable slide coordinates")
                 node = page.locator('g[model-id="student-node"]')
                 link = page.locator('g[model-id="student-to-prediction"] path[joint-selector="line"]')
                 if node.count() != 1 or link.count() != 1:
@@ -212,6 +214,12 @@ def main() -> int:
                       const n = document.querySelector('[data-diagram-node-id="teacher-node"]');
                       return n && n.scrollWidth <= n.clientWidth + 1 && n.scrollHeight <= n.clientHeight + 1;
                     }""")
+                    # The content edit also saves and revision-safely rerenders
+                    # the slide. Wait for that durable boundary before testing
+                    # an independent drag gesture; otherwise the accepted save
+                    # may replace the diagram while the pointer is moving.
+                    page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                    page.wait_for_timeout(100)
                     after_size = teacher.bounding_box()
                     if after_size["width"] <= before_size["width"] and after_size["height"] <= before_size["height"]:
                         findings.append("content-sized diagram node did not grow after a longer live edit")
@@ -220,6 +228,27 @@ def main() -> int:
                     )
                     if overflow_nodes:
                         findings.append(f"content-sized diagram nodes still overflow: {overflow_nodes}")
+                    editor_geometry = page.evaluate("""() => {
+                      const nodes=[...document.querySelectorAll('.diagram-node-copy')].map(node => {
+                        const r=node.getBoundingClientRect();
+                        return {id:node.dataset.diagramNodeId,left:r.left,top:r.top,right:r.right,bottom:r.bottom};
+                      });
+                      const overlaps=[];
+                      for (let i=0;i<nodes.length;i++) for (let j=i+1;j<nodes.length;j++) {
+                        const a=nodes[i], b=nodes[j];
+                        const width=Math.min(a.right,b.right)-Math.max(a.left,b.left);
+                        const height=Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top);
+                        if (width > 1 && height > 1) overlaps.push([a.id,b.id]);
+                      }
+                      const plane=document.querySelector('.diagram-plane').getBoundingClientRect();
+                      const outside=nodes.filter(n => n.left<plane.left-1 || n.top<plane.top-1 ||
+                        n.right>plane.right+1 || n.bottom>plane.bottom+1).map(n => n.id);
+                      return {overlaps,outside};
+                    }""")
+                    if editor_geometry["overlaps"]:
+                        findings.append(f"editor-sized diagram nodes overlap: {editor_geometry['overlaps']}")
+                    if editor_geometry["outside"]:
+                        findings.append(f"editor-sized diagram nodes leave their layout region: {editor_geometry['outside']}")
                     before = link.get_attribute("d")
                     drag_point = page.evaluate("""() => {
                       const node=document.querySelector('g[model-id="student-node"]');
@@ -242,6 +271,7 @@ def main() -> int:
                         page.mouse.down()
                         page.mouse.move(drag_point["x"], drag_point["y"] + 72, steps=8)
                         page.mouse.up()
+                        page.wait_for_timeout(100)
                         after = link.get_attribute("d")
                         if before == after:
                             findings.append("dragging a JointJS node did not reroute its connector")

@@ -200,19 +200,39 @@ function renderPipeline(host, spec, options = {}) {
         const view = paper.findViewByModel(model);
         if (!view || !view.getConnection()) return;
         const path = view.getConnection();
-        options.onEdgePosition(id, path.getPointAtLength(path.length() / 2), { width, height });
+        const length = typeof path.length === "function" ? path.length() : 0;
+        const pointAtLength = typeof path.pointAtLength === "function"
+          ? path.pointAtLength.bind(path)
+          : (typeof path.getPointAtLength === "function" ? path.getPointAtLength.bind(path) : null);
+        // During a batched content refit JointJS may emit render:done before
+        // a link's connection path is complete. Node geometry is already
+        // valid; defer the optional edge label rather than aborting the
+        // remaining node resize operations.
+        if (!pointAtLength || !length) return;
+        options.onEdgePosition(id, pointAtLength(length / 2), { width, height });
       });
     }
   }
 
   function resizeNodes(sizes) {
-    Object.keys(sizes).forEach((id) => {
-      const model = nodeModels.get(id);
-      const size = sizes[id];
-      if (!model || !size) return;
-      model.resize(size.width, size.height);
-    });
-    layoutGraph();
+    // Treat intrinsic remeasurement plus the resulting track fit as one
+    // atomic graph update. Without the batch, JointJS may paint the temporary
+    // unscaled sizes between model.resize() and layoutGraph(); the editor can
+    // then retain those intermediate boxes even though the final positions
+    // were computed at the fitted scale.
+    graph.startBatch("content-fit");
+    try {
+      Object.keys(sizes).forEach((id) => {
+        const model = nodeModels.get(id);
+        const size = sizes[id];
+        if (!model || !size) return;
+        model.resize(size.width, size.height);
+      });
+      layoutGraph();
+    } finally {
+      graph.stopBatch("content-fit");
+    }
+    paper.updateViews();
     requestAnimationFrame(publishPositions);
   }
   paper.on("element:pointermove", publishPositions);
@@ -225,6 +245,9 @@ function renderPipeline(host, spec, options = {}) {
   host.dataset.diagramEdges = String(spec.edges.length);
   host.dataset.diagramContentSizing = "measured";
   host.dataset.diagramLayout = spec.layout || "directed";
+  // Read-only handle used by the browser acceptance gate to compare the
+  // semantic layout model with its painted SVG/HTML representations.
+  host.__scientificDiagram = { graph, paper };
   return { graph, paper, publishPositions, resizeNodes };
 }
 

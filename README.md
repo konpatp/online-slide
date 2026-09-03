@@ -67,7 +67,10 @@ dependency decisions are recorded in
 
 Mechanism nodes are content-sized by default: the browser measures their
 actual label, detail, and rendered math before JointJS lays out the graph, then
-reflows the graph after live text edits. Authors do not tune box dimensions. A
+reflows the graph after live text edits. Measurements use the slide's own
+untransformed coordinate system, so editor chrome cannot change the result;
+the entire content-aware row/column composition is fitted as one group in
+both editor and presentation views. Authors do not tune box dimensions. A
 deliberately fixed box must opt in with `"sizing": "fixed"` and positive
 `width` and `height` values.
 

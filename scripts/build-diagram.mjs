@@ -1,4 +1,10 @@
 import { build } from "esbuild";
+import { readFile, writeFile } from "node:fs/promises";
+
+async function normalizeBundle(path) {
+  const source = await readFile(path, "utf8");
+  await writeFile(path, source.replace(/[ \t]+$/gm, ""), "utf8");
+}
 
 await build({
   entryPoints: ["src/joint-diagram.js"],
@@ -10,6 +16,7 @@ await build({
   sourcemap: false,
   target: ["es2020"],
 });
+await normalizeBundle("public/joint-diagram.js");
 
 await build({
   entryPoints: ["src/geometry-runtime.js"],
@@ -27,3 +34,4 @@ await build({
   },
   assetNames: "assets/[name]-[hash]",
 });
+await normalizeBundle("public/geometry-runtime.js");

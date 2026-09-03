@@ -144,7 +144,14 @@
 
       function measureNodes() {
         var sizes = {};
-        var planeWidth = plane.getBoundingClientRect().width || 1200;
+        // Measure in the slide's own coordinate system. The editor presents
+        // the 1920x1080 canvas through a CSS transform; getBoundingClientRect()
+        // includes that outer transform and used to make every node look
+        // artificially small to the layout engine. offset*/scroll* dimensions
+        // intentionally ignore ancestor transforms, so the same authored
+        // diagram receives the same natural node sizes in editor and
+        // presentation modes.
+        var planeWidth = plane.clientWidth || 1200;
         slide.data.nodes.forEach(function (node) {
           var block = nodeLabels[node.id];
           if (node.sizing === "fixed") {
@@ -158,14 +165,18 @@
           block.style.setProperty("--diagram-node-min-width", minWidth + "px");
           block.style.setProperty("--diagram-node-max-width", maxWidth + "px");
           block.classList.add("diagram-node-measuring");
-          var measured = block.getBoundingClientRect();
+          var measuredWidth = Math.max(block.offsetWidth, block.scrollWidth);
+          var measuredHeight = Math.max(block.offsetHeight, block.scrollHeight);
           sizes[node.id] = {
             // Text and KaTeX can differ by a fractional pixel between the
             // hidden measurement pass and final scaled paint. Keep a tiny
             // intrinsic safety allowance so a correctly sized node never
             // exposes a scrollbar or clips the last glyph.
-            width: Math.ceil(Math.max(minWidth, Math.min(maxWidth, measured.width + 6))),
-            height: Math.ceil(Math.max(96, measured.height + 10))
+            width: Math.ceil(Math.max(minWidth, Math.min(maxWidth, measuredWidth + 6))),
+            // Keep one text-line rounding gutter after scaling. Chromium's
+            // line boxes can gain 1–3 px when the fitted group is painted at
+            // a fractional scale even though intrinsic measurement is exact.
+            height: Math.ceil(Math.max(96, measuredHeight + 16))
           };
           block.classList.remove("diagram-node-measuring");
         });
@@ -199,6 +210,7 @@
             label.style.top = (point.y / size.height * 100) + "%";
           }
         });
+        paperHost.dataset.diagramMeasurement = "untransformed-slide-coordinates";
         var reflowTimer = null;
         function scheduleReflow() {
           clearTimeout(reflowTimer);
