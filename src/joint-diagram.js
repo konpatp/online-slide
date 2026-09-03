@@ -92,8 +92,8 @@ function renderPipeline(host, spec, options = {}) {
     }));
     const lanes = natural.map((item) => item.spec.lane);
     const steps = natural.map((item) => item.spec.step);
-    const minLane = Math.min(...lanes);
-    const maxLane = Math.max(...lanes);
+    const minLane = Math.floor(Math.min(...lanes));
+    const maxLane = Math.ceil(Math.max(...lanes));
     const orderedSteps = [...new Set(steps)].sort((left, right) => left - right);
     const stepWidths = new Map(orderedSteps.map((step) => [
       step,
@@ -106,22 +106,55 @@ function renderPipeline(host, spec, options = {}) {
       nextStepStart += stepWidths.get(step);
       if (index < orderedSteps.length - 1) nextStepStart += spec.rankGap || 90;
     });
-    const cellHeight = Math.max(...natural.map((item) => item.box.height));
-    const lanePitch = cellHeight + (spec.nodeGap || 52);
-
-    natural.forEach((item) => {
-      item.model.position(
-        stepStarts.get(item.spec.step) + (stepWidths.get(item.spec.step) - item.box.width) / 2,
-        (item.spec.lane - minLane) * lanePitch + (cellHeight - item.box.height) / 2,
-      );
-    });
+    const laneHeights = new Map();
+    for (let lane = minLane; lane <= maxLane; lane += 1) {
+      const exact = natural.filter((item) => item.spec.lane === lane).map((item) => item.box.height);
+      laneHeights.set(lane, exact.length ? Math.max(...exact) : 96);
+    }
+    const laneCenters = new Map();
+    let laneCursor = 0;
+    for (let lane = minLane; lane <= maxLane; lane += 1) {
+      const laneHeight = laneHeights.get(lane);
+      laneCenters.set(lane, laneCursor + laneHeight / 2);
+      laneCursor += laneHeight;
+      if (lane < maxLane) laneCursor += spec.nodeGap || 52;
+    }
+    function laneCenter(lane) {
+      if (Number.isInteger(lane)) return laneCenters.get(lane);
+      const lower = Math.floor(lane);
+      const upper = Math.ceil(lane);
+      const ratio = lane - lower;
+      return laneCenters.get(lower) * (1 - ratio) + laneCenters.get(upper) * ratio;
+    }
+    const placements = natural.map((item) => ({
+      item,
+      x: stepStarts.get(item.spec.step) + (stepWidths.get(item.spec.step) - item.box.width) / 2,
+      y: laneCenter(item.spec.lane) - item.box.height / 2,
+    }));
+    const minY = Math.min(...placements.map((entry) => entry.y));
+    const maxY = Math.max(...placements.map((entry) => entry.y + entry.item.box.height));
     const bounds = {
       x: 0,
-      y: 0,
+      y: minY,
       width: nextStepStart,
-      height: (maxLane - minLane) * lanePitch + cellHeight,
+      height: maxY - minY,
     };
-    centerAndFit(bounds);
+    const paddingX = 54;
+    const paddingY = 42;
+    scale = Math.min(
+      1,
+      (width - paddingX * 2) / bounds.width,
+      (height - paddingY * 2) / bounds.height,
+    );
+    const offsetX = (width - bounds.width * scale) / 2;
+    const offsetY = (height - bounds.height * scale) / 2;
+    placements.forEach(({ item, x, y }) => {
+      item.model.resize(item.box.width * scale, item.box.height * scale);
+      item.model.position(
+        x * scale + offsetX,
+        (y - bounds.y) * scale + offsetY,
+      );
+    });
   }
 
   function layoutGraph() {
