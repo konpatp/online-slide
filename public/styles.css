@@ -137,8 +137,8 @@ body.present-only .presentation-exit.visible, body.present-only .presentation-ex
 .diagram-node-copy.diagram-node-measuring { left: -10000px !important; top: 0 !important; width: max-content !important; min-width: var(--diagram-node-min-width); max-width: var(--diagram-node-max-width); height: auto !important; visibility: hidden; transform: none !important; }
 .edit-mode .diagram-node-copy { pointer-events: none; }
 .edit-mode .diagram-node-copy .semantic-component { pointer-events: auto; }
-.node-label { color: #263b58; font-size: calc(max(1.72cqw, 38px) * var(--component-scale, 1)); font-weight: 820; line-height: 1.03; }
-.node-detail { color: #687991; font-size: calc(max(1.08cqw, 36.7px) * var(--component-scale, 1)); font-weight: 690; line-height: 1.06; }
+.node-label { color: #263b58; font-size: calc(max(1.72cqw, 42px) * var(--component-scale, 1)); font-weight: 820; line-height: 1.03; }
+.node-detail { color: #687991; font-size: calc(max(1.08cqw, 39px) * var(--component-scale, 1)); font-weight: 690; line-height: 1.06; }
 .edge-label { position: absolute; z-index: 4; padding: .45% .75%; border-radius: 99px; color: #5e6e84; background: rgba(255,255,255,.96); box-shadow: 0 0 0 1px #dce3ec; font-size: calc(max(.9cqw, 30px) * var(--component-scale, 1)); font-weight: 720; transform: translate(-50%, -50%); white-space: nowrap; }
 
 /* Vector geometry: JSXGraph owns the coordinate system and containment. */
