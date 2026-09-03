@@ -138,6 +138,30 @@ def main() -> int:
                 if page.locator(".gallery-metric").text_content() != metric_before:
                     findings.append("hierarchical gallery metric changed after slide round-trip")
 
+                # Caption fitting follows live text edits, not only source-time
+                # examples. A longer label must refit and persist without the
+                # author hand-tuning font size or the box dimensions.
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                caption = page.locator('[data-component-id="caption-otter"]')
+                page.wait_for_function("""() => {
+                  const node=document.querySelector('[data-component-id="caption-otter"]');
+                  return node && node.dataset.fitFontSize;
+                }""")
+                initial_caption_size = float(caption.get_attribute("data-fit-font-size"))
+                caption.fill("golden retriever")
+                page.wait_for_function("""() => {
+                  const node=document.querySelector('[data-component-id="caption-otter"]');
+                  return node && Number(node.dataset.fitLines) >= 2 && node.dataset.fitOverflow === 'false';
+                }""")
+                if float(caption.get_attribute("data-fit-font-size")) >= initial_caption_size:
+                    findings.append("gallery caption did not shrink after a longer live edit")
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                page.reload(wait_until="networkidle")
+                caption = page.locator('[data-component-id="caption-otter"]')
+                if caption.text_content() != "golden retriever" or caption.get_attribute("data-fit-overflow") != "false":
+                    findings.append("gallery caption autofit did not survive save and reload")
+
                 # Fullscreen presentation is an explicit, reversible user action.
                 page.locator("[data-fullscreen-toggle]").click()
                 page.wait_for_function("document.body.classList.contains('present-only')")
@@ -197,14 +221,30 @@ def main() -> int:
                     if overflow_nodes:
                         findings.append(f"content-sized diagram nodes still overflow: {overflow_nodes}")
                     before = link.get_attribute("d")
-                    box = node.bounding_box()
-                    page.mouse.move(box["x"] + 5, box["y"] + box["height"] / 2)
-                    page.mouse.down()
-                    page.mouse.move(box["x"] + 5, box["y"] + box["height"] / 2 + 72, steps=8)
-                    page.mouse.up()
-                    after = link.get_attribute("d")
-                    if before == after:
-                        findings.append("dragging a JointJS node did not reroute its connector")
+                    drag_point = page.evaluate("""() => {
+                      const node=document.querySelector('g[model-id="student-node"]');
+                      const box=node.getBoundingClientRect();
+                      const candidates=[
+                        {x:box.right-4,y:box.top+box.height/2},
+                        {x:box.left+4,y:box.top+box.height/2},
+                        {x:box.left+box.width/2,y:box.top+4},
+                        {x:box.left+box.width/2,y:box.bottom-4},
+                      ];
+                      return candidates.find(point => {
+                        const hit=document.elementFromPoint(point.x,point.y);
+                        return hit && hit.closest('[model-id="student-node"]');
+                      }) || null;
+                    }""")
+                    if not drag_point:
+                        findings.append("JointJS node has no exposed border drag target")
+                    else:
+                        page.mouse.move(drag_point["x"], drag_point["y"])
+                        page.mouse.down()
+                        page.mouse.move(drag_point["x"], drag_point["y"] + 72, steps=8)
+                        page.mouse.up()
+                        after = link.get_attribute("d")
+                        if before == after:
+                            findings.append("dragging a JointJS node did not reroute its connector")
 
                 # Capture the editor and each clean recipe. Geometry checks use actual pixels.
                 editor_path = output / "editor-gallery.png"
@@ -275,6 +315,29 @@ def main() -> int:
                         )
                         if caption_size and min(caption_size) < 20:
                             findings.append("gallery class labels are too small")
+                        caption_fit = clean.locator(".gallery-cell-caption").evaluate_all(
+                            """nodes => nodes.map(n => {
+                              const frame=n.parentElement.getBoundingClientRect();
+                              const box=n.getBoundingClientRect();
+                              return {text:n.textContent, mode:n.dataset.fitMode,
+                                lines:Number(n.dataset.fitLines), size:parseFloat(n.dataset.fitFontSize),
+                                overflow:n.dataset.fitOverflow,
+                                contained:box.width<=frame.width+1 && box.height<=frame.height+1};
+                            })"""
+                        )
+                        if len(caption_fit) < 2:
+                            findings.append("gallery autofit example must exercise one-line and wrapped captions")
+                        elif not all(item["mode"] == "gallery-caption-region" and item["overflow"] == "false" and item["contained"] for item in caption_fit):
+                            findings.append("gallery captions do not fit their fixed caption boxes")
+                        else:
+                            one_line = next((item for item in caption_fit if item["text"] == "otter"), None)
+                            wrapped = next((item for item in caption_fit if item["text"] == "golden retriever"), None)
+                            if not one_line or one_line["lines"] != 1:
+                                findings.append("short gallery caption did not remain on one line")
+                            if not wrapped or wrapped["lines"] < 2:
+                                findings.append("long gallery caption did not exercise wrapped autofit")
+                            if one_line and wrapped and not wrapped["size"] < one_line["size"]:
+                                findings.append("wrapped gallery caption was not scaled below the short caption")
                     if slide_id == "mock-vector-construction":
                         engine = clean.locator(".joint-paper").get_attribute("data-diagram-engine")
                         if engine != "jointjs-directed-graph":
@@ -331,6 +394,17 @@ def main() -> int:
                             findings.append("vector slide did not use JSXGraph")
                         if clean.locator('[data-math-engine="katex"]').count() < 8:
                             findings.append("vector geometry mathematics did not render through KaTeX")
+                        label_fit = clean.locator(".vector-label").evaluate_all(
+                            """nodes => nodes.map(node => {
+                              const region=node.parentElement.getBoundingClientRect();
+                              const box=node.getBoundingClientRect();
+                              return {mode:node.dataset.fitMode, overflow:node.dataset.fitOverflow,
+                                contained:box.left>=region.left-1 && box.top>=region.top-1 &&
+                                  box.right<=region.right+1 && box.bottom<=region.bottom+1};
+                            })"""
+                        )
+                        if not label_fit or not all(item["mode"] == "vector-label-region" and item["overflow"] == "false" and item["contained"] for item in label_fit):
+                            findings.append("vector labels do not fit their declared text regions")
                         single_equation = clean.evaluate("""() => {
                           const host = document.querySelector('.vector-equations');
                           [...host.children].slice(1).forEach(node => node.remove());
@@ -343,6 +417,12 @@ def main() -> int:
                         }""")
                         if single_equation["columns"] != 1 or not single_equation["contained"] or not single_equation["centered"]:
                             findings.append("one vector equation did not span and center in the full equation band")
+                    if slide_id == "mock-angle-evidence":
+                        table_fit = clean.locator(".evidence-table").evaluate(
+                            "node => ({mode:node.dataset.fitMode, overflow:node.dataset.fitOverflow, scale:parseFloat(node.dataset.fitScale)})"
+                        )
+                        if table_fit["mode"] != "evidence-table-region" or table_fit["overflow"] != "false" or not (0.58 <= table_fit["scale"] <= 1):
+                            findings.append("evidence table did not choose a contained region-fit scale")
                     accent_rail = clean.evaluate("""() => {
                       const style = getComputedStyle(document.querySelector('.slide-canvas'), '::before');
                       return style.content !== 'none' && style.content !== 'normal';
@@ -377,6 +457,7 @@ def main() -> int:
             "all semantic components remain inside the 16:9 canvas",
             "gallery images use object-fit: contain",
             "gallery frames are snug, rounded, and captions are readable",
+            "gallery captions auto-fit a fixed-height box after wrapping",
             "fullscreen presentation mode is explicit and reversible",
             "shared presentation URLs expose a clickable exit and clear sticky presentation state",
             "LaTeX hydrates through KaTeX in editor and presentation modes",

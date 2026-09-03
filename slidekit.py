@@ -217,10 +217,16 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                      isinstance(arc.get("endDeg"), (int, float)),
                      f"{source}: arcs[{index}] is invalid")
         for index, label in enumerate(data.get("labels", [])):
-            _require(isinstance(label, dict) and
-                     isinstance(label.get("x"), (int, float)) and 0 <= label["x"] <= 100 and
-                     isinstance(label.get("y"), (int, float)) and 0 <= label["y"] <= 100,
-                     f"{source}: labels[{index}] needs bounded percentage coordinates")
+            box = label.get("box") if isinstance(label, dict) else None
+            _require(isinstance(box, dict) and
+                     all(isinstance(box.get(key), (int, float)) for key in ("x", "y", "width", "height")) and
+                     0 <= box["x"] < 100 and 0 <= box["y"] < 100 and
+                     box["width"] > 0 and box["height"] > 0 and
+                     box["x"] + box["width"] <= 100 and box["y"] + box["height"] <= 100,
+                     f"{source}: labels[{index}] needs a bounded percentage box")
+            _require(box.get("align", "center") in {"flex-start", "center", "flex-end"} and
+                     box.get("valign", "center") in {"flex-start", "center", "flex-end"},
+                     f"{source}: labels[{index}] has invalid box alignment")
             ref(label.get("component"), f"labels[{index}].component")
         equations = data.get("equations", [])
         _require(isinstance(equations, list), f"{source}: equations must be a list")

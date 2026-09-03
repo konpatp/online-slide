@@ -41,13 +41,13 @@
     ],
     "points": [{"id": "origin", "at": [0, 0], "color": "#14233b", "size": 3}],
     "labels": [
-      {"component": "base-label", "x": 31, "y": 6},
-      {"component": "raw-label", "x": 68, "y": 57},
-      {"component": "projection-label", "x": 14, "y": 70, "anchorX": "0%"},
-      {"component": "tangent-label", "x": 68, "y": 43},
-      {"component": "result-label", "x": 46, "y": 19},
-      {"component": "theta-label", "x": 35, "y": 71},
-      {"component": "remove-label", "x": 4, "y": 50, "anchorX": "0%", "tone": "muted"}
+      {"component": "base-label", "box": {"x": 25, "y": 0, "width": 14, "height": 12}},
+      {"component": "raw-label", "box": {"x": 67, "y": 54, "width": 14, "height": 12}},
+      {"component": "projection-label", "box": {"x": 2, "y": 64, "width": 27, "height": 13, "align": "flex-start"}},
+      {"component": "tangent-label", "box": {"x": 67, "y": 37, "width": 15, "height": 12}},
+      {"component": "result-label", "box": {"x": 42, "y": 12, "width": 15, "height": 12}},
+      {"component": "theta-label", "box": {"x": 32, "y": 65, "width": 7, "height": 11}},
+      {"component": "remove-label", "box": {"x": 2, "y": 43, "width": 28, "height": 14, "align": "flex-start"}, "tone": "muted"}
     ],
     "equations": ["equation-one", "equation-two", "equation-three"]
   }

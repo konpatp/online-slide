@@ -54,10 +54,10 @@ slide id plus stable semantic component ids.
 | Recipe | Demonstrates | Geometry owned by the recipe |
 |---|---|---|
 | `hero-plot` | Multi-series line plot with an incomplete trace | Axes, ticks, grid, legend, line endpoints, protocol strip |
-| `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing |
+| `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing, whole-table region fit |
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
-| `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors and arcs, KaTeX labels and equations |
-| `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, persistent view state, snug rounded image frames, non-cropping images |
+| `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors/arcs, explicit label regions, KaTeX equations |
+| `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, persistent view state, snug non-cropping images, fitted caption regions |
 
 The source gives scientific intent and data. The recipe owns repeated spatial
 decisions. Custom layout remains possible by adding another recipe rather than
@@ -76,6 +76,16 @@ semantic `lane` and `step`, while the runtime owns sizing, aligned coordinates,
 centering, and connector routing. This avoids both Dagre rank drift and manual
 pixel placement. Audience-facing recipe labels default to at least 26 pt;
 compact controls, protocol metadata, and presenter chrome remain smaller.
+
+Text is always fitted to a declared region rather than positioned as an
+unbounded label. Gallery captions have a fixed-height reading region: a short
+caption keeps the recipe's maximum size, while a wrapped caption shrinks only
+as far as needed to remain contained. Vector labels declare percentage `box`
+regions in source, which keeps text off construction lines and makes overflow a
+source-validation error instead of a visual surprise. Evidence tables choose
+the largest uniform type/padding scale that contains the complete table in the
+body region. If even the allowed minimum cannot fit, the browser receipt fails
+closed so an author can remove content rather than ship a clipped slide.
 
 ## Concurrency and human authority
 

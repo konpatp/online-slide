@@ -7,6 +7,8 @@
     var editableText = api.editableText;
     var galleryImage = api.galleryImage;
     var effectiveComponent = api.effectiveComponent;
+    var fitTextInRegion = api.fitTextInRegion;
+    var fitGroupInRegion = api.fitGroupInRegion;
 
     function heroPlot(canvas, slide) {
       var data = slide.data;
@@ -101,6 +103,13 @@
       table.appendChild(tbody);
       body.appendChild(table);
       canvas.appendChild(body);
+      fitGroupInRegion(table, body, {
+        mode: "evidence-table-region",
+        property: "--table-fit-scale",
+        minScale: 0.58,
+        maxScale: 1,
+        contentSelector: ".table-heading, .table-row-label, .table-value"
+      });
     }
 
     function mechanismPipeline(canvas, slide) {
@@ -228,12 +237,18 @@
       board.id = "jsxgraph-" + slide.id;
       plane.appendChild(board);
       (slide.data.labels || []).forEach(function (label) {
+        var region = document.createElement("div");
+        region.className = "vector-label-region";
+        region.style.left = label.box.x + "%";
+        region.style.top = label.box.y + "%";
+        region.style.width = label.box.width + "%";
+        region.style.height = label.box.height + "%";
+        region.style.justifyContent = label.box.align || "center";
+        region.style.alignItems = label.box.valign || "center";
         var node = editableText(slide, label.component, "div", "vector-label" + (label.tone ? " tone-" + label.tone : ""));
-        node.style.left = label.x + "%";
-        node.style.top = label.y + "%";
-        node.style.setProperty("--label-anchor-x", label.anchorX || "-50%");
-        node.style.setProperty("--label-anchor-y", label.anchorY || "-50%");
-        plane.appendChild(node);
+        region.appendChild(node);
+        plane.appendChild(region);
+        fitTextInRegion(node, region, {mode: "vector-label-region", minSize: 20});
       });
       body.appendChild(plane);
       var equations = document.createElement("div");

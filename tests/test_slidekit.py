@@ -32,7 +32,7 @@ class SlideKitContractTests(unittest.TestCase):
         receipt = catalog_receipt(self.catalog)
         self.assertEqual(receipt["slides"], 5)
         self.assertEqual(set(receipt["recipes"].values()), {1})
-        self.assertEqual(receipt["semanticComponentIds"], 107)
+        self.assertEqual(receipt["semanticComponentIds"], 109)
         self.assertEqual(receipt["positionalComponentIds"], 0)
 
     def test_vector_geometry_requires_latex_equations_and_bounded_labels(self):
@@ -42,14 +42,18 @@ class SlideKitContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "must use LaTeX"):
             validate_slide_spec(geometry)
         geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
-        geometry["data"]["labels"][0]["x"] = 101
-        with self.assertRaisesRegex(ContractError, "bounded percentage"):
+        geometry["data"]["labels"][0]["box"]["width"] = 101
+        with self.assertRaisesRegex(ContractError, "bounded percentage box"):
+            validate_slide_spec(geometry)
+        geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
+        geometry["data"]["labels"][0].pop("box")
+        with self.assertRaisesRegex(ContractError, "bounded percentage box"):
             validate_slide_spec(geometry)
 
     def test_gallery_image_caption_is_an_independent_semantic_text_leaf(self):
         gallery = copy.deepcopy(self.catalog["mock-matched-gallery"])
         page_set = next(iter(gallery["data"]["pageSets"].values()))
-        image_id = page_set[0]["rows"][0]["images"][0]
+        image_id = page_set[0]["rows"][0]["images"][2]
         gallery["components"]["sample-caption"] = {
             "kind": "text", "text": "class 12 · identity 03", "role": "image caption"
         }

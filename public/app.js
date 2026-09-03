@@ -29,6 +29,7 @@
   var inputTimer = null;
   var toastTimer = null;
   var presentationExitTimer = null;
+  var fitObservers = [];
 
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
@@ -265,6 +266,111 @@
     return element;
   }
 
+  function fitTextInRegion(element, region, options) {
+    options = options || {};
+    if (!element.isConnected || region.clientWidth < 1 || region.clientHeight < 1) return;
+    element.style.removeProperty("font-size");
+    var maxSize = Number(element.dataset.fitMaxSize || parseFloat(getComputedStyle(element).fontSize));
+    element.dataset.fitMaxSize = String(maxSize);
+    var minSize = Math.min(maxSize, options.minSize || 20);
+    var fits = function (size) {
+      element.style.fontSize = size + "px";
+      return element.scrollWidth <= region.clientWidth + 1 && element.scrollHeight <= region.clientHeight + 1;
+    };
+    var low = minSize;
+    var high = maxSize;
+    var best = minSize;
+    if (fits(maxSize)) best = maxSize;
+    else {
+      for (var index = 0; index < 10; index += 1) {
+        var candidate = (low + high) / 2;
+        if (fits(candidate)) { best = candidate; low = candidate; }
+        else high = candidate;
+      }
+    }
+    element.style.fontSize = best.toFixed(2) + "px";
+    while (best > minSize &&
+           (element.scrollWidth > region.clientWidth + 1 || element.scrollHeight > region.clientHeight + 1)) {
+      best = Math.max(minSize, best - 0.25);
+      element.style.fontSize = best.toFixed(2) + "px";
+    }
+    var style = getComputedStyle(element);
+    var lineHeight = parseFloat(style.lineHeight) || best;
+    var verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+    var lineCount = Math.max(1, Math.round((element.scrollHeight - verticalPadding) / lineHeight));
+    var contained = element.scrollWidth <= region.clientWidth + 1 && element.scrollHeight <= region.clientHeight + 1;
+    element.dataset.fitMode = options.mode || "text-region";
+    element.dataset.fitFontSize = best.toFixed(2);
+    element.dataset.fitLines = String(lineCount);
+    element.dataset.fitOverflow = String(!contained);
+  }
+
+  function registerTextFit(element, region, options) {
+    var fit = function () { requestAnimationFrame(function () { fitTextInRegion(element, region, options); }); };
+    var observer = new ResizeObserver(fit);
+    observer.observe(region);
+    fitObservers.push(observer);
+    element.addEventListener("input", fit);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    fit();
+  }
+
+  function fitGroupInRegion(element, region, options) {
+    options = options || {};
+    if (!element.isConnected || region.clientWidth < 1 || region.clientHeight < 1) return;
+    var property = options.property || "--region-fit-scale";
+    var minScale = options.minScale || 0.58;
+    var maxScale = options.maxScale || 1;
+    var leaves = function () {
+      return options.contentSelector ? Array.from(element.querySelectorAll(options.contentSelector)) : [];
+    };
+    var fits = function (scale) {
+      element.style.setProperty(property, scale.toFixed(4));
+      var box = element.getBoundingClientRect();
+      var outer = region.getBoundingClientRect();
+      var contained = box.width <= outer.width + 1 && box.height <= outer.height + 1;
+      return contained && leaves().every(function (leaf) {
+        return leaf.scrollWidth <= leaf.clientWidth + 1 && leaf.scrollHeight <= leaf.clientHeight + 1;
+      });
+    };
+    var low = minScale;
+    var high = maxScale;
+    var best = minScale;
+    if (fits(maxScale)) best = maxScale;
+    else {
+      for (var index = 0; index < 10; index += 1) {
+        var candidate = (low + high) / 2;
+        if (fits(candidate)) { best = candidate; low = candidate; }
+        else high = candidate;
+      }
+    }
+    element.style.setProperty(property, best.toFixed(4));
+    var finalBox = element.getBoundingClientRect();
+    var finalOuter = region.getBoundingClientRect();
+    var overflow = finalBox.width > finalOuter.width + 1 || finalBox.height > finalOuter.height + 1 ||
+      leaves().some(function (leaf) {
+        return leaf.scrollWidth > leaf.clientWidth + 1 || leaf.scrollHeight > leaf.clientHeight + 1;
+      });
+    element.dataset.fitMode = options.mode || "group-region";
+    element.dataset.fitScale = best.toFixed(4);
+    element.dataset.fitOverflow = String(overflow);
+  }
+
+  function registerGroupFit(element, region, options) {
+    var fit = function () { requestAnimationFrame(function () { fitGroupInRegion(element, region, options); }); };
+    var observer = new ResizeObserver(fit);
+    observer.observe(region);
+    fitObservers.push(observer);
+    element.addEventListener("input", fit);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    fit();
+  }
+
+  function clearFitObservers() {
+    fitObservers.forEach(function (observer) { observer.disconnect(); });
+    fitObservers = [];
+  }
+
   function effectiveHeadline(slide) {
     return effectiveComponent(slide, slide.headline).text;
   }
@@ -334,7 +440,12 @@
     img.style.setProperty("--image-scale", component.imageScale || 1);
     cell.appendChild(img);
     if (component.caption) {
-      cell.appendChild(editableText(slide, component.caption, "figcaption", "gallery-cell-caption"));
+      var captionFrame = document.createElement("div");
+      captionFrame.className = "gallery-caption-frame";
+      var caption = editableText(slide, component.caption, "figcaption", "gallery-cell-caption");
+      captionFrame.appendChild(caption);
+      cell.appendChild(captionFrame);
+      registerTextFit(caption, captionFrame, {mode: "gallery-caption-region", minSize: 12});
     }
     cell.addEventListener("click", function (event) {
       if (!editMode) return;
@@ -361,6 +472,8 @@
     editableText: editableText,
     galleryImage: galleryImage,
     effectiveComponent: effectiveComponent,
+    fitTextInRegion: registerTextFit,
+    fitGroupInRegion: registerGroupFit,
     isEditMode: function () { return editMode; }
   });
 
@@ -368,6 +481,7 @@
     var index = currentIndex();
     currentId = state.order[index];
     var slide = currentSlide();
+    clearFitObservers();
     stage.textContent = "";
     var canvas = slideShell(slide);
     renderRecipe[slide.recipe](canvas, slide);
