@@ -421,7 +421,7 @@ def main() -> int:
                         table_fit = clean.locator(".evidence-table").evaluate(
                             "node => ({mode:node.dataset.fitMode, overflow:node.dataset.fitOverflow, scale:parseFloat(node.dataset.fitScale)})"
                         )
-                        if table_fit["mode"] != "evidence-table-region" or table_fit["overflow"] != "false" or not (0.58 <= table_fit["scale"] <= 1):
+                        if table_fit["mode"] != "evidence-table-region" or table_fit["overflow"] != "false" or not (0.95 <= table_fit["scale"] <= 1):
                             findings.append("evidence table did not choose a contained region-fit scale")
                     accent_rail = clean.evaluate("""() => {
                       const style = getComputedStyle(document.querySelector('.slide-canvas'), '::before');

@@ -115,6 +115,7 @@ body.present-only .presentation-exit.visible, body.present-only .presentation-ex
 .table-body { display: flex; align-items: center; }
 .evidence-table { --table-fit-scale: 1; width: 100%; height: auto; border-collapse: separate; border-spacing: 0; table-layout: fixed; color: #2a3d59; }
 .evidence-table th, .evidence-table td { padding: calc(.64cqw * var(--table-fit-scale)) calc(.9cqw * var(--table-fit-scale)); border-bottom: 1px solid #dfe5ee; text-align: center; vertical-align: middle; }
+.evidence-table th:not(:last-child), .evidence-table td:not(:last-child) { border-right: 1px solid #edf1f6; }
 .evidence-table thead th { color: #65758c; background: #f5f7fb; border-top: 1px solid #dfe5ee; font-size: calc(max(1.28cqw, 34.67px) * var(--table-fit-scale)); text-transform: uppercase; letter-spacing: .06em; }
 .evidence-table thead th:first-child { width: 30%; border-radius: 12px 0 0 0; text-align: left; }
 .evidence-table thead th:last-child { border-radius: 0 12px 0 0; }

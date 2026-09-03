@@ -321,6 +321,11 @@
     var property = options.property || "--region-fit-scale";
     var minScale = options.minScale || 0.58;
     var maxScale = options.maxScale || 1;
+    // KaTeX's hidden MathML/HTML pairing can report a 1–2 px scroll-height
+    // surplus even when its visible box is fully contained. Treat only a
+    // material surplus as overflow so a harmless rounding artifact cannot
+    // force an entire table to its minimum scale.
+    var tolerance = options.tolerance || 3;
     var leaves = function () {
       return options.contentSelector ? Array.from(element.querySelectorAll(options.contentSelector)) : [];
     };
@@ -328,9 +333,10 @@
       element.style.setProperty(property, scale.toFixed(4));
       var box = element.getBoundingClientRect();
       var outer = region.getBoundingClientRect();
-      var contained = box.width <= outer.width + 1 && box.height <= outer.height + 1;
+      var contained = box.width <= outer.width + tolerance && box.height <= outer.height + tolerance;
       return contained && leaves().every(function (leaf) {
-        return leaf.scrollWidth <= leaf.clientWidth + 1 && leaf.scrollHeight <= leaf.clientHeight + 1;
+        return leaf.scrollWidth <= leaf.clientWidth + tolerance &&
+          leaf.scrollHeight <= leaf.clientHeight + tolerance;
       });
     };
     var low = minScale;
@@ -347,9 +353,11 @@
     element.style.setProperty(property, best.toFixed(4));
     var finalBox = element.getBoundingClientRect();
     var finalOuter = region.getBoundingClientRect();
-    var overflow = finalBox.width > finalOuter.width + 1 || finalBox.height > finalOuter.height + 1 ||
+    var overflow = finalBox.width > finalOuter.width + tolerance ||
+      finalBox.height > finalOuter.height + tolerance ||
       leaves().some(function (leaf) {
-        return leaf.scrollWidth > leaf.clientWidth + 1 || leaf.scrollHeight > leaf.clientHeight + 1;
+        return leaf.scrollWidth > leaf.clientWidth + tolerance ||
+          leaf.scrollHeight > leaf.clientHeight + tolerance;
       });
     element.dataset.fitMode = options.mode || "group-region";
     element.dataset.fitScale = best.toFixed(4);

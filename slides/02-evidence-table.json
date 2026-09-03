@@ -35,7 +35,7 @@
     "ensemble-low": {"kind": "text", "text": "28.4", "role": "table-value"},
     "ensemble-mid": {"kind": "text", "text": "24.1", "role": "table-value"},
     "ensemble-high": {"kind": "text", "text": "26.6", "role": "table-value"},
-    "ensemble-best": {"kind": "text", "text": "Medium", "role": "table-value"},
+    "ensemble-best": {"kind": "text", "text": "\\theta=20^\\circ", "render": "latex", "role": "table-value"},
     "protocol": {"kind": "text", "text": "Synthetic matched evaluation · lower is better · bold marks each row minimum", "role": "protocol"}
   },
   "data": {
