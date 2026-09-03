@@ -253,7 +253,10 @@ def main() -> int:
                       .filter(node => !node.dataset.latexSource && node.firstChild && node.firstChild.nodeType === Node.TEXT_NODE)
                       .flatMap(node => {
                         const source=node.firstChild, text=source.textContent || '', findings=[];
-                        for (const match of text.matchAll(/[A-Za-z][A-Za-z-]{3,}/g)) {
+                        // Hyphens are intentional linguistic break points;
+                        // flag only a continuous alphabetic word split over
+                        // multiple painted line boxes.
+                        for (const match of text.matchAll(/[A-Za-z]{4,}/g)) {
                           const range=document.createRange();
                           range.setStart(source,match.index); range.setEnd(source,match.index+match[0].length);
                           if (range.getClientRects().length > 1) findings.push(match[0]);
