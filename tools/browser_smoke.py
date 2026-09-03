@@ -166,6 +166,25 @@ def main() -> int:
                 if node.count() != 1 or link.count() != 1:
                     findings.append("JointJS semantic node/link DOM was not rendered")
                 else:
+                    teacher = page.locator('[data-diagram-node-id="teacher-node"]')
+                    before_size = teacher.bounding_box()
+                    teacher_detail = page.locator('[data-component-id="teacher-detail"]')
+                    teacher_detail.fill(
+                        "one source call with a substantially longer authenticated condition "
+                        "that must wrap onto multiple lines and expand this node"
+                    )
+                    page.wait_for_function("""() => {
+                      const n = document.querySelector('[data-diagram-node-id="teacher-node"]');
+                      return n && n.scrollWidth <= n.clientWidth + 1 && n.scrollHeight <= n.clientHeight + 1;
+                    }""")
+                    after_size = teacher.bounding_box()
+                    if after_size["width"] <= before_size["width"] and after_size["height"] <= before_size["height"]:
+                        findings.append("content-sized diagram node did not grow after a longer live edit")
+                    overflow_nodes = page.locator(".diagram-node-copy").evaluate_all(
+                        "nodes => nodes.filter(n => n.scrollWidth > n.clientWidth + 1 || n.scrollHeight > n.clientHeight + 1).map(n => n.dataset.diagramNodeId)"
+                    )
+                    if overflow_nodes:
+                        findings.append(f"content-sized diagram nodes still overflow: {overflow_nodes}")
                     before = link.get_attribute("d")
                     box = node.bounding_box()
                     page.mouse.move(box["x"] + 5, box["y"] + box["height"] / 2)
@@ -242,6 +261,24 @@ def main() -> int:
                         engine = clean.locator(".joint-paper").get_attribute("data-diagram-engine")
                         if engine != "jointjs-directed-graph":
                             findings.append("mechanism slide did not use the JointJS layout runtime")
+                        if clean.locator(".joint-paper").get_attribute("data-diagram-content-sizing") != "measured":
+                            findings.append("mechanism slide did not declare measured content sizing")
+                        node_geometry = clean.evaluate("""() => [...document.querySelectorAll('.diagram-node-copy')].map(copy => {
+                          const shape = document.querySelector(`g[model-id="${copy.dataset.diagramNodeId}"]`);
+                          const c = copy.getBoundingClientRect();
+                          const s = shape && shape.getBoundingClientRect();
+                          return {
+                            id: copy.dataset.diagramNodeId,
+                            overflow: copy.scrollWidth > copy.clientWidth + 1 || copy.scrollHeight > copy.clientHeight + 1,
+                            aligned: Boolean(s) && Math.abs(c.width - s.width) <= 2 && Math.abs(c.height - s.height) <= 2,
+                          };
+                        })""")
+                        overflowing = [item["id"] for item in node_geometry if item["overflow"]]
+                        misaligned = [item["id"] for item in node_geometry if not item["aligned"]]
+                        if overflowing:
+                            findings.append(f"content-sized diagram nodes overflow in clean render: {overflowing}")
+                        if misaligned:
+                            findings.append(f"diagram copy and measured node frames disagree: {misaligned}")
                         graph_bounds = clean.evaluate("""() => {
                           const host = document.querySelector('.joint-paper').getBoundingClientRect();
                           const cells = [...document.querySelectorAll('.joint-paper .joint-cell')]
@@ -284,6 +321,8 @@ def main() -> int:
             "external image drop persists by content hash",
             "hierarchical gallery facets, metric, and page survive slide navigation",
             "JointJS node drag physically reroutes its semantic connector",
+            "JointJS nodes grow and reflow after longer live text edits",
+            "JointJS text overlays match their measured SVG node frames without overflow",
             "JointJS and JSXGraph compositions remain centered and contained",
             "all semantic components remain inside the 16:9 canvas",
             "gallery images use object-fit: contain",

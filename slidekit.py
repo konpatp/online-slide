@@ -160,6 +160,16 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             ref(node.get("label"), f"nodes[{index}].label")
             if node.get("detail") is not None:
                 ref(node["detail"], f"nodes[{index}].detail")
+            sizing = node.get("sizing", "content")
+            _require(sizing in {"content", "fixed"},
+                     f"{source}: node {index} sizing must be content or fixed")
+            if sizing == "fixed":
+                _require(all(isinstance(node.get(key), (int, float)) and node[key] > 0
+                             for key in ("width", "height")),
+                         f"{source}: fixed node {index} needs positive width and height")
+            else:
+                _require("width" not in node and "height" not in node,
+                         f"{source}: node {index} dimensions require sizing=fixed; content sizing is the default")
         edge_ids: set[str] = set()
         for index, edge in enumerate(edges):
             _require(isinstance(edge, dict), f"{source}: edge {index} must be an object")

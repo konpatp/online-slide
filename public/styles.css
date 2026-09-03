@@ -129,8 +129,10 @@ button { font: inherit; }
 .joint-paper .joint-link { filter: none; }
 .joint-paper .joint-element { filter: drop-shadow(0 7px 11px rgba(31, 48, 76, .08)); cursor: default; }
 .edit-mode .joint-paper .joint-element { cursor: move; }
-.diagram-node-copy { position: absolute; z-index: 3; display: grid; align-content: center; justify-items: center; gap: 8%; padding: 1.1%; pointer-events: none; text-align: center; }
-.edit-mode .diagram-node-copy { pointer-events: auto; }
+.diagram-node-copy { position: absolute; z-index: 3; display: grid; align-content: center; justify-items: center; gap: 8%; padding: clamp(12px, .92cqw, 18px) clamp(18px, 1.28cqw, 26px); pointer-events: none; text-align: center; transform-origin: 0 0; }
+.diagram-node-copy.diagram-node-measuring { left: -10000px !important; top: 0 !important; width: max-content !important; min-width: var(--diagram-node-min-width); max-width: var(--diagram-node-max-width); height: auto !important; visibility: hidden; transform: none !important; }
+.edit-mode .diagram-node-copy { pointer-events: none; }
+.edit-mode .diagram-node-copy .semantic-component { pointer-events: auto; }
 .node-label { color: #263b58; font-size: calc(1.72cqw * var(--component-scale, 1)); font-weight: 820; line-height: 1.03; }
 .node-detail { color: #687991; font-size: calc(1.08cqw * var(--component-scale, 1)); font-weight: 690; line-height: 1.06; }
 .edge-label { position: absolute; z-index: 4; padding: .45% .75%; border-radius: 99px; color: #5e6e84; background: rgba(255,255,255,.96); box-shadow: 0 0 0 1px #dce3ec; font-size: calc(.9cqw * var(--component-scale, 1)); font-weight: 720; transform: translate(-50%, -50%); white-space: nowrap; }

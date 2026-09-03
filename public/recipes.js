@@ -132,17 +132,54 @@
       body.appendChild(plane);
       canvas.appendChild(body);
       if (!window.ScientificDiagramRuntime) throw new Error("JointJS diagram runtime is missing");
+
+      function measureNodes() {
+        var sizes = {};
+        var planeWidth = plane.getBoundingClientRect().width || 1200;
+        slide.data.nodes.forEach(function (node) {
+          var block = nodeLabels[node.id];
+          if (node.sizing === "fixed") {
+            sizes[node.id] = {width: node.width, height: node.height};
+            return;
+          }
+          var minWidth = Math.max(154, Math.min(220, planeWidth * .13));
+          var maxWidth = Math.max(minWidth, Math.min(340, planeWidth * .24));
+          block.style.setProperty("--diagram-node-min-width", minWidth + "px");
+          block.style.setProperty("--diagram-node-max-width", maxWidth + "px");
+          block.classList.add("diagram-node-measuring");
+          var measured = block.getBoundingClientRect();
+          sizes[node.id] = {
+            // Text and KaTeX can differ by a fractional pixel between the
+            // hidden measurement pass and final scaled paint. Keep a tiny
+            // intrinsic safety allowance so a correctly sized node never
+            // exposes a scrollbar or clips the last glyph.
+            width: Math.ceil(Math.max(minWidth, Math.min(maxWidth, measured.width + 6))),
+            height: Math.ceil(Math.max(96, measured.height + 4))
+          };
+          block.classList.remove("diagram-node-measuring");
+        });
+        return sizes;
+      }
+
       requestAnimationFrame(function () {
-        window.ScientificDiagramRuntime.renderPipeline(paperHost, slide.data, {
+        var initialSizes = measureNodes();
+        var runtimeData = Object.assign({}, slide.data, {
+          nodes: slide.data.nodes.map(function (node) {
+            var size = initialSizes[node.id];
+            return Object.assign({}, node, {layoutWidth: size.width, layoutHeight: size.height});
+          })
+        });
+        var diagram = window.ScientificDiagramRuntime.renderPipeline(paperHost, runtimeData, {
           interactive: api.isEditMode(),
           onNodePosition: function (id, box, size) {
             var node = nodeLabels[id];
             if (!node) return;
-            var inset = 12;
-            node.style.left = ((box.x + inset) / size.width * 100) + "%";
-            node.style.top = ((box.y + inset) / size.height * 100) + "%";
-            node.style.width = ((box.width - inset * 2) / size.width * 100) + "%";
-            node.style.height = ((box.height - inset * 2) / size.height * 100) + "%";
+            var fitScale = size.scale || 1;
+            node.style.left = (box.x / size.width * 100) + "%";
+            node.style.top = (box.y / size.height * 100) + "%";
+            node.style.width = (box.width / fitScale / size.width * 100) + "%";
+            node.style.height = (box.height / fitScale / size.height * 100) + "%";
+            node.style.transform = "scale(" + fitScale + ")";
           },
           onEdgePosition: function (id, point, size) {
             var label = edgeLabels[id];
@@ -151,6 +188,25 @@
             label.style.top = (point.y / size.height * 100) + "%";
           }
         });
+        var reflowTimer = null;
+        function scheduleReflow() {
+          clearTimeout(reflowTimer);
+          reflowTimer = setTimeout(function () {
+            if (!plane.isConnected) return;
+            diagram.resizeNodes(measureNodes());
+          }, 40);
+        }
+        plane.addEventListener("input", scheduleReflow);
+        if (window.ResizeObserver) {
+          var observer = new ResizeObserver(function () {
+            if (!plane.isConnected) {
+              observer.disconnect();
+              return;
+            }
+            scheduleReflow();
+          });
+          observer.observe(plane);
+        }
       });
     }
 

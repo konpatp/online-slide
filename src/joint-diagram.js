@@ -19,7 +19,7 @@ function renderPipeline(host, spec, options = {}) {
   spec.nodes.forEach((node) => {
     const tone = PALETTE[node.tone] || PALETTE.quiet;
     const rect = new shapes.standard.Rectangle({ id: node.id });
-    rect.resize(node.width || 220, node.height || 96);
+    rect.resize(node.layoutWidth || node.width || 220, node.layoutHeight || node.height || 96);
     rect.attr({
       body: {
         fill: tone.fill,
@@ -61,33 +61,40 @@ function renderPipeline(host, spec, options = {}) {
     graph.addCell(link);
   });
 
-  DirectedGraph.layout(graph, {
-    rankDir: spec.direction || "LR",
-    nodeSep: spec.nodeGap || 62,
-    rankSep: spec.rankGap || 110,
-    edgeSep: 38,
-    marginX: 54,
-    marginY: 42,
-    setLinkVertices: false,
-  });
-  graph.getLinks().forEach((link) => link.vertices([]));
+  let scale = 1;
 
-  const bounds = graph.getCellsBBox(graph.getElements());
-  const paddingX = 54;
-  const paddingY = 42;
-  const scale = Math.min(
-    1,
-    (width - paddingX * 2) / bounds.width,
-    (height - paddingY * 2) / bounds.height,
-  );
-  graph.getElements().forEach((element) => {
-    const box = element.getBBox();
-    element.resize(box.width * scale, box.height * scale);
-    element.position(
-      (box.x - bounds.x) * scale + (width - bounds.width * scale) / 2,
-      (box.y - bounds.y) * scale + (height - bounds.height * scale) / 2,
+  function layoutGraph() {
+    DirectedGraph.layout(graph, {
+      rankDir: spec.direction || "LR",
+      nodeSep: spec.nodeGap || 62,
+      rankSep: spec.rankGap || 110,
+      edgeSep: 38,
+      marginX: 54,
+      marginY: 42,
+      setLinkVertices: false,
+    });
+    graph.getLinks().forEach((link) => link.vertices([]));
+
+    const bounds = graph.getCellsBBox(graph.getElements());
+    const paddingX = 54;
+    const paddingY = 42;
+    scale = Math.min(
+      1,
+      (width - paddingX * 2) / bounds.width,
+      (height - paddingY * 2) / bounds.height,
     );
-  });
+    graph.getElements().forEach((element) => {
+      const box = element.getBBox();
+      element.resize(box.width * scale, box.height * scale);
+      element.position(
+        (box.x - bounds.x) * scale + (width - bounds.width * scale) / 2,
+        (box.y - bounds.y) * scale + (height - bounds.height * scale) / 2,
+      );
+    });
+    host.dataset.diagramScale = scale.toFixed(4);
+  }
+
+  layoutGraph();
 
   const paper = new dia.Paper({
     el: host,
@@ -102,7 +109,9 @@ function renderPipeline(host, spec, options = {}) {
 
   function publishPositions() {
     if (options.onNodePosition) {
-      nodeModels.forEach((model, id) => options.onNodePosition(id, model.getBBox(), { width, height }));
+      nodeModels.forEach((model, id) => options.onNodePosition(
+        id, model.getBBox(), { width, height, scale },
+      ));
     }
     if (options.onEdgePosition) {
       linkModels.forEach((model, id) => {
@@ -113,6 +122,17 @@ function renderPipeline(host, spec, options = {}) {
       });
     }
   }
+
+  function resizeNodes(sizes) {
+    Object.keys(sizes).forEach((id) => {
+      const model = nodeModels.get(id);
+      const size = sizes[id];
+      if (!model || !size) return;
+      model.resize(size.width, size.height);
+    });
+    layoutGraph();
+    requestAnimationFrame(publishPositions);
+  }
   paper.on("element:pointermove", publishPositions);
   paper.on("render:done", publishPositions);
   requestAnimationFrame(publishPositions);
@@ -121,7 +141,8 @@ function renderPipeline(host, spec, options = {}) {
   host.dataset.diagramScale = scale.toFixed(4);
   host.dataset.diagramNodes = String(spec.nodes.length);
   host.dataset.diagramEdges = String(spec.edges.length);
-  return { graph, paper, publishPositions };
+  host.dataset.diagramContentSizing = "measured";
+  return { graph, paper, publishPositions, resizeNodes };
 }
 
 window.ScientificDiagramRuntime = { renderPipeline };

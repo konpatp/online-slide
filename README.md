@@ -64,6 +64,12 @@ embedding arbitrary markup into a slide file. The diagram and gallery
 dependency decisions are recorded in
 [`docs/technology-decisions.md`](docs/technology-decisions.md).
 
+Mechanism nodes are content-sized by default: the browser measures their
+actual label, detail, and rendered math before JointJS lays out the graph, then
+reflows the graph after live text edits. Authors do not tune box dimensions. A
+deliberately fixed box must opt in with `"sizing": "fixed"` and positive
+`width` and `height` values.
+
 ## Concurrency and human authority
 
 The repository separates three kinds of state:

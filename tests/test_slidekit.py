@@ -84,6 +84,18 @@ class SlideKitContractTests(unittest.TestCase):
             expected *= len(selector["options"])
         self.assertEqual(len(gallery["data"]["views"]), expected)
 
+    def test_mechanism_nodes_are_content_sized_unless_fixed_is_explicit(self):
+        diagram = copy.deepcopy(self.catalog["mock-vector-construction"])
+        validate_slide_spec(diagram)
+        diagram["data"]["nodes"][0]["width"] = 240
+        with self.assertRaisesRegex(ContractError, "dimensions require sizing=fixed"):
+            validate_slide_spec(diagram)
+        diagram["data"]["nodes"][0].update({"sizing": "fixed", "height": 112})
+        validate_slide_spec(diagram)
+        diagram["data"]["nodes"][0]["height"] = 0
+        with self.assertRaisesRegex(ContractError, "positive width and height"):
+            validate_slide_spec(diagram)
+
     def test_human_order_and_edit_survive_unrelated_source_insertions(self):
         state = self.initial_state()
         state["order"] = ["mock-matched-gallery", "mock-growth-trajectories",
