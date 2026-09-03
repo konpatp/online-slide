@@ -30,6 +30,7 @@ and editing do not require Node. To change them, run
 Open <http://127.0.0.1:8000/>. Enable edit mode to:
 
 - edit any semantic text leaf directly;
+- drag the selected text region by its top edge and resize it from its corner;
 - change the selected leaf's font size or theme color;
 - reorder or hide slides without changing their source;
 - drop an external image onto a gallery cell;
@@ -89,6 +90,16 @@ source-validation error instead of a visual surprise. Evidence tables choose
 the largest uniform type/padding scale that contains the complete table in the
 body region. If even the allowed minimum cannot fit, the browser receipt fails
 closed so an author can remove content rather than ship a clipped slide.
+
+The same region is a direct-manipulation object in edit mode. Selecting any
+text reveals a blue frame: its short top grip moves the region and its
+lower-right grip changes both available width and height. The text re-wraps and
+re-fits continuously while the region changes. Geometry is stored against the
+component's semantic id in canonical 1920×1080 slide coordinates, so the edit
+survives editor zoom, fullscreen, sibling insertion, and source rebuilds. A
+component may also declare the same optional `region` object in source; `x`
+and `y` are offsets from the recipe-owned anchor and `width`/`height` are the
+available text area.
 
 ## Concurrency and human authority
 

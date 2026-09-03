@@ -24,7 +24,27 @@ RECIPES = {
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
-ALLOWED_OVERLAY_KEYS = {"text", "color", "fontScale", "src", "imageScale"}
+ALLOWED_OVERLAY_KEYS = {
+    "text", "color", "fontScale", "src", "imageScale", "region",
+}
+
+
+def _validate_text_region(value: Any, message: str) -> None:
+    """Validate a region in canonical 1920x1080 slide coordinates.
+
+    ``x`` and ``y`` are displacements from the recipe-authored anchor.  Width
+    and height are explicit content bounds.  Keeping the durable values in
+    slide coordinates makes an edit invariant to editor zoom and fullscreen.
+    """
+
+    _require(isinstance(value, dict) and set(value) == {"x", "y", "width", "height"},
+             message)
+    _require(all(isinstance(value[key], (int, float)) and not isinstance(value[key], bool)
+                 for key in ("x", "y", "width", "height")), message)
+    _require(-1920 <= value["x"] <= 1920 and -1080 <= value["y"] <= 1080,
+             message)
+    _require(24 <= value["width"] <= 1920 and 18 <= value["height"] <= 1080,
+             message)
 
 
 class ContractError(ValueError):
@@ -82,6 +102,11 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             if component.get("role") in {"math", "formula", "equation"}:
                 _require(render == "latex",
                          f"{source}: mathematical component {component_id!r} must use LaTeX")
+            if "region" in component:
+                _validate_text_region(
+                    component["region"],
+                    f"{source}: text component {component_id!r} has an invalid region",
+                )
         else:
             _require(isinstance(component.get("src"), str) and component["src"],
                      f"{source}: image component {component_id!r} needs src")
@@ -445,6 +470,13 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
                          isinstance(overlay["imageScale"], (int, float)) and
                          0.65 <= overlay["imageScale"] <= 1.35,
                          "imageScale must be between 0.65 and 1.35")
+            if "region" in overlay:
+                _require(component["kind"] == "text",
+                         "region overlay must target text")
+                _validate_text_region(
+                    overlay["region"],
+                    f"region overlay is invalid on {slide_id}@{component_id}",
+                )
 
 
 def validate_state_snapshot(candidate: Any, current: dict[str, Any],

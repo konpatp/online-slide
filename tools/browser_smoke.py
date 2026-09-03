@@ -188,6 +188,86 @@ def main() -> int:
                 if not math_sources or page.locator('[data-math-engine="katex"]').count() != math_sources:
                     findings.append("editor route left authored LaTeX unhydrated")
 
+                # Text regions are direct-manipulation objects, not merely
+                # source-time boxes. Move a generic headline, then move,
+                # resize, edit, save, and reload a bounded vector label.
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                headline = page.locator('[data-component-id="headline"]')
+                headline_before = headline.bounding_box()
+                headline.click()
+                headline_move = page.locator('.text-region-frame [aria-label="Move text region"]')
+                move_box = headline_move.bounding_box()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2,
+                                move_box["y"] + move_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2 + 54,
+                                move_box["y"] + move_box["height"] / 2 + 18, steps=6)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                headline_after = page.locator('[data-component-id="headline"]').bounding_box()
+                if headline_after["x"] <= headline_before["x"] + 30:
+                    findings.append("generic text region did not move through its physical drag handle")
+
+                label = page.locator('[data-component-id="remove-label"]')
+                sibling_before = page.locator('[data-component-id="raw-label"]').bounding_box()
+                label.click()
+                frame = page.locator('.text-region-frame[data-text-region-frame="remove-label"]')
+                before = frame.bounding_box()
+                move = frame.locator('[aria-label="Move text region"]')
+                move_box = move.bounding_box()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2,
+                                move_box["y"] + move_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2 + 86,
+                                move_box["y"] + move_box["height"] / 2 + 34, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+
+                label = page.locator('[data-component-id="remove-label"]')
+                label.click()
+                frame = page.locator('.text-region-frame[data-text-region-frame="remove-label"]')
+                moved = frame.bounding_box()
+                if moved["x"] <= before["x"] + 50 or moved["y"] <= before["y"] + 18:
+                    findings.append("bounded vector text region did not move with its drag handle")
+                resize = frame.locator('[aria-label="Resize text region"]')
+                resize_box = resize.bounding_box()
+                page.mouse.move(resize_box["x"] + resize_box["width"] / 2,
+                                resize_box["y"] + resize_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(resize_box["x"] + resize_box["width"] / 2 - 100,
+                                resize_box["y"] + resize_box["height"] / 2 + 34, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+
+                label = page.locator('[data-component-id="remove-label"]')
+                label.fill("remove the parallel component before normalizing the direction")
+                page.wait_for_function("""() => {
+                  const node=document.querySelector('[data-component-id="remove-label"]');
+                  return node && Number(node.dataset.fitLines) >= 2 && node.dataset.fitOverflow === 'false';
+                }""")
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                fitted_size = float(label.get_attribute("data-fit-font-size"))
+                if fitted_size >= 34:
+                    findings.append("resized text region did not shrink a longer phrase to fit")
+                state_after_region_edit = page.evaluate("() => fetch('api/deck-state', {cache:'no-store'}).then(r => r.json())")
+                region_overlay = state_after_region_edit["overlays"]["mock-guidance-vector-geometry"]["remove-label"].get("region")
+                if not region_overlay or region_overlay["width"] >= 530 or region_overlay["height"] <= 100:
+                    findings.append("text region geometry was not durably saved in canonical slide coordinates")
+                page.reload(wait_until="networkidle")
+                persisted_label = page.locator('[data-component-id="remove-label"]')
+                page.wait_for_function("""() => {
+                  const node=document.querySelector('[data-component-id="remove-label"]');
+                  return node && node.dataset.fitOverflow === 'false';
+                }""")
+                if persisted_label.text_content() != "remove the parallel component before normalizing the direction":
+                    findings.append("text inside a moved and resized region did not survive reload")
+                if persisted_label.get_attribute("data-fit-overflow") != "false":
+                    findings.append("persisted text region no longer contained its text after reload")
+                sibling_after = page.locator('[data-component-id="raw-label"]').bounding_box()
+                if abs(sibling_after["x"] - sibling_before["x"]) > 2 or abs(sibling_after["y"] - sibling_before["y"]) > 2:
+                    findings.append("moving one text region changed an unrelated sibling")
+
                 # A real node drag must reroute its semantic connector. This is
                 # the behavior that fixed SVG arrow coordinates could not supply.
                 page.goto(base + "/#mock-vector-construction", wait_until="networkidle")
@@ -492,6 +572,7 @@ def main() -> int:
         "elapsedSeconds": round(time.perf_counter() - started, 2),
         "checks": [
             "semantic text edit + formatting survives save/reload",
+            "generic and bounded text regions move, resize, refit, and persist through physical handles",
             "semantic edit survives unrelated source insertion and component reorder",
             "human slide order survives save/reload",
             "external image drop persists by content hash",

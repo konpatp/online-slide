@@ -5,6 +5,7 @@
   global.createScientificSlideRecipes = function (api) {
     var svgElement = api.svgElement;
     var editableText = api.editableText;
+    var bindTextRegion = api.bindTextRegion;
     var galleryImage = api.galleryImage;
     var effectiveComponent = api.effectiveComponent;
     var fitTextInRegion = api.fitTextInRegion;
@@ -264,7 +265,11 @@
         var node = editableText(slide, label.component, "div", "vector-label" + (label.tone ? " tone-" + label.tone : ""));
         region.appendChild(node);
         plane.appendChild(region);
-        fitTextInRegion(node, region, {mode: "vector-label-region", minSize: 20});
+        bindTextRegion(slide, label.component, node, region, {
+          alwaysFit: true,
+          fitMode: "vector-label-region",
+          minSize: 10
+        });
       });
       body.appendChild(plane);
       var equations = document.createElement("div");

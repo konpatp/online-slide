@@ -30,6 +30,12 @@
   var toastTimer = null;
   var presentationExitTimer = null;
   var fitObservers = [];
+  var textRegionBindings = new Map();
+  var textRegionFrame = null;
+  var regionGesture = null;
+
+  var CANONICAL_SLIDE_WIDTH = 1920;
+  var CANONICAL_SLIDE_HEIGHT = 1080;
 
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
@@ -263,6 +269,7 @@
       render();
       persist();
     });
+    bindTextRegion(slide, componentId, element, element, {minSize: 10});
     return element;
   }
 
@@ -379,6 +386,215 @@
     fitObservers = [];
   }
 
+  function textRegionKey(slideId, componentId) {
+    return slideId + "@" + componentId;
+  }
+
+  function bindTextRegion(slide, componentId, element, host, options) {
+    options = options || {};
+    var key = textRegionKey(slide.id, componentId);
+    var binding = {
+      key: key,
+      slideId: slide.id,
+      componentId: componentId,
+      element: element,
+      host: host || element,
+      minSize: options.minSize || 20,
+      fitMode: options.fitMode || "editable-text-region",
+      alwaysFit: options.alwaysFit === true,
+      fitRegistered: options.fitRegistered === true
+    };
+    binding.host.classList.add("editable-text-region");
+    binding.host.setAttribute("data-text-region-for", componentId);
+    textRegionBindings.set(key, binding);
+    requestAnimationFrame(function () {
+      if (textRegionBindings.get(key) !== binding || !binding.host.isConnected) return;
+      applyTextRegion(binding);
+    });
+    return binding.host;
+  }
+
+  function canvasScale(canvas) {
+    return {
+      x: canvas.clientWidth / CANONICAL_SLIDE_WIDTH,
+      y: canvas.clientHeight / CANONICAL_SLIDE_HEIGHT
+    };
+  }
+
+  function ensureTextRegionFit(binding) {
+    if (binding.fitRegistered) return;
+    binding.fitRegistered = true;
+    registerTextFit(binding.element, binding.host, {
+      mode: binding.fitMode,
+      minSize: binding.minSize
+    });
+  }
+
+  function applyTextRegion(binding) {
+    var canvas = binding.host.closest(".slide-canvas");
+    if (!canvas) return;
+    var component = effectiveComponent(state.slides[binding.slideId], binding.componentId);
+    var region = component.region;
+    if (!region) {
+      if (binding.alwaysFit) ensureTextRegionFit(binding);
+      return;
+    }
+    var scale = canvasScale(canvas);
+    binding.host.style.translate = (region.x * scale.x).toFixed(2) + "px " +
+      (region.y * scale.y).toFixed(2) + "px";
+    binding.host.style.width = (region.width * scale.x).toFixed(2) + "px";
+    binding.host.style.height = (region.height * scale.y).toFixed(2) + "px";
+    binding.host.classList.add("text-region-bounded");
+    ensureTextRegionFit(binding);
+    fitTextInRegion(binding.element, binding.host, {
+      mode: binding.fitMode,
+      minSize: binding.minSize
+    });
+  }
+
+  function applyAllTextRegions() {
+    textRegionBindings.forEach(function (binding) {
+      if (binding.host.isConnected) applyTextRegion(binding);
+    });
+  }
+
+  function currentTextRegionBinding() {
+    if (!selected || !editMode) return null;
+    var component = selectedComponent();
+    if (!component || component.kind !== "text") return null;
+    return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
+  }
+
+  function removeTextRegionFrame() {
+    if (textRegionFrame) textRegionFrame.remove();
+    textRegionFrame = null;
+  }
+
+  function regionFromBinding(binding) {
+    var canvas = binding.host.closest(".slide-canvas");
+    var scale = canvasScale(canvas);
+    var rect = binding.host.getBoundingClientRect();
+    var component = effectiveComponent(state.slides[binding.slideId], binding.componentId);
+    return component.region ? Object.assign({}, component.region) : {
+      x: 0,
+      y: 0,
+      width: rect.width / scale.x,
+      height: rect.height / scale.y
+    };
+  }
+
+  function syncTextRegionFrame() {
+    var binding = currentTextRegionBinding();
+    if (!binding || !binding.host.isConnected) {
+      removeTextRegionFrame();
+      return;
+    }
+    var canvas = binding.host.closest(".slide-canvas");
+    if (!canvas) return;
+    if (!textRegionFrame || textRegionFrame.parentElement !== canvas) {
+      removeTextRegionFrame();
+      textRegionFrame = document.createElement("div");
+      textRegionFrame.className = "text-region-frame";
+      textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
+      var move = document.createElement("button");
+      move.type = "button";
+      move.className = "text-region-move-handle";
+      move.setAttribute("aria-label", "Move text region");
+      move.title = "Drag to move this text region";
+      move.addEventListener("pointerdown", function (event) {
+        startTextRegionGesture("move", event);
+      });
+      var resize = document.createElement("button");
+      resize.type = "button";
+      resize.className = "text-region-resize-handle";
+      resize.setAttribute("aria-label", "Resize text region");
+      resize.title = "Drag to resize; text wraps and fits inside";
+      resize.addEventListener("pointerdown", function (event) {
+        startTextRegionGesture("resize", event);
+      });
+      textRegionFrame.appendChild(move);
+      textRegionFrame.appendChild(resize);
+      canvas.appendChild(textRegionFrame);
+    }
+    textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
+    var canvasRect = canvas.getBoundingClientRect();
+    var rect = binding.host.getBoundingClientRect();
+    textRegionFrame.style.left = (rect.left - canvasRect.left) + "px";
+    textRegionFrame.style.top = (rect.top - canvasRect.top) + "px";
+    textRegionFrame.style.width = rect.width + "px";
+    textRegionFrame.style.height = rect.height + "px";
+  }
+
+  function startTextRegionGesture(kind, event) {
+    var binding = currentTextRegionBinding();
+    if (!binding) return;
+    event.preventDefault();
+    event.stopPropagation();
+    var canvas = binding.host.closest(".slide-canvas");
+    var canvasRect = canvas.getBoundingClientRect();
+    var hostRect = binding.host.getBoundingClientRect();
+    beginChange();
+    regionGesture = {
+      kind: kind,
+      binding: binding,
+      canvas: canvas,
+      canvasRect: canvasRect,
+      hostRect: hostRect,
+      startX: event.clientX,
+      startY: event.clientY,
+      region: regionFromBinding(binding)
+    };
+    document.body.classList.add(kind === "move" ? "moving-text-region" : "resizing-text-region");
+    document.addEventListener("pointermove", moveTextRegionGesture);
+    document.addEventListener("pointerup", finishTextRegionGesture, {once: true});
+    document.addEventListener("pointercancel", finishTextRegionGesture, {once: true});
+  }
+
+  function moveTextRegionGesture(event) {
+    if (!regionGesture) return;
+    event.preventDefault();
+    var gesture = regionGesture;
+    var scale = canvasScale(gesture.canvas);
+    var dx = event.clientX - gesture.startX;
+    var dy = event.clientY - gesture.startY;
+    var next = Object.assign({}, gesture.region);
+    if (gesture.kind === "move") {
+      dx = Math.max(gesture.canvasRect.left - gesture.hostRect.left,
+        Math.min(gesture.canvasRect.right - gesture.hostRect.right, dx));
+      dy = Math.max(gesture.canvasRect.top - gesture.hostRect.top,
+        Math.min(gesture.canvasRect.bottom - gesture.hostRect.bottom, dy));
+      next.x = gesture.region.x + dx / scale.x;
+      next.y = gesture.region.y + dy / scale.y;
+    } else {
+      var maxWidth = gesture.canvasRect.right - gesture.hostRect.left;
+      var maxHeight = gesture.canvasRect.bottom - gesture.hostRect.top;
+      next.width = Math.max(48, Math.min(maxWidth / scale.x,
+        gesture.region.width + dx / scale.x));
+      next.height = Math.max(28, Math.min(maxHeight / scale.y,
+        gesture.region.height + dy / scale.y));
+    }
+    next = {
+      x: Math.round(next.x * 10) / 10,
+      y: Math.round(next.y * 10) / 10,
+      width: Math.round(next.width * 10) / 10,
+      height: Math.round(next.height * 10) / 10
+    };
+    updateOverlay(gesture.binding.slideId, gesture.binding.componentId, "region", next);
+    applyTextRegion(gesture.binding);
+    syncTextRegionFrame();
+  }
+
+  function finishTextRegionGesture() {
+    document.removeEventListener("pointermove", moveTextRegionGesture);
+    document.removeEventListener("pointerup", finishTextRegionGesture);
+    document.removeEventListener("pointercancel", finishTextRegionGesture);
+    document.body.classList.remove("moving-text-region");
+    document.body.classList.remove("resizing-text-region");
+    if (!regionGesture) return;
+    regionGesture = null;
+    persist();
+  }
+
   function effectiveHeadline(slide) {
     return effectiveComponent(slide, slide.headline).text;
   }
@@ -453,7 +669,11 @@
       var caption = editableText(slide, component.caption, "figcaption", "gallery-cell-caption");
       captionFrame.appendChild(caption);
       cell.appendChild(captionFrame);
-      registerTextFit(caption, captionFrame, {mode: "gallery-caption-region", minSize: 12});
+      bindTextRegion(slide, component.caption, caption, captionFrame, {
+        alwaysFit: true,
+        fitMode: "gallery-caption-region",
+        minSize: 12
+      });
     }
     cell.addEventListener("click", function (event) {
       if (!editMode) return;
@@ -478,6 +698,7 @@
   var renderRecipe = window.createScientificSlideRecipes({
     svgElement: svgElement,
     editableText: editableText,
+    bindTextRegion: bindTextRegion,
     galleryImage: galleryImage,
     effectiveComponent: effectiveComponent,
     fitTextInRegion: registerTextFit,
@@ -490,12 +711,26 @@
     currentId = state.order[index];
     var slide = currentSlide();
     clearFitObservers();
+    removeTextRegionFrame();
+    textRegionBindings.clear();
     stage.textContent = "";
     var canvas = slideShell(slide);
     renderRecipe[slide.recipe](canvas, slide);
     addFooter(canvas, slide);
     stage.appendChild(canvas);
     stage.classList.toggle("edit-mode", editMode);
+    applyAllTextRegions();
+    if (window.ResizeObserver) {
+      var canvasObserver = new ResizeObserver(function () {
+        requestAnimationFrame(function () {
+          if (!canvas.isConnected) return;
+          applyAllTextRegions();
+          syncTextRegionFrame();
+        });
+      });
+      canvasObserver.observe(canvas);
+      fitObservers.push(canvasObserver);
+    }
     position.textContent = (index + 1) + " / " + state.order.length;
     document.querySelector("[data-prev]").disabled = index === 0;
     document.querySelector("[data-next]").disabled = index === state.order.length - 1;
@@ -503,6 +738,7 @@
       var element = stage.querySelector('[data-component-id="' + selected.componentId + '"]');
       if (element) element.classList.add("selected-component");
     }
+    requestAnimationFrame(syncTextRegionFrame);
   }
 
   function renderThumbs() {
@@ -564,7 +800,8 @@
     document.querySelectorAll("[data-font-delta], [data-color]").forEach(function (button) { button.disabled = !textSelected; });
     document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
     document.querySelector("[data-reset-component]").disabled = !(editMode && component);
-    selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId : "Select a component in edit mode";
+    selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId +
+      (textSelected ? " · drag top edge · resize corner" : "") : "Select a component in edit mode";
   }
 
   function render() {
@@ -581,6 +818,7 @@
     stage.querySelectorAll(".selected-component").forEach(function (node) { node.classList.remove("selected-component"); });
     if (element) element.classList.add("selected-component");
     renderTools();
+    requestAnimationFrame(syncTextRegionFrame);
   }
 
   function mutateOrder(id, delta) {

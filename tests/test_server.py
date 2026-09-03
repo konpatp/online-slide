@@ -82,7 +82,11 @@ class ServerProtocolTests(unittest.TestCase):
         changed["order"] = list(reversed(changed["order"]))
         changed["overlays"] = {
             "mock-growth-trajectories": {
-                "headline": {"text": "Edited through a semantic overlay", "fontScale": 0.9}
+                "headline": {
+                    "text": "Edited through a semantic overlay",
+                    "fontScale": 0.9,
+                    "region": {"x": 80, "y": 24, "width": 1380, "height": 140},
+                }
             }
         }
         status, saved = self.post("/api/deck-state", {
@@ -103,6 +107,23 @@ class ServerProtocolTests(unittest.TestCase):
                 "snapshot": changed,
             })
         self.assertEqual(conflict.exception.code, 409)
+
+    def test_invalid_or_non_text_region_is_rejected(self):
+        _, state = self.get("/api/deck-state")
+        changed = self.mutable_snapshot(state)
+        changed["overlays"] = {
+            "mock-growth-trajectories": {
+                "headline": {"region": {"x": 0, "y": 0, "width": 10, "height": 80}}
+            }
+        }
+        with self.assertRaises(HTTPError) as error:
+            self.post("/api/deck-state", {
+                "baseRevision": state["revision"],
+                "baseSourceRevision": state["sourceRevision"],
+                "snapshot": changed,
+            })
+        self.assertEqual(error.exception.code, 400)
+        self.assertIn("region overlay is invalid", json.loads(error.exception.read())["error"])
 
     def test_unknown_component_cannot_be_saved(self):
         _, state = self.get("/api/deck-state")

@@ -50,6 +50,34 @@ class SlideKitContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "bounded percentage box"):
             validate_slide_spec(geometry)
 
+    def test_text_regions_are_explicit_bounded_semantic_geometry(self):
+        slide = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
+        slide["components"]["remove-label"]["region"] = {
+            "x": 40, "y": -20, "width": 540, "height": 96,
+        }
+        validate_slide_spec(slide)
+        slide["components"]["remove-label"]["region"]["width"] = 12
+        with self.assertRaisesRegex(ContractError, "invalid region"):
+            validate_slide_spec(slide)
+
+    def test_human_text_region_survives_an_unrelated_source_insertion(self):
+        state = self.initial_state()
+        region = {"x": 120, "y": 36, "width": 480, "height": 112}
+        state["overlays"] = {
+            "mock-guidance-vector-geometry": {"remove-label": {"region": region}}
+        }
+        changed_catalog = copy.deepcopy(self.catalog)
+        geometry = changed_catalog["mock-guidance-vector-geometry"]
+        geometry["components"] = {
+            "unrelated-label": {"kind": "text", "text": "new sibling", "role": "annotation"},
+            **geometry["components"],
+        }
+        reconciled, _ = reconcile_state(state, changed_catalog)
+        self.assertEqual(
+            reconciled["overlays"]["mock-guidance-vector-geometry"]["remove-label"]["region"],
+            region,
+        )
+
     def test_gallery_image_caption_is_an_independent_semantic_text_leaf(self):
         gallery = copy.deepcopy(self.catalog["mock-matched-gallery"])
         page_set = next(iter(gallery["data"]["pageSets"].values()))
