@@ -1,0 +1,54 @@
+{
+  "schema": "online-slide/slide@1",
+  "id": "mock-guidance-vector-geometry",
+  "recipe": "vector-geometry",
+  "createdAt": "2026-09-01T08:03:00Z",
+  "placement": {"after": "mock-vector-construction"},
+  "theme": {"accent": "#8458c7"},
+  "eyebrow": "eyebrow",
+  "headline": "headline",
+  "footer": "protocol",
+  "components": {
+    "eyebrow": {"kind": "text", "text": "RECIPE 04 · VECTOR GEOMETRY", "role": "eyebrow"},
+    "headline": {"kind": "text", "text": "Compare directions at one angle and one norm", "role": "headline"},
+    "base-label": {"kind": "text", "text": "B", "render": "latex", "role": "math"},
+    "raw-label": {"kind": "text", "text": "D_m", "render": "latex", "role": "math"},
+    "projection-label": {"kind": "text", "text": "\\operatorname{proj}_{B}(D_m)", "render": "latex", "role": "math"},
+    "tangent-label": {"kind": "text", "text": "\\widehat{G}_m", "render": "latex", "role": "math"},
+    "result-label": {"kind": "text", "text": "B_m(\\theta)", "render": "latex", "role": "math"},
+    "theta-label": {"kind": "text", "text": "\\theta", "render": "latex", "role": "math"},
+    "remove-label": {"kind": "text", "text": "remove parallel component", "role": "annotation"},
+    "equation-one": {"kind": "text", "text": "G_m = D_m - \\operatorname{proj}_{B}(D_m)", "render": "latex", "display": "block", "role": "equation"},
+    "equation-two": {"kind": "text", "text": "B_m(\\theta)=\\cos(\\theta)B+\\sin(\\theta)\\lVert B\\rVert\\widehat{G}_m", "render": "latex", "display": "block", "role": "equation"},
+    "equation-three": {"kind": "text", "text": "\\lVert B_m(\\theta)\\rVert=\\lVert B\\rVert", "render": "latex", "display": "block", "role": "equation"},
+    "protocol": {"kind": "text", "text": "JSXGraph coordinate plane · bounded equal-aspect geometry · KaTeX mathematics", "role": "protocol"}
+  },
+  "data": {
+    "bounds": [-1.2, 5.4, 8.5, -1.2],
+    "vectors": [
+      {"id": "base", "from": [0, 0], "to": [0, 4.15], "color": "#2f6fed", "width": 6},
+      {"id": "raw", "from": [0, 0], "to": [5.55, 2.15], "color": "#7d8999", "width": 5},
+      {"id": "tangent", "from": [0, 2.15], "to": [5.55, 2.15], "color": "#0f9d78", "width": 6},
+      {"id": "result", "from": [0, 0], "to": [2.38, 3.40], "color": "#8458c7", "width": 7}
+    ],
+    "segments": [
+      {"id": "projection", "from": [0, 0], "to": [0, 2.15], "color": "#9aa5b5", "width": 4, "dash": true},
+      {"id": "right-angle-a", "from": [0, 2.15], "to": [0.28, 2.15], "color": "#9aa5b5", "width": 3},
+      {"id": "right-angle-b", "from": [0.28, 2.15], "to": [0.28, 1.87], "color": "#9aa5b5", "width": 3}
+    ],
+    "arcs": [
+      {"id": "theta-arc", "center": [0, 0], "radius": 1.15, "startDeg": 55, "endDeg": 90, "color": "#8458c7", "width": 4}
+    ],
+    "points": [{"id": "origin", "at": [0, 0], "color": "#14233b", "size": 3}],
+    "labels": [
+      {"component": "base-label", "x": 31, "y": 6},
+      {"component": "raw-label", "x": 68, "y": 57},
+      {"component": "projection-label", "x": 14, "y": 70, "anchorX": "0%"},
+      {"component": "tangent-label", "x": 68, "y": 43},
+      {"component": "result-label", "x": 46, "y": 19},
+      {"component": "theta-label", "x": 35, "y": 71},
+      {"component": "remove-label", "x": 4, "y": 50, "anchorX": "0%", "tone": "muted"}
+    ],
+    "equations": ["equation-one", "equation-two", "equation-three"]
+  }
+}

@@ -56,7 +56,7 @@ class ServerProtocolTests(unittest.TestCase):
         status, state = self.get("/api/deck-state")
         self.assertEqual(status, 200)
         self.assertEqual(state["schema"], "online-slide/state@2")
-        self.assertEqual(len(state["order"]), 4)
+        self.assertEqual(len(state["order"]), 5)
         self.assertEqual(set(state["slides"]), set(state["order"]))
         self.assertEqual(len(state["sourceRevision"]), 64)
         status, health = self.get("/api/health")

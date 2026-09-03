@@ -20,7 +20,29 @@ Primary references:
 - [JointJS link routing](https://docs.jointjs.com/learn/features/diagram-basics/links/)
 - [ELK.js repository](https://github.com/kieler/elkjs)
 
-## Gallery browsing: native scroll and local view state
+## Vector geometry: JSXGraph plus KaTeX
+
+Mechanism topology and mathematical geometry are different visual problems.
+JointJS remains the mechanism engine; vector-space slides use JSXGraph so
+arrows, projections, perpendicular components, arcs, and equal-aspect bounds
+live in a real coordinate system rather than an auto-layout graph. JSXGraph
+owns containment and mathematical construction. KaTeX owns every displayed
+formula and symbol, so slide authors never fake mathematics with Unicode or
+HTML spacing.
+
+This replaces the earlier attempt to express the Exp81 vector construction as
+a row of process boxes. A small native SVG layer could draw one such picture,
+but it would recreate coordinate transforms, aspect preservation, geometry
+primitives, and interaction already maintained upstream.
+
+Primary references:
+
+- [JSXGraph documentation](https://jsxgraph.org/docs/)
+- [JSXGraph Arrow](https://jsxgraph.org/docs/symbols/Arrow.html)
+- [JSXGraph source](https://github.com/jsxgraph/jsxgraph)
+- [KaTeX documentation](https://katex.org/docs/api)
+
+## Gallery browsing: native controls and local view state
 
 Swiper, Embla, and PhotoSwipe are mature choices for generic carousels and
 lightboxes. The scientific gallery's hard problem is different: several

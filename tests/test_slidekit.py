@@ -28,12 +28,23 @@ class SlideKitContractTests(unittest.TestCase):
         }, self.catalog)
         return state
 
-    def test_four_recipes_and_semantic_components_are_complete(self):
+    def test_five_recipes_and_semantic_components_are_complete(self):
         receipt = catalog_receipt(self.catalog)
-        self.assertEqual(receipt["slides"], 4)
+        self.assertEqual(receipt["slides"], 5)
         self.assertEqual(set(receipt["recipes"].values()), {1})
-        self.assertEqual(receipt["semanticComponentIds"], 94)
+        self.assertEqual(receipt["semanticComponentIds"], 107)
         self.assertEqual(receipt["positionalComponentIds"], 0)
+
+    def test_vector_geometry_requires_latex_equations_and_bounded_labels(self):
+        geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
+        validate_slide_spec(geometry)
+        geometry["components"]["equation-one"].pop("render")
+        with self.assertRaisesRegex(ContractError, "must use LaTeX"):
+            validate_slide_spec(geometry)
+        geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
+        geometry["data"]["labels"][0]["x"] = 101
+        with self.assertRaisesRegex(ContractError, "bounded percentage"):
+            validate_slide_spec(geometry)
 
     def test_gallery_image_caption_is_an_independent_semantic_text_leaf(self):
         gallery = copy.deepcopy(self.catalog["mock-matched-gallery"])
@@ -67,7 +78,8 @@ class SlideKitContractTests(unittest.TestCase):
     def test_human_order_and_edit_survive_unrelated_source_insertions(self):
         state = self.initial_state()
         state["order"] = ["mock-matched-gallery", "mock-growth-trajectories",
-                          "mock-angle-evidence", "mock-vector-construction"]
+                          "mock-angle-evidence", "mock-vector-construction",
+                          "mock-guidance-vector-geometry"]
         state["hidden"] = ["mock-angle-evidence"]
         state["overlays"] = {"mock-growth-trajectories": {"headline": {"text": "Human-authored headline"}}}
         changed_catalog = copy.deepcopy(self.catalog)
@@ -130,7 +142,8 @@ class SlideKitContractTests(unittest.TestCase):
         }, catalog)
         self.assertEqual(state["order"], [
             "mock-growth-trajectories", "mock-angle-evidence",
-            "mock-vector-construction", "mock-matched-gallery",
+            "mock-vector-construction", "mock-guidance-vector-geometry",
+            "mock-matched-gallery",
         ])
         catalog["mock-growth-trajectories"]["placement"] = {"after": "mock-matched-gallery"}
         with self.assertRaisesRegex(ContractError, "placement graph contains a cycle"):

@@ -35,6 +35,14 @@ def validate(root: Path) -> dict:
         findings.append("gallery renderer must enforce object-fit: contain")
     if not (root / "public" / "joint-diagram.js").is_file():
         findings.append("mechanism pipeline requires the pinned JointJS browser bundle")
+    for artifact in ("geometry-runtime.js", "geometry-runtime.css"):
+        if not (root / "public" / artifact).is_file():
+            findings.append(f"vector geometry requires the pinned {artifact} bundle")
+    if ".slide-canvas::before" in css:
+        findings.append("decorative slide accent rails are not part of the default theme")
+    gallery_rule = css.split(".gallery-cell {", 1)[-1].split("}", 1)[0]
+    if "border: 0" not in gallery_rule:
+        findings.append("gallery evidence cells must be borderless by default")
     receipt = catalog_receipt(catalog)
     receipt.update({
         "elapsedMs": round((time.perf_counter() - started) * 1000, 2),

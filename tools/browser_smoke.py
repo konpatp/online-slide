@@ -27,6 +27,7 @@ SLIDES = [
     "mock-growth-trajectories",
     "mock-angle-evidence",
     "mock-vector-construction",
+    "mock-guidance-vector-geometry",
     "mock-matched-gallery",
 ]
 
@@ -212,10 +213,35 @@ def main() -> int:
                             findings.append("gallery image element overflows its evidence cell")
                         if clean.locator(".hierarchical-gallery-grid .gallery-cell").count() != 9:
                             findings.append("gallery must show three large rows by three conditions")
+                        borders = clean.locator(".gallery-cell").evaluate_all(
+                            "nodes => nodes.map(n => getComputedStyle(n).borderStyle)"
+                        )
+                        if set(borders) != {"none"}:
+                            findings.append("gallery evidence cells must be borderless")
                     if slide_id == "mock-vector-construction":
                         engine = clean.locator(".joint-paper").get_attribute("data-diagram-engine")
                         if engine != "jointjs-directed-graph":
                             findings.append("mechanism slide did not use the JointJS layout runtime")
+                        graph_bounds = clean.evaluate("""() => {
+                          const host = document.querySelector('.joint-paper').getBoundingClientRect();
+                          const cells = [...document.querySelectorAll('.joint-paper .joint-cell')]
+                            .map(node => node.getBoundingClientRect()).filter(box => box.width && box.height);
+                          return cells.filter(box => box.left < host.left - 1 || box.top < host.top - 1 ||
+                            box.right > host.right + 1 || box.bottom > host.bottom + 1).length;
+                        }""")
+                        if graph_bounds:
+                            findings.append("JointJS graph was not centered and contained")
+                    if slide_id == "mock-guidance-vector-geometry":
+                        if clean.locator(".jsxgraph-host").get_attribute("data-geometry-engine") != "jsxgraph":
+                            findings.append("vector slide did not use JSXGraph")
+                        if clean.locator('[data-math-engine="katex"]').count() < 8:
+                            findings.append("vector geometry mathematics did not render through KaTeX")
+                    accent_rail = clean.evaluate("""() => {
+                      const style = getComputedStyle(document.querySelector('.slide-canvas'), '::before');
+                      return style.content !== 'none' && style.content !== 'normal';
+                    }""")
+                    if accent_rail:
+                        findings.append(f"{slide_id}: decorative accent rail returned")
                     clean.close()
                 browser.close()
         finally:
@@ -238,8 +264,11 @@ def main() -> int:
             "external image drop persists by content hash",
             "hierarchical gallery facets, metric, and page survive slide navigation",
             "JointJS node drag physically reroutes its semantic connector",
+            "JointJS and JSXGraph compositions remain centered and contained",
             "all semantic components remain inside the 16:9 canvas",
             "gallery images use object-fit: contain",
+            "gallery evidence cells are borderless",
+            "all vector geometry mathematics renders through KaTeX",
         ],
         "findings": findings,
     }

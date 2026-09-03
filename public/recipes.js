@@ -154,6 +154,37 @@
       });
     }
 
+    function vectorGeometry(canvas, slide) {
+      var body = document.createElement("div");
+      body.className = "recipe-body vector-geometry-body";
+      var plane = document.createElement("div");
+      plane.className = "vector-geometry-plane";
+      var board = document.createElement("div");
+      board.className = "jsxgraph-host";
+      board.id = "jsxgraph-" + slide.id;
+      plane.appendChild(board);
+      (slide.data.labels || []).forEach(function (label) {
+        var node = editableText(slide, label.component, "div", "vector-label" + (label.tone ? " tone-" + label.tone : ""));
+        node.style.left = label.x + "%";
+        node.style.top = label.y + "%";
+        node.style.setProperty("--label-anchor-x", label.anchorX || "-50%");
+        node.style.setProperty("--label-anchor-y", label.anchorY || "-50%");
+        plane.appendChild(node);
+      });
+      body.appendChild(plane);
+      var equations = document.createElement("div");
+      equations.className = "vector-equations";
+      (slide.data.equations || []).forEach(function (componentId) {
+        equations.appendChild(editableText(slide, componentId, "div", "vector-equation"));
+      });
+      body.appendChild(equations);
+      canvas.appendChild(body);
+      if (!window.ScientificGeometryRuntime) throw new Error("JSXGraph geometry runtime is missing");
+      requestAnimationFrame(function () {
+        window.ScientificGeometryRuntime.renderVectorPlane(board, slide.data);
+      });
+    }
+
     function hierarchicalGallery(canvas, slide) {
       var body = document.createElement("div");
       body.className = "recipe-body hierarchical-gallery-body";
@@ -256,6 +287,7 @@
       "hero-plot": heroPlot,
       "evidence-table": evidenceTable,
       "mechanism-pipeline": mechanismPipeline,
+      "vector-geometry": vectorGeometry,
       "hierarchical-gallery": hierarchicalGallery
     };
   };

@@ -17,7 +17,10 @@ from typing import Any, Iterable
 
 SLIDE_SCHEMA = "online-slide/slide@1"
 STATE_SCHEMA = "online-slide/state@2"
-RECIPES = {"hero-plot", "evidence-table", "mechanism-pipeline", "hierarchical-gallery"}
+RECIPES = {
+    "hero-plot", "evidence-table", "mechanism-pipeline",
+    "vector-geometry", "hierarchical-gallery",
+}
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -73,6 +76,12 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         if kind == "text":
             _require(isinstance(component.get("text"), str),
                      f"{source}: text component {component_id!r} needs text")
+            render = component.get("render", "plain")
+            _require(render in {"plain", "latex"},
+                     f"{source}: text component {component_id!r} has invalid renderer")
+            if component.get("role") in {"math", "formula", "equation"}:
+                _require(render == "latex",
+                         f"{source}: mathematical component {component_id!r} must use LaTeX")
         else:
             _require(isinstance(component.get("src"), str) and component["src"],
                      f"{source}: image component {component_id!r} needs src")
@@ -163,6 +172,46 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                      f"{source}: edge {index} must reference nodes")
             if edge.get("label") is not None:
                 ref(edge["label"], f"edges[{index}].label")
+    elif recipe == "vector-geometry":
+        bounds = data.get("bounds")
+        _require(isinstance(bounds, list) and len(bounds) == 4 and
+                 all(isinstance(value, (int, float)) for value in bounds) and
+                 bounds[0] < bounds[2] and bounds[3] < bounds[1],
+                 f"{source}: vector geometry needs [left, top, right, bottom] bounds")
+        vectors = data.get("vectors")
+        _require(isinstance(vectors, list) and vectors,
+                 f"{source}: vector geometry needs vectors")
+        for collection_name in ("vectors", "segments"):
+            for index, item in enumerate(data.get(collection_name, [])):
+                _require(isinstance(item, dict),
+                         f"{source}: {collection_name}[{index}] must be an object")
+                for endpoint in ("from", "to"):
+                    point = item.get(endpoint)
+                    _require(isinstance(point, list) and len(point) == 2 and
+                             all(isinstance(value, (int, float)) for value in point),
+                             f"{source}: {collection_name}[{index}].{endpoint} must be [x,y]")
+                _require(HEX_COLOR.fullmatch(str(item.get("color", ""))) is not None,
+                         f"{source}: {collection_name}[{index}] needs a hex color")
+        for index, arc in enumerate(data.get("arcs", [])):
+            _require(isinstance(arc, dict) and
+                     isinstance(arc.get("center"), list) and len(arc["center"]) == 2 and
+                     isinstance(arc.get("radius"), (int, float)) and arc["radius"] > 0 and
+                     isinstance(arc.get("startDeg"), (int, float)) and
+                     isinstance(arc.get("endDeg"), (int, float)),
+                     f"{source}: arcs[{index}] is invalid")
+        for index, label in enumerate(data.get("labels", [])):
+            _require(isinstance(label, dict) and
+                     isinstance(label.get("x"), (int, float)) and 0 <= label["x"] <= 100 and
+                     isinstance(label.get("y"), (int, float)) and 0 <= label["y"] <= 100,
+                     f"{source}: labels[{index}] needs bounded percentage coordinates")
+            ref(label.get("component"), f"labels[{index}].component")
+        equations = data.get("equations", [])
+        _require(isinstance(equations, list), f"{source}: equations must be a list")
+        for index, component_id in enumerate(equations):
+            ref(component_id, f"equations[{index}]")
+            component = components.get(component_id, {})
+            _require(component.get("kind") == "text" and component.get("render") == "latex",
+                     f"{source}: equations[{index}] must reference a LaTeX text component")
     else:
         columns = data.get("columns")
         selectors = data.get("selectors")

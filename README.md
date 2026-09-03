@@ -23,8 +23,9 @@ cd online-slide
 python3 server.py --host 127.0.0.1 --port 8000
 ```
 
-The compiled JointJS diagram runtime is committed, so viewing and editing do
-not require Node. To change that runtime, run `npm ci && npm run build:diagram`.
+The compiled JointJS, JSXGraph, and KaTeX runtimes are committed, so viewing
+and editing do not require Node. To change them, run
+`npm ci && npm run build:diagram`.
 
 Open <http://127.0.0.1:8000/>. Enable edit mode to:
 
@@ -39,7 +40,7 @@ Use `?present=1#slide-id` for an exact 16:9 presentation surface, for example:
 
 <http://127.0.0.1:8000/?present=1#mock-growth-trajectories>
 
-## Four canonical recipes
+## Five canonical recipes
 
 Each file in [`slides/`](slides/) is independently authored and has a permanent
 slide id plus stable semantic component ids.
@@ -49,6 +50,7 @@ slide id plus stable semantic component ids.
 | `hero-plot` | Multi-series line plot with an incomplete trace | Axes, ticks, grid, legend, line endpoints, protocol strip |
 | `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing |
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
+| `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors and arcs, KaTeX labels and equations |
 | `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, three large rows, persistent view state, non-cropping image slots |
 
 The source gives scientific intent and data. The recipe owns repeated spatial
@@ -100,7 +102,7 @@ completes in milliseconds.
 
 The optional browser acceptance gate requires Playwright and exercises actual
 click/type/format/save/reload, slide ordering, external image drop, semantic
-overlay persistence, component geometry, and four 1920×1080 captures:
+overlay persistence, component geometry, and five 1920×1080 captures:
 
 ```bash
 ONLINE_SLIDE_BROWSER_CHECK=1 ./scripts/test.sh
@@ -129,5 +131,5 @@ human owns the accepted order.
 This is a deliberately small reference implementation, not a hosted
 multi-tenant service. Add authentication, authorization, durable object
 storage, and production observability before exposing it outside a trusted
-environment. The application shell remains framework-free; only the mature
-diagram engine is bundled behind one narrow recipe boundary.
+environment. The application shell remains framework-free; mature diagram,
+geometry, and math engines are bundled behind narrow recipe boundaries.

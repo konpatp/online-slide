@@ -73,9 +73,21 @@ function renderPipeline(host, spec, options = {}) {
   graph.getLinks().forEach((link) => link.vertices([]));
 
   const bounds = graph.getCellsBBox(graph.getElements());
-  const offsetX = Math.max(20, (width - bounds.width) / 2 - bounds.x);
-  const offsetY = Math.max(20, (height - bounds.height) / 2 - bounds.y);
-  graph.getElements().forEach((element) => element.translate(offsetX, offsetY));
+  const paddingX = 54;
+  const paddingY = 42;
+  const scale = Math.min(
+    1,
+    (width - paddingX * 2) / bounds.width,
+    (height - paddingY * 2) / bounds.height,
+  );
+  graph.getElements().forEach((element) => {
+    const box = element.getBBox();
+    element.resize(box.width * scale, box.height * scale);
+    element.position(
+      (box.x - bounds.x) * scale + (width - bounds.width * scale) / 2,
+      (box.y - bounds.y) * scale + (height - bounds.height * scale) / 2,
+    );
+  });
 
   const paper = new dia.Paper({
     el: host,
@@ -106,6 +118,7 @@ function renderPipeline(host, spec, options = {}) {
   requestAnimationFrame(publishPositions);
 
   host.dataset.diagramEngine = "jointjs-directed-graph";
+  host.dataset.diagramScale = scale.toFixed(4);
   host.dataset.diagramNodes = String(spec.nodes.length);
   host.dataset.diagramEdges = String(spec.edges.length);
   return { graph, paper, publishPositions };

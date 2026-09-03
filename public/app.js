@@ -174,11 +174,18 @@
     var component = effectiveComponent(slide, componentId);
     var element = document.createElement(tag || "div");
     element.className = (className || "") + " semantic-component";
-    element.textContent = component.text;
+    var isLatex = component.render === "latex";
+    if (isLatex) {
+      if (!window.ScientificMathRuntime) throw new Error("KaTeX math runtime is missing");
+      window.ScientificMathRuntime.renderLatex(element, component.text, {displayMode: component.display === "block"});
+      element.setAttribute("data-latex-source", component.text);
+    } else {
+      element.textContent = component.text;
+    }
     element.setAttribute("data-component-id", componentId);
     element.setAttribute("data-component-kind", "text");
     element.setAttribute("aria-label", component.role || componentId);
-    element.contentEditable = editMode ? "true" : "false";
+    element.contentEditable = editMode && !isLatex ? "true" : "false";
     applyComponentStyle(element, component);
     element.addEventListener("click", function (event) {
       if (!editMode) return;
@@ -186,11 +193,21 @@
       selectComponent(slide.id, componentId, element);
     });
     element.addEventListener("input", function () {
-      if (!editMode) return;
+      if (!editMode || isLatex) return;
       updateOverlay(slide.id, componentId, "text", element.textContent.trim());
       beginChange();
       clearTimeout(inputTimer);
       inputTimer = setTimeout(persist, 260);
+    });
+    element.addEventListener("dblclick", function (event) {
+      if (!editMode || !isLatex) return;
+      event.stopPropagation();
+      var source = window.prompt("Edit LaTeX", effectiveComponent(slide, componentId).text);
+      if (source === null) return;
+      beginChange();
+      updateOverlay(slide.id, componentId, "text", source.trim());
+      render();
+      persist();
     });
     return element;
   }
