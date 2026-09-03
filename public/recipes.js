@@ -143,7 +143,9 @@
             return;
           }
           var minWidth = Math.max(154, Math.min(220, planeWidth * .13));
-          var maxWidth = Math.max(minWidth, Math.min(340, planeWidth * .24));
+          var detail = node.detail && slide.components[node.detail];
+          var mathDetail = detail && detail.render === "latex";
+          var maxWidth = Math.max(minWidth, Math.min(mathDetail ? 380 : 340, planeWidth * .27));
           block.style.setProperty("--diagram-node-min-width", minWidth + "px");
           block.style.setProperty("--diagram-node-max-width", maxWidth + "px");
           block.classList.add("diagram-node-measuring");
@@ -197,12 +199,12 @@
           }, 40);
         }
         plane.addEventListener("input", scheduleReflow);
-        // One settled pass absorbs late font and KaTeX metrics without asking
-        // authors to nudge boxes after content hydration.
-        setTimeout(scheduleReflow, 80);
-        if (document.fonts && document.fonts.ready) {
-          document.fonts.ready.then(scheduleReflow);
-        }
+        // One immediate settled pass absorbs final wrapping and KaTeX metrics
+        // before the diagram becomes interactive; no timer may later undo a
+        // curator drag.
+        requestAnimationFrame(function () {
+          if (plane.isConnected) diagram.resizeNodes(measureNodes());
+        });
         if (window.ResizeObserver) {
           var observer = new ResizeObserver(function () {
             if (!plane.isConnected) {
