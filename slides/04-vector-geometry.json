@@ -21,18 +21,18 @@
     "equation-one": {"kind": "text", "text": "G_m = D_m - \\operatorname{proj}_{B}(D_m)", "render": "latex", "display": "block", "role": "equation"},
     "equation-two": {"kind": "text", "text": "B_m(\\theta)=\\cos(\\theta)B+\\sin(\\theta)\\lVert B\\rVert\\widehat{G}_m", "render": "latex", "display": "block", "role": "equation"},
     "equation-three": {"kind": "text", "text": "\\lVert B_m(\\theta)\\rVert=\\lVert B\\rVert", "render": "latex", "display": "block", "role": "equation"},
-    "protocol": {"kind": "text", "text": "JSXGraph coordinate plane · bounded equal-aspect geometry · KaTeX mathematics", "role": "protocol"}
+    "protocol": {"kind": "text", "text": "Edit mode · select a vector · drag either endpoint to change length or angle · drag the square center handle to move it", "role": "protocol"}
   },
   "data": {
     "bounds": [-1.2, 5.4, 8.5, -1.2],
     "vectors": [
-      {"id": "base", "from": [0, 0], "to": [0, 4.15], "color": "#2f6fed", "width": 6},
-      {"id": "raw", "from": [0, 0], "to": [5.55, 2.15], "color": "#7d8999", "width": 5},
-      {"id": "tangent", "from": [0, 2.15], "to": [5.55, 2.15], "color": "#0f9d78", "width": 6},
-      {"id": "result", "from": [0, 0], "to": [2.38, 3.40], "color": "#8458c7", "width": 7}
+      {"id": "base", "from": [0, 0], "to": [0, 4.15], "color": "#2f6fed", "width": 6, "editable": true},
+      {"id": "raw", "from": [0, 0], "to": [5.55, 2.15], "color": "#7d8999", "width": 5, "editable": true},
+      {"id": "tangent", "from": [0, 2.15], "to": [5.55, 2.15], "color": "#0f9d78", "width": 6, "editable": true},
+      {"id": "result", "from": [0, 0], "to": [2.38, 3.40], "color": "#8458c7", "width": 7, "editable": true}
     ],
     "segments": [
-      {"id": "projection", "from": [0, 0], "to": [0, 2.15], "color": "#9aa5b5", "width": 4, "dash": true},
+      {"id": "projection", "from": [0, 0], "to": [0, 2.15], "color": "#9aa5b5", "width": 4, "dash": true, "editable": true},
       {"id": "right-angle-a", "from": [0, 2.15], "to": [0.28, 2.15], "color": "#9aa5b5", "width": 3},
       {"id": "right-angle-b", "from": [0.28, 2.15], "to": [0.28, 1.87], "color": "#9aa5b5", "width": 3}
     ],

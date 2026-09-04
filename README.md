@@ -10,8 +10,8 @@ The pilot answers four practical questions with working code:
    slide geometry from scratch?
 2. Can contributors add independent slide files without editing one shared
    deck source or order file?
-3. Can human order, visibility, text formatting, and image replacement survive
-   source rebuilds?
+3. Can human order, visibility, text formatting, table structure, and semantic
+   diagram geometry survive source rebuilds?
 4. Can the common validation path remain nearly instantaneous while a real
    1920×1080 browser check is reserved for acceptance?
 
@@ -32,6 +32,11 @@ Open <http://127.0.0.1:8000/>. Enable edit mode to:
 - edit any semantic text leaf directly;
 - edit evidence tables structurally: add, remove, and reorder rows/columns,
   resize columns, move cell-to-cell with Tab, and paste TSV blocks;
+- move and resize process-diagram nodes; node text wraps and fits inside the
+  chosen box;
+- select a connector and add, move, or remove native bend points;
+- select an opted-in vector or segment, drag either endpoint to change its
+  length/rotation, or drag its square center handle to translate it;
 - drag the selected text region by its top edge and resize it from its corner;
 - change the selected leaf's font size or theme color;
 - reorder or hide slides without changing their source;
@@ -77,6 +82,14 @@ the entire content-aware row/column composition is fitted as one group in
 both editor and presentation views. Authors do not tune box dimensions. A
 deliberately fixed box must opt in with `"sizing": "fixed"` and positive
 `width` and `height` values.
+
+In edit mode, every process node and connector is also a native JointJS object.
+A border click selects the node; its corner handle resizes it, and its body
+moves it. Connector selection exposes JointJS vertex handles. Vector and
+segment source objects opt in with `"editable": true`; JSXGraph then exposes
+two circular endpoint handles plus one square translation handle. Text remains
+an independent semantic leaf and auto-fits within a resized node, so changing
+geometry never merges labels back into one opaque object.
 
 Parallel conceptual paths use `"layout": "lanes"`: each node declares a
 semantic `lane` and `step`, while the runtime owns sizing, aligned coordinates,
@@ -124,6 +137,8 @@ Human edits are stored against semantic targets such as:
 ```text
 mock-growth-trajectories @ headline
 mock-matched-gallery @ image-01-a
+mock-vector-construction @ teacher-node
+mock-guidance-vector-geometry @ raw
 ```
 
 The server checks both the mutable state revision and a hash of the complete
@@ -138,10 +153,13 @@ cells are table-owned semantic text components. The server validates the
 complete rectangular model, uniqueness, widths, and every component reference
 before an optimistic save becomes durable.
 
-Table-aware state uses `online-slide/state@3`. The server upgrades retained
-`state@2` order, visibility, and overlays in place by adding an empty table
-surface; an older client cannot submit a `state@2` snapshot after the upgrade
-and thereby erase table edits.
+Native-object-aware state uses `online-slide/state@4`. The server upgrades
+retained `state@2`/`state@3` order, visibility, overlays, and tables in place by
+adding an empty semantic-object surface; an older client cannot submit an old
+snapshot after the upgrade and thereby erase visual edits. Diagram positions
+are normalized to the recipe plane, while vector endpoints remain in the
+authored coordinate plane. Removing or changing the kind of an edited object
+fails closed.
 
 ## Fast path and browser acceptance
 
@@ -160,16 +178,17 @@ a machine-readable receipt and completes in milliseconds.
 The optional browser acceptance gate requires Playwright and exercises actual
 click/type/format/save/reload, slide ordering, external image drop, semantic
 overlay persistence, editor-mode KaTeX hydration, fullscreen entry/exit,
-component geometry, native table structure, and six 1920×1080 captures:
+component geometry, native table structure, node move/resize, connector bend
+editing, vector endpoint/translation handles, and six 1920×1080 captures:
 
 ```bash
 ONLINE_SLIDE_BROWSER_CHECK=1 ./scripts/test.sh
 ```
 
 It writes captures and `receipt.json` under `artifacts/browser-smoke/`, which is
-ignored by Git. The browser gate also physically drags a JointJS node and proves
-that its connector reroutes, then leaves and re-enters the gallery to prove its
-selection and page return intact.
+ignored by Git. The gate saves each native geometry edit, reloads it, inserts or
+reorders an unrelated source sibling, and proves that the edit remains attached
+to the same semantic object.
 
 ## Add a slide independently
 

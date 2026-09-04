@@ -12,6 +12,10 @@
     var startTableColumnResize = api.startTableColumnResize;
     var fitTextInRegion = api.fitTextInRegion;
     var fitGroupInRegion = api.fitGroupInRegion;
+    var objectsForSlide = api.objectsForSlide;
+    var selectedObjectId = api.selectedObjectId;
+    var selectVisualObject = api.selectVisualObject;
+    var updateVisualObject = api.updateVisualObject;
 
     function heroPlot(canvas, slide) {
       var data = slide.data;
@@ -226,6 +230,7 @@
       plane.className = "diagram-plane";
       var paperHost = document.createElement("div");
       paperHost.className = "joint-paper";
+      if (api.isEditMode()) paperHost.addEventListener("click", function (event) { event.stopPropagation(); });
       plane.appendChild(paperHost);
       var nodeLabels = {};
       var edgeLabels = {};
@@ -233,10 +238,21 @@
         var block = document.createElement("div");
         block.className = "diagram-node-copy tone-" + (node.tone || "quiet");
         block.setAttribute("data-diagram-node-id", node.id);
-        block.appendChild(editableText(slide, node.label, "div", "node-label"));
-        if (node.detail) block.appendChild(editableText(slide, node.detail, "div", "node-detail"));
+        var content = document.createElement("div");
+        content.className = "diagram-node-content";
+        content.appendChild(editableText(slide, node.label, "div", "node-label"));
+        if (node.detail) content.appendChild(editableText(slide, node.detail, "div", "node-detail"));
+        block.appendChild(content);
         nodeLabels[node.id] = block;
         plane.appendChild(block);
+        fitGroupInRegion(content, block, {
+          mode: "diagram-node-region",
+          property: "--diagram-node-fit-scale",
+          minScale: .35,
+          maxScale: 1,
+          contentSelector: ".node-label, .node-detail",
+          tolerance: 2
+        });
       });
       slide.data.edges.forEach(function (edge) {
         if (!edge.label) return;
@@ -287,7 +303,7 @@
             // Keep one text-line rounding gutter after scaling. Chromium's
             // line boxes can gain 1–3 px when the fitted group is painted at
             // a fractional scale even though intrinsic measurement is exact.
-            height: Math.ceil(Math.max(96, measuredHeight + 16))
+            height: Math.ceil(Math.max(112, measuredHeight + 36))
           };
           block.classList.remove("diagram-node-measuring");
         });
@@ -304,15 +320,22 @@
         });
         var diagram = window.ScientificDiagramRuntime.renderPipeline(paperHost, runtimeData, {
           interactive: api.isEditMode(),
+          objects: objectsForSlide(slide),
+          selectedId: selectedObjectId(slide),
+          onSelect: function (kind, id) {
+            selectVisualObject(slide.id, id, kind);
+          },
+          onObjectChange: function (kind, id, geometry, commit) {
+            updateVisualObject(slide.id, id, kind, geometry, commit);
+          },
           onNodePosition: function (id, box, size) {
             var node = nodeLabels[id];
             if (!node) return;
-            var fitScale = size.scale || 1;
             node.style.left = (box.x / size.width * 100) + "%";
             node.style.top = (box.y / size.height * 100) + "%";
-            node.style.width = (box.width / fitScale / size.width * 100) + "%";
-            node.style.height = (box.height / fitScale / size.height * 100) + "%";
-            node.style.transform = "scale(" + fitScale + ")";
+            node.style.width = (box.width / size.width * 100) + "%";
+            node.style.height = (box.height / size.height * 100) + "%";
+            node.style.transform = "none";
           },
           onEdgePosition: function (id, point, size) {
             var label = edgeLabels[id];
@@ -387,7 +410,17 @@
       canvas.appendChild(body);
       if (!window.ScientificGeometryRuntime) throw new Error("JSXGraph geometry runtime is missing");
       requestAnimationFrame(function () {
-        window.ScientificGeometryRuntime.renderVectorPlane(board, slide.data);
+        window.ScientificGeometryRuntime.renderVectorPlane(board, slide.data, {
+          interactive: api.isEditMode(),
+          objects: objectsForSlide(slide),
+          selectedId: selectedObjectId(slide),
+          onSelect: function (kind, id) {
+            selectVisualObject(slide.id, id, kind);
+          },
+          onObjectChange: function (kind, id, geometry, commit) {
+            updateVisualObject(slide.id, id, kind, geometry, commit);
+          }
+        });
       });
     }
 

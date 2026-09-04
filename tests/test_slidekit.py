@@ -24,7 +24,7 @@ class SlideKitContractTests(unittest.TestCase):
 
     def initial_state(self):
         state, _ = reconcile_state({
-            "schema": "online-slide/state@3", "revision": 0,
+            "schema": "online-slide/state@4", "revision": 0,
             "order": [], "hidden": [], "overlays": {}
         }, self.catalog)
         return state
@@ -35,6 +35,8 @@ class SlideKitContractTests(unittest.TestCase):
         self.assertEqual(set(receipt["recipes"].values()), {1})
         self.assertEqual(receipt["semanticComponentIds"], 126)
         self.assertEqual(receipt["positionalComponentIds"], 0)
+        self.assertEqual(receipt["semanticVisualObjectIds"], 17)
+        self.assertEqual(receipt["positionalVisualObjectIds"], 0)
 
     def test_state_v2_is_upgraded_but_an_old_client_cannot_erase_tables(self):
         upgraded, changed = reconcile_state({
@@ -42,12 +44,22 @@ class SlideKitContractTests(unittest.TestCase):
             "order": [], "hidden": [], "overlays": {},
         }, self.catalog)
         self.assertTrue(changed)
-        self.assertEqual(upgraded["schema"], "online-slide/state@3")
+        self.assertEqual(upgraded["schema"], "online-slide/state@4")
         self.assertEqual(upgraded["tables"], {})
+        self.assertEqual(upgraded["objects"], {})
         stale_client = dict(upgraded)
         stale_client["schema"] = "online-slide/state@2"
         with self.assertRaisesRegex(ContractError, "unsupported state schema"):
             validate_state_snapshot(stale_client, upgraded, self.catalog)
+
+    def test_state_v3_is_upgraded_without_losing_table_state(self):
+        prior = self.initial_state()
+        prior["schema"] = "online-slide/state@3"
+        prior.pop("objects")
+        upgraded, changed = reconcile_state(prior, self.catalog)
+        self.assertTrue(changed)
+        self.assertEqual(upgraded["schema"], "online-slide/state@4")
+        self.assertEqual(upgraded["objects"], {})
 
     def test_vector_geometry_requires_latex_equations_and_bounded_labels(self):
         geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
@@ -247,6 +259,61 @@ class SlideKitContractTests(unittest.TestCase):
         del diagram["data"]["nodes"][0]["lane"]
         with self.assertRaisesRegex(ContractError, "needs numeric lane and step"):
             validate_slide_spec(diagram)
+
+    def test_visual_geometry_survives_source_sibling_insertion_and_reorder(self):
+        state = self.initial_state()
+        state["objects"] = {
+            "mock-vector-construction": {
+                "teacher-node": {
+                    "kind": "diagram-node", "x": .31, "y": .12,
+                    "width": .18, "height": .22,
+                }
+            },
+            "mock-guidance-vector-geometry": {
+                "raw": {"kind": "vector", "from": [.2, .1], "to": [6.1, 2.8]}
+            },
+        }
+        changed_catalog = copy.deepcopy(self.catalog)
+        diagram = changed_catalog["mock-vector-construction"]
+        diagram["data"]["nodes"].insert(0, {
+            "id": "review-node", "label": "query-label", "tone": "quiet", "lane": 0, "step": 4,
+        })
+        diagram["data"]["nodes"] = list(reversed(diagram["data"]["nodes"]))
+        geometry = changed_catalog["mock-guidance-vector-geometry"]
+        geometry["data"]["vectors"] = list(reversed(geometry["data"]["vectors"]))
+        reconciled, _ = reconcile_state(state, changed_catalog)
+        self.assertEqual(reconciled["objects"], state["objects"])
+
+    def test_visual_geometry_fails_closed_on_removed_or_changed_identity(self):
+        state = self.initial_state()
+        state["objects"] = {
+            "mock-vector-construction": {
+                "teacher-node": {
+                    "kind": "diagram-node", "x": .31, "y": .12,
+                    "width": .18, "height": .22,
+                }
+            }
+        }
+        changed_catalog = copy.deepcopy(self.catalog)
+        changed_catalog["mock-vector-construction"]["data"]["nodes"] = [
+            node for node in changed_catalog["mock-vector-construction"]["data"]["nodes"]
+            if node["id"] != "teacher-node"
+        ]
+        changed_catalog["mock-vector-construction"]["data"]["edges"] = [
+            edge for edge in changed_catalog["mock-vector-construction"]["data"]["edges"]
+            if edge["from"] != "teacher-node" and edge["to"] != "teacher-node"
+        ]
+        with self.assertRaisesRegex(ContractError, "visual object target disappeared"):
+            reconcile_state(state, changed_catalog)
+        state["objects"]["mock-vector-construction"]["teacher-node"]["kind"] = "diagram-edge"
+        with self.assertRaisesRegex(ContractError, "visual object kind changed"):
+            reconcile_state(state, self.catalog)
+
+    def test_vector_editability_requires_unique_semantic_object_ids(self):
+        geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
+        geometry["data"]["segments"][0]["id"] = geometry["data"]["vectors"][0]["id"]
+        with self.assertRaisesRegex(ContractError, "duplicate visual object id"):
+            validate_slide_spec(geometry)
 
     def test_human_order_and_edit_survive_unrelated_source_insertions(self):
         state = self.initial_state()

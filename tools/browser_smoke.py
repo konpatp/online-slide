@@ -485,6 +485,178 @@ def main() -> int:
                         if before == after:
                             findings.append("dragging a JointJS node did not reroute its connector")
 
+                    # Node movement is a durable semantic object edit, not a
+                    # transient canvas transform. It must survive reload and
+                    # source sibling insertion/reorder.
+                    page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                    moved_box = page.locator('g[model-id="student-node"]').bounding_box()
+                    object_state = page.evaluate(
+                        "() => fetch('/api/deck-state',{cache:'no-store'}).then(r=>r.json()).then(x=>x.objects)"
+                    )
+                    student_geometry = object_state.get("mock-vector-construction", {}).get("student-node")
+                    if not student_geometry or student_geometry.get("kind") != "diagram-node":
+                        findings.append("JointJS node movement did not persist by semantic object id")
+                    page.reload(wait_until="networkidle")
+                    persisted_box = page.locator('g[model-id="student-node"]').bounding_box()
+                    if abs(persisted_box["y"] - moved_box["y"]) > 3:
+                        findings.append("semantic node position did not survive reload")
+
+                    mechanism_path = slides_root / "03-mechanism-diagram.json"
+                    mechanism_original = mechanism_path.read_text(encoding="utf-8")
+                    mechanism_source = json.loads(mechanism_original)
+                    mechanism_source["data"]["nodes"].insert(0, {
+                        "id": "unrelated-review-node", "label": "query-label", "tone": "quiet",
+                        "lane": 0, "step": 4,
+                    })
+                    mechanism_source["data"]["nodes"] = list(reversed(mechanism_source["data"]["nodes"]))
+                    mechanism_path.write_text(json.dumps(mechanism_source, indent=2) + "\n", encoding="utf-8")
+                    page.reload(wait_until="networkidle")
+                    reordered_box = page.locator('g[model-id="student-node"]').bounding_box()
+                    if abs(reordered_box["y"] - moved_box["y"]) > 3:
+                        findings.append("source node insertion/reorder retargeted a human node edit")
+                    mechanism_path.write_text(mechanism_original, encoding="utf-8")
+                    page.reload(wait_until="networkidle")
+
+                    # A physical corner-handle drag resizes the selected node;
+                    # the semantic text leaves then wrap/refit inside it.
+                    if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                        page.locator("[data-edit-toggle]").click()
+                    teacher_svg = page.locator('g[model-id="teacher-node"]')
+                    teacher_box = teacher_svg.bounding_box()
+                    page.mouse.click(teacher_box["x"] + 3, teacher_box["y"] + teacher_box["height"] / 2)
+                    if "teacher-node" not in page.locator("[data-selected-component]").text_content():
+                        findings.append("clicking a diagram-node border did not select the semantic node")
+                    resize_handle = page.locator('g.joint-tool[model-id="teacher-node"] [joint-selector="handle"]')
+                    resize_handle.wait_for(state="visible")
+                    handle_box = resize_handle.bounding_box()
+                    page.mouse.move(handle_box["x"] + handle_box["width"] / 2,
+                                    handle_box["y"] + handle_box["height"] / 2)
+                    page.mouse.down()
+                    page.mouse.move(handle_box["x"] + handle_box["width"] / 2 + 92,
+                                    handle_box["y"] + handle_box["height"] / 2 + 58, steps=8)
+                    page.mouse.up()
+                    page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                    resized_box = page.locator('g[model-id="teacher-node"]').bounding_box()
+                    if resized_box["width"] <= teacher_box["width"] + 50 or resized_box["height"] <= teacher_box["height"] + 25:
+                        findings.append("JointJS corner handle did not resize the selected node")
+                    if page.locator('[data-diagram-node-id="teacher-node"] .diagram-node-content').get_attribute("data-fit-overflow") == "true":
+                        findings.append("resized diagram-node text did not refit inside its bounded node")
+
+                    # A connector is a native semantic object: clicking its
+                    # stroke exposes a JointJS vertex track and dragging that
+                    # track creates one durable bend point.
+                    link_selector = 'g[model-id="student-to-prediction"] path[joint-selector="line"]'
+                    link_point = page.evaluate("""selector => {
+                      const path=document.querySelector(selector);
+                      const local=path.getPointAtLength(path.getTotalLength()/2);
+                      const point=new DOMPoint(local.x,local.y).matrixTransform(path.getScreenCTM());
+                      return {x:point.x,y:point.y};
+                    }""", link_selector)
+                    page.mouse.click(link_point["x"], link_point["y"])
+                    if "student-to-prediction" not in page.locator("[data-selected-component]").text_content():
+                        findings.append("clicking a connector did not select its semantic edge")
+                    vertex_path = 'g[data-tool-name="vertices"] path[joint-selector="connection"]'
+                    vertex_point = page.evaluate("""selector => {
+                      const path=document.querySelector(selector);
+                      const local=path.getPointAtLength(path.getTotalLength()/2);
+                      const point=new DOMPoint(local.x,local.y).matrixTransform(path.getScreenCTM());
+                      return {x:point.x,y:point.y};
+                    }""", vertex_path)
+                    page.mouse.move(vertex_point["x"], vertex_point["y"])
+                    page.mouse.down()
+                    page.mouse.move(vertex_point["x"] + 54, vertex_point["y"] - 64, steps=8)
+                    page.mouse.up()
+                    page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                    object_state = page.evaluate(
+                        "() => fetch('/api/deck-state',{cache:'no-store'}).then(r=>r.json()).then(x=>x.objects)"
+                    )
+                    edge_geometry = object_state.get("mock-vector-construction", {}).get("student-to-prediction")
+                    if not edge_geometry or len(edge_geometry.get("vertices", [])) != 1:
+                        findings.append("connector bend point did not persist by semantic edge id")
+                    diagram_editor = output / "editor-native-diagram.png"
+                    page.screenshot(path=str(diagram_editor))
+                    captures["native-diagram-editor"] = str(diagram_editor)
+
+                # Vectors and ordinary segments use the same source-authored
+                # identity contract. Endpoint handles change length/rotation;
+                # the square midpoint translates the complete object.
+                page.goto(base + "/#mock-guidance-vector-geometry", wait_until="networkidle")
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                page.wait_for_function("document.querySelector('.jsxgraph-host').__scientificGeometry.controls.size >= 5")
+                raw_midpoint = page.evaluate("""() => {
+                  const host=document.querySelector('.jsxgraph-host');
+                  const control=host.__scientificGeometry.controls.get('raw');
+                  const a=control.start.coords.scrCoords, b=control.end.coords.scrCoords;
+                  const box=host.getBoundingClientRect();
+                  return {x:box.left+(a[1]+b[1])/2,y:box.top+(a[2]+b[2])/2};
+                }""")
+                page.mouse.click(raw_midpoint["x"], raw_midpoint["y"])
+                if "raw · vector" not in page.locator("[data-selected-component]").text_content():
+                    findings.append("clicking a vector did not select its semantic object")
+                raw_before = page.evaluate("""() => {
+                  const c=document.querySelector('.jsxgraph-host').__scientificGeometry.controls.get('raw');
+                  return {from:[c.start.X(),c.start.Y()],to:[c.end.X(),c.end.Y()]};
+                }""")
+                end_box = page.evaluate("""() => document.querySelector('.jsxgraph-host')
+                  .__scientificGeometry.controls.get('raw').end.rendNode.getBoundingClientRect().toJSON()""")
+                page.mouse.move(end_box["x"] + end_box["width"] / 2, end_box["y"] + end_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(end_box["x"] + end_box["width"] / 2 + 82,
+                                end_box["y"] + end_box["height"] / 2 - 44, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                vector_state = page.evaluate(
+                    "() => fetch('/api/deck-state',{cache:'no-store'}).then(r=>r.json()).then(x=>x.objects)"
+                )["mock-guidance-vector-geometry"]["raw"]
+                if vector_state["to"] == [round(value, 4) for value in raw_before["to"]]:
+                    findings.append("dragging a vector endpoint did not change its length and rotation")
+                vector_path = slides_root / "04-vector-geometry.json"
+                vector_original = vector_path.read_text(encoding="utf-8")
+                vector_source = json.loads(vector_original)
+                vector_source["data"]["vectors"] = list(reversed(vector_source["data"]["vectors"]))
+                vector_path.write_text(json.dumps(vector_source, indent=2) + "\n", encoding="utf-8")
+                page.reload(wait_until="networkidle")
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                page.wait_for_function("document.querySelector('.jsxgraph-host').__scientificGeometry.controls.size >= 5")
+                persisted_vector = page.evaluate("""() => {
+                  const c=document.querySelector('.jsxgraph-host').__scientificGeometry.controls.get('raw');
+                  return {from:[Number(c.start.X().toFixed(4)),Number(c.start.Y().toFixed(4))],
+                    to:[Number(c.end.X().toFixed(4)),Number(c.end.Y().toFixed(4))]};
+                }""")
+                if persisted_vector["to"] != vector_state["to"]:
+                    findings.append("source vector reorder retargeted a human vector edit")
+                vector_path.write_text(vector_original, encoding="utf-8")
+                page.reload(wait_until="networkidle")
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                page.wait_for_function("document.querySelector('.jsxgraph-host').__scientificGeometry.controls.size >= 5")
+                page.evaluate("""() => document.querySelector('.jsxgraph-host')
+                  .__scientificGeometry.select('raw','vector')""")
+                translated_before = page.evaluate("""() => {
+                  const c=document.querySelector('.jsxgraph-host').__scientificGeometry.controls.get('raw');
+                  return {from:[c.start.X(),c.start.Y()],to:[c.end.X(),c.end.Y()]};
+                }""")
+                center_box = page.evaluate("""() => document.querySelector('.jsxgraph-host')
+                  .__scientificGeometry.controls.get('raw').center.rendNode.getBoundingClientRect().toJSON()""")
+                page.mouse.move(center_box["x"] + center_box["width"] / 2,
+                                center_box["y"] + center_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(center_box["x"] + center_box["width"] / 2 - 70,
+                                center_box["y"] + center_box["height"] / 2 + 38, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                translated = page.evaluate("""() => fetch('/api/deck-state',{cache:'no-store'})
+                  .then(r=>r.json()).then(x=>x.objects['mock-guidance-vector-geometry'].raw)""")
+                start_delta = [translated["from"][index] - translated_before["from"][index] for index in range(2)]
+                end_delta = [translated["to"][index] - translated_before["to"][index] for index in range(2)]
+                if max(abs(start_delta[index] - end_delta[index]) for index in range(2)) > .02:
+                    findings.append("vector midpoint handle did not translate both endpoints together")
+                vector_editor = output / "editor-native-vector.png"
+                page.screenshot(path=str(vector_editor))
+                captures["native-vector-editor"] = str(vector_editor)
+
                 # Capture the editor and each clean recipe. Geometry checks use actual pixels.
                 editor_path = output / "editor-gallery.png"
                 page.screenshot(path=str(editor_path))
@@ -496,7 +668,7 @@ def main() -> int:
                     body: JSON.stringify({
                       baseRevision: current.revision,
                       baseSourceRevision: current.sourceRevision,
-                      snapshot: {schema: current.schema, order, hidden: [], overlays: {}, tables: {}}
+                      snapshot: {schema: current.schema, order, hidden: [], overlays: {}, tables: {}, objects: {}}
                     })
                   });
                   if (!response.ok) throw new Error('could not reset browser acceptance state');
@@ -715,6 +887,10 @@ def main() -> int:
             "external image drop persists by content hash",
             "hierarchical gallery facets, metric, and page survive slide navigation",
             "JointJS node drag physically reroutes its semantic connector",
+            "JointJS node move/resize and connector bends persist by semantic object id",
+            "semantic node geometry survives unrelated source insertion and reorder",
+            "JSXGraph vector endpoint editing changes length/rotation and survives source reorder",
+            "JSXGraph vector midpoint handle translates the complete semantic object",
             "JointJS nodes grow and reflow after longer live text edits",
             "JointJS text overlays match their measured SVG node frames without overflow",
             "JointJS and JSXGraph compositions remain centered and contained",

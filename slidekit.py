@@ -16,8 +16,8 @@ from typing import Any, Iterable
 
 
 SLIDE_SCHEMA = "online-slide/slide@1"
-STATE_SCHEMA = "online-slide/state@3"
-LEGACY_STATE_SCHEMA = "online-slide/state@2"
+STATE_SCHEMA = "online-slide/state@4"
+LEGACY_STATE_SCHEMAS = {"online-slide/state@2", "online-slide/state@3"}
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
     "vector-geometry", "hierarchical-gallery", "target-accessibility",
@@ -59,6 +59,23 @@ def _require(condition: bool, message: str) -> None:
 
 def _component_ids(spec: dict[str, Any]) -> set[str]:
     return set(spec["components"])
+
+
+def _visual_objects(spec: dict[str, Any]) -> dict[str, str]:
+    """Return source-authored editable geometry identities for one slide."""
+
+    data = spec["data"]
+    if spec["recipe"] == "mechanism-pipeline":
+        return {
+            **{item["id"]: "diagram-node" for item in data.get("nodes", [])},
+            **{item["id"]: "diagram-edge" for item in data.get("edges", [])},
+        }
+    if spec["recipe"] == "vector-geometry":
+        return {
+            **{item["id"]: "vector" for item in data.get("vectors", []) if item.get("editable") is True},
+            **{item["id"]: "segment" for item in data.get("segments", []) if item.get("editable") is True},
+        }
+    return {}
 
 
 def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any]:
@@ -210,6 +227,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             _require(isinstance(edge_id, str) and COMPONENT_ID.fullmatch(edge_id),
                      f"{source}: edge {index} needs a semantic id")
             _require(edge_id not in edge_ids, f"{source}: duplicate edge id {edge_id}")
+            _require(edge_id not in node_ids, f"{source}: visual object id is reused {edge_id}")
             edge_ids.add(edge_id)
             _require(edge.get("from") in node_ids and edge.get("to") in node_ids,
                      f"{source}: edge {index} must reference nodes")
@@ -224,10 +242,19 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         vectors = data.get("vectors")
         _require(isinstance(vectors, list) and vectors,
                  f"{source}: vector geometry needs vectors")
+        object_ids: set[str] = set()
         for collection_name in ("vectors", "segments"):
             for index, item in enumerate(data.get(collection_name, [])):
                 _require(isinstance(item, dict),
                          f"{source}: {collection_name}[{index}] must be an object")
+                object_id = item.get("id")
+                _require(isinstance(object_id, str) and COMPONENT_ID.fullmatch(object_id),
+                         f"{source}: {collection_name}[{index}] needs a semantic id")
+                _require(object_id not in object_ids,
+                         f"{source}: duplicate visual object id {object_id}")
+                object_ids.add(object_id)
+                _require(item.get("editable", False) in {True, False},
+                         f"{source}: {collection_name}[{index}].editable must be boolean")
                 for endpoint in ("from", "to"):
                     point = item.get(endpoint)
                     _require(isinstance(point, list) and len(point) == 2 and
@@ -412,6 +439,7 @@ def empty_state() -> dict[str, Any]:
         "hidden": [],
         "overlays": {},
         "tables": {},
+        "objects": {},
     }
 
 
@@ -540,6 +568,66 @@ def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
                  f"table-owned components are unreferenced: {slide_id}@{', '.join(retired)}")
 
 
+def _finite_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) < 1_000_000
+
+
+def _validate_point(value: Any, message: str) -> None:
+    _require(isinstance(value, list) and len(value) == 2 and all(_finite_number(item) for item in value),
+             message)
+
+
+def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
+    """Validate geometry overlays against source-authored semantic object ids.
+
+    Diagram positions use normalized recipe-plane coordinates. Vector and
+    segment endpoints stay in the source coordinate plane. A missing or
+    type-changed object fails closed, so an accepted edit cannot silently move
+    to a sibling after a source insertion or reorder.
+    """
+
+    _require(isinstance(objects, dict), "objects must be an object")
+    for slide_id, slide_objects in objects.items():
+        _require(slide_id in catalog, f"visual object targets unknown slide {slide_id}")
+        _require(isinstance(slide_objects, dict), f"visual objects for {slide_id} must be an object")
+        known = _visual_objects(catalog[slide_id])
+        for object_id, geometry in slide_objects.items():
+            _require(object_id in known,
+                     f"visual object target disappeared: {slide_id}@{object_id}")
+            _require(isinstance(geometry, dict),
+                     f"visual object geometry must be an object: {slide_id}@{object_id}")
+            kind = known[object_id]
+            _require(geometry.get("kind") == kind,
+                     f"visual object kind changed: {slide_id}@{object_id}")
+            if kind == "diagram-node":
+                _require(set(geometry) == {"kind", "x", "y", "width", "height"},
+                         f"diagram node geometry is invalid: {slide_id}@{object_id}")
+                _require(all(_finite_number(geometry[key]) for key in ("x", "y", "width", "height")),
+                         f"diagram node geometry is invalid: {slide_id}@{object_id}")
+                _require(0 <= geometry["x"] <= 1 and 0 <= geometry["y"] <= 1 and
+                         .03 <= geometry["width"] <= 1 and .03 <= geometry["height"] <= 1 and
+                         geometry["x"] + geometry["width"] <= 1.001 and
+                         geometry["y"] + geometry["height"] <= 1.001,
+                         f"diagram node geometry is outside its bounded plane: {slide_id}@{object_id}")
+            elif kind == "diagram-edge":
+                _require(set(geometry) == {"kind", "vertices"} and
+                         isinstance(geometry["vertices"], list) and len(geometry["vertices"]) <= 16,
+                         f"diagram edge geometry is invalid: {slide_id}@{object_id}")
+                for point in geometry["vertices"]:
+                    _validate_point(point, f"diagram edge vertex is invalid: {slide_id}@{object_id}")
+                    _require(all(0 <= coordinate <= 1 for coordinate in point),
+                             f"diagram edge vertex leaves its bounded plane: {slide_id}@{object_id}")
+            else:
+                _require(set(geometry) == {"kind", "from", "to"},
+                         f"{kind} geometry is invalid: {slide_id}@{object_id}")
+                _validate_point(geometry["from"], f"{kind} start is invalid: {slide_id}@{object_id}")
+                _validate_point(geometry["to"], f"{kind} end is invalid: {slide_id}@{object_id}")
+                left, top, right, bottom = catalog[slide_id]["data"]["bounds"]
+                for point in (geometry["from"], geometry["to"]):
+                    _require(left <= point[0] <= right and bottom <= point[1] <= top,
+                             f"{kind} endpoint leaves its bounded plane: {slide_id}@{object_id}")
+
+
 def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -> tuple[dict[str, Any], bool]:
     """Add new independent sources without disturbing human ordering.
 
@@ -547,7 +635,7 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
     accepted order, visibility, or component overlays.
     """
 
-    _require(isinstance(state, dict) and state.get("schema") in {STATE_SCHEMA, LEGACY_STATE_SCHEMA},
+    _require(isinstance(state, dict) and state.get("schema") in {STATE_SCHEMA, *LEGACY_STATE_SCHEMAS},
              "state has an unsupported schema")
     order = list(state.get("order", []))
     existing = set(order)
@@ -574,6 +662,8 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
     validate_overlays(overlays, catalog)
     tables = state.get("tables", {})
     validate_tables(tables, catalog)
+    objects = state.get("objects", {})
+    validate_objects(objects, catalog)
     reconciled = {
         "schema": STATE_SCHEMA,
         "revision": int(state.get("revision", 0)) + (1 if changed else 0),
@@ -581,6 +671,7 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
         "hidden": [slide_id for slide_id in order if slide_id in set(hidden)],
         "overlays": overlays,
         "tables": tables,
+        "objects": objects,
     }
     return reconciled, changed
 
@@ -636,6 +727,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
     hidden = candidate.get("hidden")
     overlays = candidate.get("overlays")
     tables = candidate.get("tables", {})
+    objects = candidate.get("objects", {})
     known = set(catalog)
     _require(isinstance(order, list) and len(order) == len(known) and set(order) == known,
              "order must contain every published slide exactly once")
@@ -644,6 +736,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
              "hidden must contain only published slide ids")
     validate_overlays(overlays, catalog)
     validate_tables(tables, catalog)
+    validate_objects(objects, catalog)
     return {
         "schema": STATE_SCHEMA,
         "revision": int(current["revision"]) + 1,
@@ -651,16 +744,20 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
         "hidden": [slide_id for slide_id in order if slide_id in set(hidden)],
         "overlays": overlays,
         "tables": tables,
+        "objects": objects,
     }
 
 
 def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
     recipe_counts = {recipe: 0 for recipe in sorted(RECIPES)}
     component_counts = {"text": 0, "image": 0}
+    visual_object_counts = {"diagram-node": 0, "diagram-edge": 0, "vector": 0, "segment": 0}
     for spec in catalog.values():
         recipe_counts[spec["recipe"]] += 1
         for component in spec["components"].values():
             component_counts[component["kind"]] += 1
+        for kind in _visual_objects(spec).values():
+            visual_object_counts[kind] += 1
     return {
         "schema": "online-slide/catalog-receipt@1",
         "sourceRevision": catalog_revision(catalog),
@@ -670,4 +767,7 @@ def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "components": component_counts,
         "semanticComponentIds": sum(component_counts.values()),
         "positionalComponentIds": 0,
+        "visualObjects": visual_object_counts,
+        "semanticVisualObjectIds": sum(visual_object_counts.values()),
+        "positionalVisualObjectIds": 0,
     }

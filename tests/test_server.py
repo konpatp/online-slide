@@ -54,12 +54,12 @@ class ServerProtocolTests(unittest.TestCase):
     @staticmethod
     def mutable_snapshot(state):
         return {key: json.loads(json.dumps(state[key]))
-                for key in ("schema", "order", "hidden", "overlays", "tables")}
+                for key in ("schema", "order", "hidden", "overlays", "tables", "objects")}
 
     def test_static_page_catalog_and_state_are_available(self):
         status, state = self.get("/api/deck-state")
         self.assertEqual(status, 200)
-        self.assertEqual(state["schema"], "online-slide/state@3")
+        self.assertEqual(state["schema"], "online-slide/state@4")
         self.assertEqual(len(state["order"]), 6)
         self.assertEqual(set(state["slides"]), set(state["order"]))
         self.assertEqual(len(state["sourceRevision"]), 64)
@@ -102,6 +102,31 @@ class ServerProtocolTests(unittest.TestCase):
         self.assertNotIn("slides", durable)
         self.assertEqual(durable["overlays"], changed["overlays"])
         self.assertEqual(durable["tables"], {})
+        self.assertEqual(durable["objects"], {})
+
+    def test_semantic_visual_object_geometry_is_revision_checked(self):
+        _, state = self.get("/api/deck-state")
+        changed = self.mutable_snapshot(state)
+        changed["objects"] = {
+            "mock-vector-construction": {
+                "teacher-node": {
+                    "kind": "diagram-node", "x": .26, "y": .14,
+                    "width": .22, "height": .18,
+                },
+                "teacher-to-target": {
+                    "kind": "diagram-edge", "vertices": [[.51, .21], [.58, .21]],
+                },
+            },
+            "mock-guidance-vector-geometry": {
+                "raw": {"kind": "vector", "from": [0, 0], "to": [6.2, 2.7]},
+            },
+        }
+        _, saved = self.post("/api/deck-state", {
+            "baseRevision": state["revision"], "baseSourceRevision": state["sourceRevision"],
+            "snapshot": changed,
+        })
+        self.assertEqual(saved["objects"], changed["objects"])
+        self.assertEqual(json.loads(self.state_path.read_text())["objects"], changed["objects"])
 
         with self.assertRaises(HTTPError) as conflict:
             self.post("/api/deck-state", {

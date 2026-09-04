@@ -46,7 +46,8 @@
       order: value.order.slice(),
       hidden: value.hidden.slice(),
       overlays: copy(value.overlays),
-      tables: copy(value.tables || {})
+      tables: copy(value.tables || {}),
+      objects: copy(value.objects || {})
     };
   }
 
@@ -140,6 +141,24 @@
     if (!source) throw new Error("Unknown semantic component " + slide.id + "@" + componentId);
     var overlay = overlayFor(slide.id, componentId, false);
     return Object.assign({}, source, overlay);
+  }
+
+  function objectsForSlide(slide) {
+    return copy((state.objects || {})[slide.id] || {});
+  }
+
+  function updateVisualObject(slideId, objectId, kind, geometry, commit) {
+    if (!state.objects) state.objects = {};
+    if (!state.objects[slideId]) state.objects[slideId] = {};
+    beginChange();
+    state.objects[slideId][objectId] = Object.assign({kind: kind}, copy(geometry));
+    if (commit) persist();
+  }
+
+  function cleanVisualObject(slideId, objectId) {
+    if (!state.objects || !state.objects[slideId]) return;
+    delete state.objects[slideId][objectId];
+    if (!Object.keys(state.objects[slideId]).length) delete state.objects[slideId];
   }
 
   function cleanOverlay(slideId, componentId) {
@@ -601,7 +620,8 @@
       var box = element.getBoundingClientRect();
       var outer = region.getBoundingClientRect();
       var contained = box.width <= outer.width + tolerance && box.height <= outer.height + tolerance;
-      return contained && leaves().every(function (leaf) {
+      return contained && element.scrollWidth <= element.clientWidth + tolerance &&
+        element.scrollHeight <= element.clientHeight + tolerance && leaves().every(function (leaf) {
         return leaf.scrollWidth <= leaf.clientWidth + tolerance &&
           leaf.scrollHeight <= leaf.clientHeight + tolerance;
       });
@@ -622,6 +642,8 @@
     var finalOuter = region.getBoundingClientRect();
     var overflow = finalBox.width > finalOuter.width + tolerance ||
       finalBox.height > finalOuter.height + tolerance ||
+      element.scrollWidth > element.clientWidth + tolerance ||
+      element.scrollHeight > element.clientHeight + tolerance ||
       leaves().some(function (leaf) {
         return leaf.scrollWidth > leaf.clientWidth + tolerance ||
           leaf.scrollHeight > leaf.clientHeight + tolerance;
@@ -965,7 +987,20 @@
     startTableColumnResize: startTableColumnResize,
     fitTextInRegion: registerTextFit,
     fitGroupInRegion: registerGroupFit,
-    isEditMode: function () { return editMode; }
+    isEditMode: function () { return editMode; },
+    objectsForSlide: objectsForSlide,
+    selectedObjectId: function (slide) {
+      return selected && selected.visualObject && selected.slideId === slide.id ? selected.objectId : null;
+    },
+    selectVisualObject: function (slideId, objectId, objectKind) {
+      selected = {slideId: slideId, objectId: objectId, objectKind: objectKind, visualObject: true};
+      stage.querySelectorAll(".selected-component").forEach(function (node) {
+        node.classList.remove("selected-component");
+      });
+      removeTextRegionFrame();
+      renderTools();
+    },
+    updateVisualObject: updateVisualObject
   });
 
   function renderStage() {
@@ -996,7 +1031,7 @@
     position.textContent = (index + 1) + " / " + state.order.length;
     document.querySelector("[data-prev]").disabled = index === 0;
     document.querySelector("[data-next]").disabled = index === state.order.length - 1;
-    if (selected && selected.slideId === currentId) {
+    if (selected && !selected.visualObject && selected.slideId === currentId) {
       var element = stage.querySelector('[data-component-id="' + selected.componentId + '"]');
       if (element) {
         element.classList.add("selected-component");
@@ -1055,7 +1090,7 @@
   }
 
   function selectedComponent() {
-    if (!selected || !state.slides[selected.slideId]) return null;
+    if (!selected || selected.visualObject || !state.slides[selected.slideId]) return null;
     return effectiveComponent(state.slides[selected.slideId], selected.componentId);
   }
 
@@ -1065,7 +1100,8 @@
     var imageSelected = editMode && component && component.kind === "image";
     document.querySelectorAll("[data-font-delta], [data-color]").forEach(function (button) { button.disabled = !textSelected; });
     document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
-    document.querySelector("[data-reset-component]").disabled = !(editMode && component);
+    var objectSelected = Boolean(editMode && selected && selected.visualObject);
+    document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected));
     var tableSelected = Boolean(editMode && selected && selected.tableCell);
     document.querySelectorAll("[data-table-action]").forEach(function (button) {
       var action = button.getAttribute("data-table-action");
@@ -1078,7 +1114,9 @@
     });
     document.querySelector("[data-table-tools]").hidden = !tableSelected;
     selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId +
-      (textSelected ? " · drag top edge · resize corner" : "") : "Select a component in edit mode";
+      (textSelected ? " · drag top edge · resize corner" : "") :
+      (objectSelected ? selected.slideId + " @ " + selected.objectId + " · " + selected.objectKind :
+        "Select a component or visual object in edit mode");
   }
 
   function render() {
@@ -1218,8 +1256,12 @@
   document.querySelector("[data-reset-component]").addEventListener("click", function () {
     if (!selected) return;
     beginChange();
-    if (state.overlays[selected.slideId]) delete state.overlays[selected.slideId][selected.componentId];
-    cleanOverlay(selected.slideId, selected.componentId);
+    if (selected.visualObject) {
+      cleanVisualObject(selected.slideId, selected.objectId);
+    } else {
+      if (state.overlays[selected.slideId]) delete state.overlays[selected.slideId][selected.componentId];
+      cleanOverlay(selected.slideId, selected.componentId);
+    }
     render(); persist();
   });
   document.querySelectorAll("[data-table-action]").forEach(function (button) {

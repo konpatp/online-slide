@@ -158,6 +158,7 @@ def make_server(
         payload["hidden"] = list(state["hidden"])
         payload["overlays"] = json.loads(json.dumps(state["overlays"]))
         payload["tables"] = json.loads(json.dumps(state.get("tables", {})))
+        payload["objects"] = json.loads(json.dumps(state.get("objects", {})))
         payload["sourceRevision"] = source_revision
         payload["slides"] = catalog
         return payload

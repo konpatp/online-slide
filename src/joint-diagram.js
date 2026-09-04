@@ -1,4 +1,4 @@
-import { dia, shapes } from "@joint/core";
+import { dia, elementTools, linkTools, shapes } from "@joint/core";
 import { DirectedGraph } from "@joint/layout-directed-graph";
 
 const PALETTE = {
@@ -9,11 +9,33 @@ const PALETTE = {
   result: { fill: "#f5f0fb", stroke: "#a88ad3" },
 };
 
+class ResizeControl extends elementTools.Control {
+  getPosition(view) {
+    const size = view.model.size();
+    return { x: size.width, y: size.height };
+  }
+
+  setPosition(view, coordinates) {
+    const position = view.model.position();
+    const paperWidth = view.paper.el.clientWidth;
+    const paperHeight = view.paper.el.clientHeight;
+    view.model.resize(
+      Math.max(118, Math.min(paperWidth - position.x, coordinates.x)),
+      Math.max(72, Math.min(paperHeight - position.y, coordinates.y)),
+    );
+  }
+}
+
+function rounded(value) {
+  return Math.round(value * 10000) / 10000;
+}
+
 function renderPipeline(host, spec, options = {}) {
   const graph = new dia.Graph({}, { cellNamespace: shapes });
   const nodeModels = new Map();
   const nodeSpecs = new Map();
   const linkModels = new Map();
+  const objectState = options.objects || {};
   const width = Math.max(900, host.clientWidth || 1200);
   const height = Math.max(360, host.clientHeight || 480);
 
@@ -172,11 +194,28 @@ function renderPipeline(host, spec, options = {}) {
       });
       centerAndFit(graph.getCellsBBox(graph.getElements()));
     }
-    graph.getLinks().forEach((link) => link.vertices([]));
+    graph.getLinks().forEach((link) => {
+      if (!objectState[link.id]) link.vertices([]);
+    });
     host.dataset.diagramScale = scale.toFixed(4);
   }
 
+  function applyObjectState() {
+    nodeModels.forEach((model, id) => {
+      const geometry = objectState[id];
+      if (!geometry || geometry.kind !== "diagram-node") return;
+      model.position(geometry.x * width, geometry.y * height);
+      model.resize(geometry.width * width, geometry.height * height);
+    });
+    linkModels.forEach((model, id) => {
+      const geometry = objectState[id];
+      if (!geometry || geometry.kind !== "diagram-edge") return;
+      model.vertices(geometry.vertices.map((point) => ({ x: point[0] * width, y: point[1] * height })));
+    });
+  }
+
   layoutGraph();
+  applyObjectState();
 
   const paper = new dia.Paper({
     el: host,
@@ -186,6 +225,7 @@ function renderPipeline(host, spec, options = {}) {
     gridSize: 1,
     cellViewNamespace: shapes,
     background: { color: "transparent" },
+    restrictTranslate: true,
     interactive: () => Boolean(options.interactive),
   });
 
@@ -214,23 +254,125 @@ function renderPipeline(host, spec, options = {}) {
     }
   }
 
+  function nodeGeometry(model) {
+    const box = model.getBBox();
+    return {
+      x: rounded(box.x / width),
+      y: rounded(box.y / height),
+      width: rounded(box.width / width),
+      height: rounded(box.height / height),
+    };
+  }
+
+  function edgeGeometry(model) {
+    return {
+      vertices: model.vertices().map((point) => [rounded(point.x / width), rounded(point.y / height)]),
+    };
+  }
+
+  let editingTools = null;
+  function clearTools() {
+    if (editingTools && editingTools.view) editingTools.view.removeTools();
+    editingTools = null;
+  }
+
+  function selectElement(view, evt) {
+    if (!options.interactive) return;
+    if (evt && evt.stopPropagation) evt.stopPropagation();
+    clearTools();
+    const tools = new dia.ToolsView({
+      tools: [
+        new elementTools.Boundary({ padding: 6, useModelGeometry: true }),
+        new ResizeControl({
+          padding: 0,
+          handleAttributes: {
+            r: 9,
+            fill: "#2f6fed",
+            stroke: "#ffffff",
+            "stroke-width": 3,
+          },
+        }),
+      ],
+    });
+    view.addTools(tools);
+    editingTools = { view, kind: "diagram-node" };
+    if (options.onSelect) options.onSelect("diagram-node", String(view.model.id));
+  }
+
+  function selectLink(view, evt) {
+    if (!options.interactive) return;
+    if (evt && evt.stopPropagation) evt.stopPropagation();
+    clearTools();
+    const tools = new dia.ToolsView({
+      tools: [
+        new linkTools.Boundary({ padding: 8 }),
+        new linkTools.Vertices({
+          vertexAdding: true,
+          vertexMoving: true,
+          vertexRemoving: true,
+          redundancyRemoval: false,
+          snapRadius: 12,
+        }),
+      ],
+    });
+    view.addTools(tools);
+    editingTools = { view, kind: "diagram-edge" };
+    if (options.onSelect) options.onSelect("diagram-edge", String(view.model.id));
+  }
+
+  paper.on("element:pointerclick", selectElement);
+  paper.on("link:pointerclick", selectLink);
+  paper.on("blank:pointerclick", clearTools);
+
+  let mutatingLayout = false;
+  const commitTimers = new Map();
+  function publishObject(kind, model) {
+    if (!options.interactive || mutatingLayout || !options.onObjectChange) return;
+    const id = String(model.id);
+    const geometry = kind === "diagram-node" ? nodeGeometry(model) : edgeGeometry(model);
+    options.onObjectChange(kind, id, geometry, false);
+    clearTimeout(commitTimers.get(id));
+    commitTimers.set(id, setTimeout(() => {
+      options.onObjectChange(kind, id,
+        kind === "diagram-node" ? nodeGeometry(model) : edgeGeometry(model), true);
+      commitTimers.delete(id);
+    }, 180));
+  }
+
+  graph.on("change:position", (model) => {
+    publishPositions();
+    publishObject("diagram-node", model);
+  });
+  graph.on("change:size", (model) => {
+    publishPositions();
+    publishObject("diagram-node", model);
+  });
+  graph.on("change:vertices", (model) => {
+    publishPositions();
+    publishObject("diagram-edge", model);
+  });
+
   function resizeNodes(sizes) {
     // Treat intrinsic remeasurement plus the resulting track fit as one
     // atomic graph update. Without the batch, JointJS may paint the temporary
     // unscaled sizes between model.resize() and layoutGraph(); the editor can
     // then retain those intermediate boxes even though the final positions
     // were computed at the fitted scale.
+    mutatingLayout = true;
     graph.startBatch("content-fit");
     try {
       Object.keys(sizes).forEach((id) => {
         const model = nodeModels.get(id);
         const size = sizes[id];
         if (!model || !size) return;
+        if (objectState[id] && objectState[id].kind === "diagram-node") return;
         model.resize(size.width, size.height);
       });
       layoutGraph();
+      applyObjectState();
     } finally {
       graph.stopBatch("content-fit");
+      mutatingLayout = false;
     }
     paper.updateViews();
     requestAnimationFrame(publishPositions);
@@ -245,9 +387,19 @@ function renderPipeline(host, spec, options = {}) {
   host.dataset.diagramEdges = String(spec.edges.length);
   host.dataset.diagramContentSizing = "measured";
   host.dataset.diagramLayout = spec.layout || "directed";
+  host.dataset.diagramEditableObjects = String(spec.nodes.length + spec.edges.length);
   // Read-only handle used by the browser acceptance gate to compare the
   // semantic layout model with its painted SVG/HTML representations.
-  host.__scientificDiagram = { graph, paper };
+  host.__scientificDiagram = { graph, paper, selectElement, selectLink };
+  if (options.selectedId) {
+    requestAnimationFrame(() => {
+      const model = graph.getCell(options.selectedId);
+      const view = model && paper.findViewByModel(model);
+      if (!view) return;
+      if (model.isElement()) selectElement(view);
+      else selectLink(view);
+    });
+  }
   return { graph, paper, publishPositions, resizeNodes };
 }
 

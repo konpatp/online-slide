@@ -197,20 +197,27 @@ body.resizing-table-column { cursor: col-resize; user-select: none; }
 .joint-paper .joint-link { filter: none; }
 .joint-paper .joint-element { filter: drop-shadow(0 7px 11px rgba(31, 48, 76, .08)); cursor: default; }
 .edit-mode .joint-paper .joint-element { cursor: move; }
-.diagram-node-copy { position: absolute; z-index: 3; display: grid; align-content: center; justify-items: center; gap: 8%; padding: clamp(12px, .92cqw, 18px) clamp(18px, 1.28cqw, 26px); pointer-events: none; text-align: center; transform-origin: 0 0; }
-.diagram-node-copy > .semantic-component { width: 100%; min-width: 0; max-width: 100%; overflow-wrap: normal; word-break: normal; hyphens: none; }
+.diagram-node-copy { box-sizing: border-box; position: absolute; z-index: 3; display: grid; place-items: center; padding: clamp(12px, .92cqw, 18px) clamp(18px, 1.28cqw, 26px); pointer-events: none; text-align: center; transform-origin: 0 0; overflow: hidden; }
+.diagram-node-content { --diagram-node-fit-scale: 1; width: 100%; min-width: 0; min-height: 0; display: grid; align-content: center; justify-items: center; gap: .5cqw; overflow: hidden; }
+.diagram-node-content > .semantic-component { width: 100%; min-width: 0; min-height: 0; max-width: 100%; overflow: hidden; overflow-wrap: normal; word-break: normal; hyphens: none; }
 .diagram-node-copy.diagram-node-measuring { left: -10000px !important; top: 0 !important; width: max-content !important; min-width: var(--diagram-node-min-width); max-width: var(--diagram-node-max-width); height: auto !important; visibility: hidden; transform: none !important; }
 .edit-mode .diagram-node-copy { pointer-events: none; }
 .edit-mode .diagram-node-copy .semantic-component { pointer-events: auto; }
-.node-label { color: #263b58; font-size: calc(max(1.72cqw, 42px) * var(--component-scale, 1)); font-weight: 820; line-height: 1.03; }
-.node-detail { color: #687991; font-size: calc(max(1.08cqw, 39px) * var(--component-scale, 1)); font-weight: 690; line-height: 1.06; }
+.node-label { color: #263b58; font-size: calc(max(1.72cqw, 42px) * var(--component-scale, 1) * var(--diagram-node-fit-scale, 1)); font-weight: 820; line-height: 1.03; }
+.node-detail { color: #687991; font-size: calc(max(1.08cqw, 39px) * var(--component-scale, 1) * var(--diagram-node-fit-scale, 1)); font-weight: 690; line-height: 1.06; }
 .edge-label { position: absolute; z-index: 4; padding: .45% .75%; border-radius: 99px; color: #5e6e84; background: rgba(255,255,255,.96); box-shadow: 0 0 0 1px #dce3ec; font-size: calc(max(.9cqw, 30px) * var(--component-scale, 1)); font-weight: 720; transform: translate(-50%, -50%); white-space: nowrap; }
+.edit-mode .joint-paper .joint-tool { pointer-events: auto; }
+.edit-mode .joint-paper .joint-tool circle,
+.edit-mode .joint-paper .joint-tool rect { filter: drop-shadow(0 2px 5px rgba(20,35,59,.22)); }
+.edit-mode .joint-paper .joint-tool [joint-selector="handle"] { cursor: nwse-resize; }
+.edit-mode .joint-paper .marker-vertices { cursor: move; }
 
 /* Vector geometry: JSXGraph owns the coordinate system and containment. */
 .vector-geometry-body { top: 20.5%; bottom: 11.5%; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 2.2%; }
 .vector-geometry-plane { position: relative; width: 100%; min-height: 0; overflow: hidden; }
 .jsxgraph-host { position: absolute; inset: 0; overflow: hidden; border: 0; background: transparent; touch-action: none; }
 .jsxgraph-host svg { overflow: hidden; }
+.edit-mode .jsxgraph-host { cursor: default; }
 .vector-label-region { position: absolute; z-index: 6; display: flex; overflow: hidden; pointer-events: none; }
 .vector-label { max-width: 100%; max-height: 100%; overflow: hidden; color: #263b58; font-size: calc(max(1.38cqw, 34.67px) * var(--component-scale, 1)); font-weight: 760; line-height: 1.08; text-align: center; white-space: normal; pointer-events: auto; }
 .vector-label.tone-muted { color: #7b899c; font-size: calc(max(1.12cqw, 34.67px) * var(--component-scale, 1)); }

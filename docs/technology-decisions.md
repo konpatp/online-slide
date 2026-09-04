@@ -5,7 +5,10 @@
 The mechanism recipe uses the open-source JointJS core plus its
 DirectedGraph/Dagre layout package. JointJS supplies the behavior a slide
 diagram actually needs: semantic node and edge models, ports, SVG rendering,
-orthogonal/Manhattan routing, dragging, and automatic link rerouting.
+orthogonal/Manhattan routing, dragging, resizing controls, connector vertices,
+and automatic link rerouting. SlideKit persists only normalized semantic
+geometry; JointJS remains the rendering/interaction engine rather than the
+authoritative document model.
 
 ELK.js was tested against the same graph. It produced a good initial layout but
 is intentionally only a layout engine; using it alone would leave selection,
@@ -18,6 +21,8 @@ Primary references:
 - [JointJS documentation](https://docs.jointjs.com/)
 - [JointJS directed graph layout](https://docs.jointjs.com/learn/features/automatic-layouts/directed-graph/)
 - [JointJS link routing](https://docs.jointjs.com/learn/features/diagram-basics/links/)
+- [JointJS link tools](https://docs.jointjs.com/api/linkTools/)
+- [JointJS resize control example](https://www.jointjs.com/demos/resize-control-tool)
 - [ELK.js repository](https://github.com/kieler/elkjs)
 
 ## Vector geometry: JSXGraph plus KaTeX
@@ -25,7 +30,9 @@ Primary references:
 Mechanism topology and mathematical geometry are different visual problems.
 JointJS remains the mechanism engine; vector-space slides use JSXGraph so
 arrows, projections, perpendicular components, arcs, and equal-aspect bounds
-live in a real coordinate system rather than an auto-layout graph. JSXGraph
+live in a real coordinate system rather than an auto-layout graph. Opted-in
+vectors and segments use JSXGraph's free points as endpoint and translation
+handles, so placement, length, and rotation remain coordinate-native. JSXGraph
 owns containment and mathematical construction. KaTeX owns every displayed
 formula and symbol, so slide authors never fake mathematics with Unicode or
 HTML spacing.
@@ -39,8 +46,26 @@ Primary references:
 
 - [JSXGraph documentation](https://jsxgraph.org/docs/)
 - [JSXGraph Arrow](https://jsxgraph.org/docs/symbols/Arrow.html)
+- [JSXGraph Point](https://jsxgraph.org/docs/symbols/Point.html)
 - [JSXGraph source](https://github.com/jsxgraph/jsxgraph)
 - [KaTeX documentation](https://katex.org/docs/api)
+
+## Why not embed a general whiteboard editor?
+
+[tldraw](https://tldraw.dev/docs/shapes) and
+[Fabric.js](https://fabricjs.com/docs/core-concepts/) both provide excellent
+general-purpose canvas selection, transformation, serialization, and custom
+shape models. Embedding either here would create a second authoritative scene
+graph beside the source-authored SlideSpec, semantic text leaves, JointJS
+topology, and JSXGraph coordinates. That makes agent diffs and human overlay
+merges harder, not easier.
+
+SlideKit therefore borrows their direct-manipulation contract—stable object
+identity, handles, serialized geometry, and migrations—while keeping the
+scientific recipe as the source model. New object classes belong behind the
+same semantic `objects` overlay boundary. A specialized mature engine may own
+interaction, but it may not replace source-authored identities with canvas or
+DOM positions.
 
 ## Gallery browsing: native controls and local view state
 

@@ -21,12 +21,12 @@
     "prediction-label": {"kind": "text", "text": "prediction uθ", "role": "diagram-node-label"},
     "loss-label": {"kind": "text", "text": "one MSE loss", "role": "diagram-node-label"},
     "loss-detail": {"kind": "text", "text": "match the two velocities", "role": "diagram-node-detail"},
-    "protocol": {"kind": "text", "text": "JointJS auto-layout · orthogonal obstacle-aware routes · drag a node in edit mode to reroute", "role": "protocol"}
+    "protocol": {"kind": "text", "text": "Edit mode · move or resize a node · select a connector to add and move bend points · node text wraps and fits", "role": "protocol"}
   },
   "data": {
     "layout": "lanes",
     "direction": "LR",
-    "rankGap": 112,
+    "rankGap": 76,
     "nodeGap": 70,
     "nodes": [
       {"id": "query-node", "label": "query-label", "detail": "query-detail", "tone": "quiet", "lane": 0.5, "step": 0},
