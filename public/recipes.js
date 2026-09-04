@@ -529,7 +529,7 @@
             // fractional scale. Reserve a full optical gutter as well:
             // containment alone can still leave a dense last baseline
             // visually pressed against the node border.
-            height: Math.ceil(Math.max(112, measuredHeight + 52))
+            height: Math.ceil(Math.max(112, measuredHeight + 40))
           };
           block.classList.remove("diagram-node-measuring");
         });
