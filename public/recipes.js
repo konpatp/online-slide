@@ -525,10 +525,11 @@
             // intrinsic safety allowance so a correctly sized node never
             // exposes a scrollbar or clips the last glyph.
             width: Math.ceil(Math.max(minWidth, Math.min(maxWidth, measuredWidth + 6))),
-            // Keep one text-line rounding gutter after scaling. Chromium's
-            // line boxes can gain 1–3 px when the fitted group is painted at
-            // a fractional scale even though intrinsic measurement is exact.
-            height: Math.ceil(Math.max(112, measuredHeight + 36))
+            // Chromium line boxes can gain 1–3 px when painted at a
+            // fractional scale. Reserve a full optical gutter as well:
+            // containment alone can still leave a dense last baseline
+            // visually pressed against the node border.
+            height: Math.ceil(Math.max(112, measuredHeight + 52))
           };
           block.classList.remove("diagram-node-measuring");
         });
