@@ -665,6 +665,23 @@ def main() -> int:
                 # shape; reach endpoints change length and rotation, while the
                 # center handle translates the whole line.
                 page.goto(base + "/#mock-target-accessibility", wait_until="networkidle")
+                editor_layout = page.evaluate("""() => {
+                  const panels=document.querySelector('.accessibility-panels').getBoundingClientRect();
+                  const key=document.querySelector('.accessibility-key').getBoundingClientRect();
+                  const equation=document.querySelector('.accessibility-equation').getBoundingClientRect();
+                  const overflow=[...document.querySelectorAll('.accessibility-body .semantic-component')]
+                    .filter(node => node.scrollWidth > node.clientWidth + 3 || node.scrollHeight > node.clientHeight + 3)
+                    .map(node => node.dataset.componentId);
+                  return {ordered:panels.bottom <= key.top + 1 && key.bottom <= equation.top + 1,
+                    overflow:overflow};
+                }""")
+                if not editor_layout["ordered"] or editor_layout["overflow"]:
+                    findings.append(
+                        "target-accessibility editor canvas does not preserve its vertical composition"
+                    )
+                accessibility_clean_editor = output / "editor-accessibility-clean.png"
+                page.screenshot(path=str(accessibility_clean_editor))
+                captures["accessibility-clean-editor"] = str(accessibility_clean_editor)
                 if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                     page.locator("[data-edit-toggle]").click()
                 target = page.locator('[data-visual-object-id="alien-target-target"]')
