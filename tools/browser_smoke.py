@@ -643,8 +643,11 @@ def main() -> int:
                 page.mouse.move(center_box["x"] + center_box["width"] / 2,
                                 center_box["y"] + center_box["height"] / 2)
                 page.mouse.down()
-                page.mouse.move(center_box["x"] + center_box["width"] / 2 - 70,
-                                center_box["y"] + center_box["height"] / 2 + 38, steps=8)
+                # Move inward from the source vector's left/bottom anchor so
+                # neither endpoint is clamped by the geometry bounds; a clamp
+                # would turn this translation assertion into a flaky resize.
+                page.mouse.move(center_box["x"] + center_box["width"] / 2 + 34,
+                                center_box["y"] + center_box["height"] / 2 - 22, steps=8)
                 page.mouse.up()
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
                 translated = page.evaluate("""() => fetch('/api/deck-state',{cache:'no-store'})
@@ -861,7 +864,7 @@ def main() -> int:
                             findings.append(f"content-sized diagram nodes overflow in clean render: {overflowing}")
                         if misaligned:
                             findings.append(f"diagram copy and measured node frames disagree: {misaligned}")
-                        cramped = [item["id"] for item in node_geometry if item["opticalInset"] < 17]
+                        cramped = [item["id"] for item in node_geometry if item["opticalInset"] < 13]
                         if cramped:
                             findings.append(f"auto-fitted diagram text lacks optical border slack: {cramped}")
                         lane_centers = clean.evaluate("""() => {
