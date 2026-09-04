@@ -75,6 +75,16 @@ def _visual_objects(spec: dict[str, Any]) -> dict[str, str]:
             **{item["id"]: "vector" for item in data.get("vectors", []) if item.get("editable") is True},
             **{item["id"]: "segment" for item in data.get("segments", []) if item.get("editable") is True},
         }
+    if spec["recipe"] == "target-accessibility":
+        return {
+            object_id: kind
+            for panel in data.get("panels", [])
+            for object_id, kind in (
+                (f"{panel['id']}-target", "accessibility-target"),
+                (f"{panel['id']}-b4-reach", "accessibility-reach"),
+                (f"{panel['id']}-r3-reach", "accessibility-reach"),
+            )
+        }
     return {}
 
 
@@ -599,16 +609,18 @@ def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
             kind = known[object_id]
             _require(geometry.get("kind") == kind,
                      f"visual object kind changed: {slide_id}@{object_id}")
-            if kind == "diagram-node":
+            if kind in {"diagram-node", "accessibility-target"}:
                 _require(set(geometry) == {"kind", "x", "y", "width", "height"},
-                         f"diagram node geometry is invalid: {slide_id}@{object_id}")
+                         f"{kind} geometry is invalid: {slide_id}@{object_id}")
                 _require(all(_finite_number(geometry[key]) for key in ("x", "y", "width", "height")),
-                         f"diagram node geometry is invalid: {slide_id}@{object_id}")
+                         f"{kind} geometry is invalid: {slide_id}@{object_id}")
+                min_width, min_height = ((.03, .03) if kind == "diagram-node" else (.02, .005))
                 _require(0 <= geometry["x"] <= 1 and 0 <= geometry["y"] <= 1 and
-                         .03 <= geometry["width"] <= 1 and .03 <= geometry["height"] <= 1 and
+                         min_width <= geometry["width"] <= 1 and
+                         min_height <= geometry["height"] <= 1 and
                          geometry["x"] + geometry["width"] <= 1.001 and
                          geometry["y"] + geometry["height"] <= 1.001,
-                         f"diagram node geometry is outside its bounded plane: {slide_id}@{object_id}")
+                         f"{kind} geometry is outside its bounded plane: {slide_id}@{object_id}")
             elif kind == "diagram-edge":
                 _require(set(geometry) == {"kind", "vertices"} and
                          isinstance(geometry["vertices"], list) and len(geometry["vertices"]) <= 16,
@@ -617,7 +629,7 @@ def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
                     _validate_point(point, f"diagram edge vertex is invalid: {slide_id}@{object_id}")
                     _require(all(0 <= coordinate <= 1 for coordinate in point),
                              f"diagram edge vertex leaves its bounded plane: {slide_id}@{object_id}")
-            else:
+            elif kind in {"vector", "segment"}:
                 _require(set(geometry) == {"kind", "from", "to"},
                          f"{kind} geometry is invalid: {slide_id}@{object_id}")
                 _validate_point(geometry["from"], f"{kind} start is invalid: {slide_id}@{object_id}")
@@ -626,6 +638,15 @@ def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
                 for point in (geometry["from"], geometry["to"]):
                     _require(left <= point[0] <= right and bottom <= point[1] <= top,
                              f"{kind} endpoint leaves its bounded plane: {slide_id}@{object_id}")
+            else:
+                _require(kind == "accessibility-reach" and
+                         set(geometry) == {"kind", "from", "to"},
+                         f"{kind} geometry is invalid: {slide_id}@{object_id}")
+                for endpoint in ("from", "to"):
+                    _validate_point(geometry[endpoint],
+                                    f"{kind} endpoint is invalid: {slide_id}@{object_id}")
+                    _require(all(0 <= coordinate <= 1 for coordinate in geometry[endpoint]),
+                             f"{kind} endpoint leaves its bounded panel: {slide_id}@{object_id}")
 
 
 def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -> tuple[dict[str, Any], bool]:
@@ -751,7 +772,10 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
 def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
     recipe_counts = {recipe: 0 for recipe in sorted(RECIPES)}
     component_counts = {"text": 0, "image": 0}
-    visual_object_counts = {"diagram-node": 0, "diagram-edge": 0, "vector": 0, "segment": 0}
+    visual_object_counts = {
+        "diagram-node": 0, "diagram-edge": 0, "vector": 0, "segment": 0,
+        "accessibility-target": 0, "accessibility-reach": 0,
+    }
     for spec in catalog.values():
         recipe_counts[spec["recipe"]] += 1
         for component in spec["components"].values():

@@ -35,7 +35,7 @@ class SlideKitContractTests(unittest.TestCase):
         self.assertEqual(set(receipt["recipes"].values()), {1})
         self.assertEqual(receipt["semanticComponentIds"], 126)
         self.assertEqual(receipt["positionalComponentIds"], 0)
-        self.assertEqual(receipt["semanticVisualObjectIds"], 17)
+        self.assertEqual(receipt["semanticVisualObjectIds"], 23)
         self.assertEqual(receipt["positionalVisualObjectIds"], 0)
 
     def test_state_v2_is_upgraded_but_an_old_client_cannot_erase_tables(self):
@@ -201,6 +201,9 @@ class SlideKitContractTests(unittest.TestCase):
         self.assertEqual(slide["recipe"], "target-accessibility")
         self.assertEqual(len(slide["data"]["panels"]), 2)
         self.assertEqual(slide["components"][slide["data"]["equation"]]["render"], "latex")
+        receipt = catalog_receipt(self.catalog)
+        self.assertEqual(receipt["visualObjects"]["accessibility-target"], 2)
+        self.assertEqual(receipt["visualObjects"]["accessibility-reach"], 4)
 
     def test_gallery_image_caption_is_an_independent_semantic_text_leaf(self):
         gallery = copy.deepcopy(self.catalog["mock-matched-gallery"])
@@ -272,6 +275,15 @@ class SlideKitContractTests(unittest.TestCase):
             "mock-guidance-vector-geometry": {
                 "raw": {"kind": "vector", "from": [.2, .1], "to": [6.1, 2.8]}
             },
+            "mock-target-accessibility": {
+                "alien-target-target": {
+                    "kind": "accessibility-target", "x": .12, "y": .31,
+                    "width": .72, "height": .12,
+                },
+                "alien-target-r3-reach": {
+                    "kind": "accessibility-reach", "from": [.22, .79], "to": [.71, .74],
+                },
+            },
         }
         changed_catalog = copy.deepcopy(self.catalog)
         diagram = changed_catalog["mock-vector-construction"]
@@ -281,6 +293,8 @@ class SlideKitContractTests(unittest.TestCase):
         diagram["data"]["nodes"] = list(reversed(diagram["data"]["nodes"]))
         geometry = changed_catalog["mock-guidance-vector-geometry"]
         geometry["data"]["vectors"] = list(reversed(geometry["data"]["vectors"]))
+        accessibility = changed_catalog["mock-target-accessibility"]
+        accessibility["data"]["panels"] = list(reversed(accessibility["data"]["panels"]))
         reconciled, _ = reconcile_state(state, changed_catalog)
         self.assertEqual(reconciled["objects"], state["objects"])
 

@@ -1,6 +1,6 @@
 {
   "name": "online-slide",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Declarative scientific slides with revision-safe live editing",
   "scripts": {

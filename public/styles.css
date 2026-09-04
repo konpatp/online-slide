@@ -160,13 +160,14 @@ body.resizing-table-column { cursor: col-resize; user-select: none; }
 /* Target accessibility: qualitative target-energy geometry, not a flow chart. */
 .accessibility-body { top: 20.7%; bottom: 11.7%; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 2.2%; }
 .accessibility-panels { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4.5%; align-items: stretch; }
-.accessibility-panel { min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; align-items: center; padding: 1.8% 1.8% 2.2%; }
+.accessibility-panel { position: relative; min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; align-items: center; padding: 1.8% 1.8% 2.2%; }
 .accessibility-panel-header { align-self: start; text-align: center; }
 .accessibility-panel-title { margin: 0; color: var(--ink); font-size: calc(max(1.9cqw, 40px) * var(--component-scale, 1)); line-height: 1.02; }
 .accessibility-panel-summary { margin: .42cqw 0 0; color: #65758c; font-size: calc(max(1.18cqw, 34.67px) * var(--component-scale, 1)); font-weight: 720; line-height: 1.08; }
 .accessibility-target-row { align-self: center; display: grid; gap: .72cqw; width: 100%; }
 .accessibility-target-label { color: #334b68; font-size: calc(max(1.35cqw, 34.67px) * var(--component-scale, 1)); font-weight: 820; text-align: left; }
-.accessibility-signal { position: relative; display: flex; width: 100%; height: 4.2cqw; overflow: hidden; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(20,35,59,.08); }
+.accessibility-target-slot { width: 100%; height: 4.2cqw; }
+.accessibility-signal { position: relative; z-index: 2; display: flex; width: 100%; height: 4.2cqw; overflow: hidden; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(20,35,59,.08); transform-origin: 0 50%; }
 .accessibility-signal::after { content: ""; position: absolute; right: .35cqw; top: 50%; width: 1.15cqw; height: 1.15cqw; border-top: .31cqw solid white; border-right: .31cqw solid white; transform: translateY(-50%) rotate(45deg); filter: drop-shadow(0 0 1px rgba(20,35,59,.18)); }
 .accessibility-segment { min-width: 0; height: 100%; }
 .segment-common { background: #70a2ef; }
@@ -175,7 +176,8 @@ body.resizing-table-column { cursor: col-resize; user-select: none; }
 .accessibility-reaches { display: grid; gap: .64cqw; width: 100%; }
 .accessibility-reach-row { display: grid; grid-template-columns: 19% 1fr; align-items: center; gap: .65cqw; }
 .accessibility-reach-label { color: #40536c; font-size: calc(max(1.12cqw, 34.67px) * var(--component-scale, 1)); font-weight: 820; text-align: right; }
-.accessibility-reach-line { position: relative; display: block; height: .46cqw; border-radius: 99px; background: currentColor; }
+.accessibility-reach-slot { display: flex; align-items: center; width: 100%; height: 1.14cqw; }
+.accessibility-reach-line { position: relative; z-index: 2; display: block; height: .46cqw; border-radius: 99px; background: currentColor; transform-origin: 0 50%; }
 .accessibility-reach-line::before, .accessibility-reach-line::after { content: ""; position: absolute; top: -.34cqw; width: .15cqw; height: 1.14cqw; border-radius: 99px; background: currentColor; }
 .accessibility-reach-line::before { left: 0; }
 .accessibility-reach-line::after { right: 0; }
@@ -183,6 +185,21 @@ body.resizing-table-column { cursor: col-resize; user-select: none; }
 .reach-b4 .accessibility-reach-line { width: var(--common-share); }
 .reach-r3 { color: #d86f32; }
 .reach-r3 .accessibility-reach-line { width: var(--recurrent-share); }
+.accessibility-object-detached { position: absolute !important; margin: 0 !important; }
+.edit-mode .editable-visual-object { cursor: move; touch-action: none; }
+.edit-mode .editable-visual-object:hover { filter: drop-shadow(0 0 5px rgba(47,111,237,.42)); }
+.edit-mode .selected-visual-object { filter: drop-shadow(0 0 6px rgba(47,111,237,.68)); }
+.accessibility-object-frame, .accessibility-line-controls { position: absolute; z-index: 18; pointer-events: none; }
+.accessibility-object-frame { border: 3px solid #2f6fed; border-radius: 999px; box-shadow: 0 0 0 4px rgba(47,111,237,.12); }
+.accessibility-object-resize, .accessibility-line-endpoint, .accessibility-line-move {
+  position: absolute; z-index: 20; margin: 0; padding: 0; border: 3px solid white;
+  background: #2f6fed; box-shadow: 0 2px 7px rgba(20,35,59,.28); pointer-events: auto;
+}
+.accessibility-object-resize { right: -10px; bottom: -10px; width: 20px; height: 20px; border-radius: 6px; cursor: nwse-resize; }
+.accessibility-line-controls { inset: 0; }
+.accessibility-line-endpoint { width: 20px; height: 20px; border-radius: 50%; transform: translate(-50%, -50%); cursor: crosshair; }
+.accessibility-line-move { width: 25px; height: 16px; border-radius: 5px; transform: translate(-50%, -50%); cursor: move; }
+body.moving-visual-object { cursor: move; user-select: none; }
 .accessibility-key { display: flex; align-items: center; justify-content: center; gap: 3%; }
 .accessibility-key-item { display: inline-flex; align-items: center; gap: .5cqw; }
 .accessibility-key-swatch { width: 1.55cqw; height: .72cqw; border-radius: 99px; }
@@ -197,7 +214,7 @@ body.resizing-table-column { cursor: col-resize; user-select: none; }
 .joint-paper .joint-link { filter: none; }
 .joint-paper .joint-element { filter: drop-shadow(0 7px 11px rgba(31, 48, 76, .08)); cursor: default; }
 .edit-mode .joint-paper .joint-element { cursor: move; }
-.diagram-node-copy { box-sizing: border-box; position: absolute; z-index: 3; display: grid; place-items: center; padding: clamp(12px, .92cqw, 18px) clamp(18px, 1.28cqw, 26px); pointer-events: none; text-align: center; transform-origin: 0 0; overflow: hidden; }
+.diagram-node-copy { box-sizing: border-box; position: absolute; z-index: 3; display: grid; place-items: center; padding: clamp(18px, 1.35cqw, 26px) clamp(28px, 1.9cqw, 38px); pointer-events: none; text-align: center; transform-origin: 0 0; overflow: hidden; }
 .diagram-node-content { --diagram-node-fit-scale: 1; width: 100%; min-width: 0; min-height: 0; display: grid; align-content: center; justify-items: center; gap: .5cqw; overflow: hidden; }
 .diagram-node-content > .semantic-component { width: 100%; min-width: 0; min-height: 0; max-width: 100%; overflow: hidden; overflow-wrap: normal; word-break: normal; hyphens: none; }
 .diagram-node-copy.diagram-node-measuring { left: -10000px !important; top: 0 !important; width: max-content !important; min-width: var(--diagram-node-min-width); max-width: var(--diagram-node-max-width); height: auto !important; visibility: hidden; transform: none !important; }

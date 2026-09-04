@@ -1130,6 +1130,12 @@
 
   function selectComponent(slideId, componentId, element) {
     selected = slideId ? {slideId: slideId, componentId: componentId} : null;
+    stage.querySelectorAll(".selected-visual-object").forEach(function (node) {
+      node.classList.remove("selected-visual-object");
+    });
+    stage.querySelectorAll(".accessibility-object-frame, .accessibility-line-controls").forEach(function (node) {
+      node.hidden = true;
+    });
     if (selected && element) {
       var cell = element.closest("[data-table-cell]");
       if (cell) {
@@ -1211,7 +1217,7 @@
     editMode = !editMode;
     selected = null;
     render();
-    if (editMode) showToast("Edit mode on — select text or drop an image into the gallery.");
+    if (editMode) showToast("Edit mode on — select text, tables, shapes, lines, or gallery images.");
   });
   fullscreenToggle.addEventListener("click", toggleFullscreenPresentation);
   presentationExit.addEventListener("click", exitFullscreenPresentation);

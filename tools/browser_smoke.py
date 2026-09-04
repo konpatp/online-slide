@@ -657,6 +657,91 @@ def main() -> int:
                 page.screenshot(path=str(vector_editor))
                 captures["native-vector-editor"] = str(vector_editor)
 
+                # Qualitative target bars and reach lines are also native,
+                # semantic visual objects. A bar moves/resizes as one linked
+                # shape; reach endpoints change length and rotation, while the
+                # center handle translates the whole line.
+                page.goto(base + "/#mock-target-accessibility", wait_until="networkidle")
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                target = page.locator('[data-visual-object-id="alien-target-target"]')
+                target_box = target.bounding_box()
+                page.mouse.move(target_box["x"] + target_box["width"] / 2,
+                                target_box["y"] + target_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(target_box["x"] + target_box["width"] / 2 + 54,
+                                target_box["y"] + target_box["height"] / 2 + 22, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                moved_target_state = page.evaluate("""() => fetch('/api/deck-state',{cache:'no-store'})
+                  .then(r=>r.json()).then(x=>x.objects['mock-target-accessibility']['alien-target-target'])""")
+                if moved_target_state.get("kind") != "accessibility-target" or moved_target_state["x"] <= 0:
+                    findings.append("moving a target bar did not persist semantic shape geometry")
+                resize_handle = page.locator('[aria-label="Resize alien-target-target"]')
+                resize_box = resize_handle.bounding_box()
+                page.mouse.move(resize_box["x"] + resize_box["width"] / 2,
+                                resize_box["y"] + resize_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(resize_box["x"] + resize_box["width"] / 2 - 72,
+                                resize_box["y"] + resize_box["height"] / 2 - 12, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                target_state = page.evaluate("""() => fetch('/api/deck-state',{cache:'no-store'})
+                  .then(r=>r.json()).then(x=>x.objects['mock-target-accessibility']['alien-target-target'])""")
+                if target_state["width"] >= moved_target_state["width"] - .01:
+                    findings.append("target-bar corner handle did not resize the semantic shape")
+                target_path = slides_root / "06-target-accessibility.json"
+                target_original = target_path.read_text(encoding="utf-8")
+                target_source = json.loads(target_original)
+                target_source["data"]["panels"] = list(reversed(target_source["data"]["panels"]))
+                target_path.write_text(json.dumps(target_source, indent=2) + "\n", encoding="utf-8")
+                page.reload(wait_until="networkidle")
+                reordered_target_state = page.evaluate("""() => fetch('/api/deck-state',{cache:'no-store'})
+                  .then(r=>r.json()).then(x=>x.objects['mock-target-accessibility']['alien-target-target'])""")
+                if reordered_target_state != target_state:
+                    findings.append("panel reorder retargeted a human target-shape edit")
+                target_path.write_text(target_original, encoding="utf-8")
+                page.reload(wait_until="networkidle")
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                reach = page.locator('[data-visual-object-id="model-native-target-r3-reach"]')
+                reach_box = reach.bounding_box()
+                page.mouse.click(reach_box["x"] + reach_box["width"] / 2,
+                                 reach_box["y"] + reach_box["height"] / 2)
+                if "model-native-target-r3-reach" not in page.locator("[data-selected-component]").text_content():
+                    findings.append("clicking a reach line did not select its semantic object")
+                end_handle = page.locator('[aria-label="end handle for model-native-target-r3-reach"]')
+                end_box = end_handle.bounding_box()
+                page.mouse.move(end_box["x"] + end_box["width"] / 2,
+                                end_box["y"] + end_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(end_box["x"] + end_box["width"] / 2 + 36,
+                                end_box["y"] + end_box["height"] / 2 - 30, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                reach_state = page.evaluate("""() => fetch('/api/deck-state',{cache:'no-store'})
+                  .then(r=>r.json()).then(x=>x.objects['mock-target-accessibility']['model-native-target-r3-reach'])""")
+                if reach_state.get("kind") != "accessibility-reach" or abs(reach_state["to"][1] - reach_state["from"][1]) < .01:
+                    findings.append("reach endpoint did not persist a native line rotation")
+                move_handle = page.locator('[aria-label="move handle for model-native-target-r3-reach"]')
+                move_box = move_handle.bounding_box()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2,
+                                move_box["y"] + move_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(move_box["x"] + move_box["width"] / 2 - 34,
+                                move_box["y"] + move_box["height"] / 2 + 18, steps=8)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                translated_reach = page.evaluate("""() => fetch('/api/deck-state',{cache:'no-store'})
+                  .then(r=>r.json()).then(x=>x.objects['mock-target-accessibility']['model-native-target-r3-reach'])""")
+                start_delta = [translated_reach["from"][i] - reach_state["from"][i] for i in range(2)]
+                end_delta = [translated_reach["to"][i] - reach_state["to"][i] for i in range(2)]
+                if max(abs(start_delta[i] - end_delta[i]) for i in range(2)) > .02:
+                    findings.append("reach center handle did not translate both endpoints together")
+                accessibility_editor = output / "editor-native-accessibility.png"
+                page.screenshot(path=str(accessibility_editor))
+                captures["native-accessibility-editor"] = str(accessibility_editor)
+
                 # Capture the editor and each clean recipe. Geometry checks use actual pixels.
                 editor_path = output / "editor-gallery.png"
                 page.screenshot(path=str(editor_path))
@@ -761,10 +846,13 @@ def main() -> int:
                           const shape = document.querySelector(`g[model-id="${copy.dataset.diagramNodeId}"]`);
                           const c = copy.getBoundingClientRect();
                           const s = shape && shape.getBoundingClientRect();
+                          const content = copy.querySelector('.diagram-node-content').getBoundingClientRect();
                           return {
                             id: copy.dataset.diagramNodeId,
                             overflow: copy.scrollWidth > copy.clientWidth + 1 || copy.scrollHeight > copy.clientHeight + 1,
                             aligned: Boolean(s) && Math.abs(c.width - s.width) <= 2 && Math.abs(c.height - s.height) <= 2,
+                            opticalInset: Math.min(content.left-c.left, c.right-content.right,
+                              content.top-c.top, c.bottom-content.bottom),
                           };
                         })""")
                         overflowing = [item["id"] for item in node_geometry if item["overflow"]]
@@ -773,6 +861,9 @@ def main() -> int:
                             findings.append(f"content-sized diagram nodes overflow in clean render: {overflowing}")
                         if misaligned:
                             findings.append(f"diagram copy and measured node frames disagree: {misaligned}")
+                        cramped = [item["id"] for item in node_geometry if item["opticalInset"] < 17]
+                        if cramped:
+                            findings.append(f"auto-fitted diagram text lacks optical border slack: {cramped}")
                         lane_centers = clean.evaluate("""() => {
                           const center = id => { const r=document.querySelector(`[data-diagram-node-id="${id}"]`).getBoundingClientRect(); return [r.left+r.width/2,r.top+r.height/2]; };
                           return Object.fromEntries(['query-node','teacher-node','student-node','target-node','prediction-node','loss-node'].map(id => [id,center(id)]));
@@ -893,6 +984,8 @@ def main() -> int:
             "JSXGraph vector midpoint handle translates the complete semantic object",
             "JointJS nodes grow and reflow after longer live text edits",
             "JointJS text overlays match their measured SVG node frames without overflow",
+            "auto-fitted node text preserves an optical inset from every shape border",
+            "target bars and reach lines move, resize, rotate, save, reload, and survive panel reorder",
             "JointJS and JSXGraph compositions remain centered and contained",
             "all semantic components remain inside the 16:9 canvas",
             "gallery images use object-fit: contain",

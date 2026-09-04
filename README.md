@@ -37,6 +37,8 @@ Open <http://127.0.0.1:8000/>. Enable edit mode to:
 - select a connector and add, move, or remove native bend points;
 - select an opted-in vector or segment, drag either endpoint to change its
   length/rotation, or drag its square center handle to translate it;
+- move or resize a semantic target bar, and edit a B4/R3 reach line through
+  its endpoints or center handle;
 - drag the selected text region by its top edge and resize it from its corner;
 - change the selected leaf's font size or theme color;
 - reorder or hide slides without changing their source;
@@ -98,7 +100,9 @@ pixel placement. Audience-facing recipe labels default to at least 26 pt;
 compact controls, protocol metadata, and presenter chrome remain smaller.
 
 Text is always fitted to a declared region rather than positioned as an
-unbounded label. Gallery captions have a fixed-height reading region: a short
+unbounded label. Diagram nodes reserve an optical inset around the fitted text,
+so "contained" cannot mean glyphs pressed against a border. Gallery captions
+have a fixed-height reading region: a short
 caption keeps the recipe's maximum size, while a wrapped caption shrinks only
 as far as needed to remain contained. Vector labels declare percentage `box`
 regions in source, which keeps text off construction lines and makes overflow a
@@ -160,6 +164,12 @@ snapshot after the upgrade and thereby erase visual edits. Diagram positions
 are normalized to the recipe plane, while vector endpoints remain in the
 authored coordinate plane. Removing or changing the kind of an edited object
 fails closed.
+
+The target-accessibility recipe uses the same contract for simpler native
+primitives: each compound target bar is one semantic rectangle, and each B4/R3
+reach mark is one semantic line with independent endpoints. Their geometry is
+normalized to the owning panel, so dragging, resizing, or rotating one shape
+survives panel reorder without creating DOM- or index-based targets.
 
 ## Fast path and browser acceptance
 

@@ -67,6 +67,14 @@ same semantic `objects` overlay boundary. A specialized mature engine may own
 interaction, but it may not replace source-authored identities with canvas or
 DOM positions.
 
+Axis-aligned bars and short reach lines do not need another scene-graph
+dependency. The target-accessibility recipe applies that same object contract
+directly: bars expose move/resize handles, while lines expose two endpoints and
+a translation handle. The browser stores only normalized geometry under the
+source-authored panel/role identity. This keeps a small scientific primitive
+small while preserving the same save/reload/reorder guarantees as JointJS and
+JSXGraph objects.
+
 ## Gallery browsing: native controls and local view state
 
 Swiper, Embla, and PhotoSwipe are mature choices for generic carousels and

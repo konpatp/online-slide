@@ -160,6 +160,8 @@
       body.className = "recipe-body accessibility-body";
       var panels = document.createElement("div");
       panels.className = "accessibility-panels";
+      var objectState = api.objectsForSlide(slide);
+      var records = [];
       slide.data.panels.forEach(function (panel) {
         var total = panel.shares.reduce(function (sum, value) { return sum + value; }, 0);
         var common = panel.shares[0] / total * 100;
@@ -167,6 +169,9 @@
         var article = document.createElement("article");
         article.className = "accessibility-panel";
         article.setAttribute("data-accessibility-panel", panel.id);
+        article.addEventListener("click", function (event) {
+          if (api.isEditMode()) event.stopPropagation();
+        });
         article.style.setProperty("--common-share", common.toFixed(3) + "%");
         article.style.setProperty("--recurrent-share", recurrent.toFixed(3) + "%");
         var header = document.createElement("header");
@@ -177,6 +182,8 @@
         var target = document.createElement("div");
         target.className = "accessibility-target-row";
         target.appendChild(editableText(slide, panel.target, "div", "accessibility-target-label"));
+        var barSlot = document.createElement("div");
+        barSlot.className = "accessibility-target-slot";
         var bar = document.createElement("div");
         bar.className = "accessibility-signal";
         ["common", "depth", "inaccessible"].forEach(function (kind, index) {
@@ -185,26 +192,39 @@
           segment.style.flexGrow = String(panel.shares[index]);
           bar.appendChild(segment);
         });
-        target.appendChild(bar);
+        barSlot.appendChild(bar);
+        target.appendChild(barSlot);
         article.appendChild(target);
         var reaches = document.createElement("div");
         reaches.className = "accessibility-reaches";
         var b4 = document.createElement("div");
         b4.className = "accessibility-reach-row reach-b4";
         b4.appendChild(editableText(slide, panel.b4Fit, "span", "accessibility-reach-label"));
+        var b4Slot = document.createElement("span");
+        b4Slot.className = "accessibility-reach-slot";
         var b4Line = document.createElement("span");
         b4Line.className = "accessibility-reach-line";
-        b4.appendChild(b4Line);
+        b4Slot.appendChild(b4Line);
+        b4.appendChild(b4Slot);
         reaches.appendChild(b4);
         var r3 = document.createElement("div");
         r3.className = "accessibility-reach-row reach-r3";
         r3.appendChild(editableText(slide, panel.r3Fit, "span", "accessibility-reach-label"));
+        var r3Slot = document.createElement("span");
+        r3Slot.className = "accessibility-reach-slot";
         var r3Line = document.createElement("span");
         r3Line.className = "accessibility-reach-line";
-        r3.appendChild(r3Line);
+        r3Slot.appendChild(r3Line);
+        r3.appendChild(r3Slot);
         reaches.appendChild(r3);
         article.appendChild(reaches);
         panels.appendChild(article);
+        records.push({id: panel.id + "-target", kind: "accessibility-target",
+          mode: "rect", article: article, element: bar});
+        records.push({id: panel.id + "-b4-reach", kind: "accessibility-reach",
+          mode: "line", article: article, element: b4Line});
+        records.push({id: panel.id + "-r3-reach", kind: "accessibility-reach",
+          mode: "line", article: article, element: r3Line});
       });
       body.appendChild(panels);
       var key = document.createElement("div");
@@ -221,6 +241,211 @@
       body.appendChild(key);
       body.appendChild(editableText(slide, slide.data.equation, "div", "accessibility-equation"));
       canvas.appendChild(body);
+
+      function rounded(value) { return Math.round(value * 10000) / 10000; }
+
+      function rectGeometry(record) {
+        var outer = record.article.getBoundingClientRect();
+        var box = record.element.getBoundingClientRect();
+        return {kind: record.kind,
+          x: rounded((box.left - outer.left) / outer.width),
+          y: rounded((box.top - outer.top) / outer.height),
+          width: rounded(box.width / outer.width),
+          height: rounded(box.height / outer.height)};
+      }
+
+      function lineGeometry(record) {
+        var outer = record.article.getBoundingClientRect();
+        var box = record.element.getBoundingClientRect();
+        return {kind: record.kind,
+          from: [rounded((box.left - outer.left) / outer.width),
+            rounded((box.top + box.height / 2 - outer.top) / outer.height)],
+          to: [rounded((box.right - outer.left) / outer.width),
+            rounded((box.top + box.height / 2 - outer.top) / outer.height)]};
+      }
+
+      function sourceGeometry(record) {
+        return record.mode === "rect" ? rectGeometry(record) : lineGeometry(record);
+      }
+
+      function applyGeometry(record, geometry) {
+        var element = record.element;
+        element.classList.add("accessibility-object-detached");
+        if (record.mode === "rect") {
+          element.style.left = (geometry.x * 100) + "%";
+          element.style.top = (geometry.y * 100) + "%";
+          element.style.width = (geometry.width * 100) + "%";
+          element.style.height = (geometry.height * 100) + "%";
+          element.style.transform = "none";
+        } else {
+          var width = record.article.clientWidth;
+          var height = record.article.clientHeight;
+          var dx = (geometry.to[0] - geometry.from[0]) * width;
+          var dy = (geometry.to[1] - geometry.from[1]) * height;
+          element.style.left = (geometry.from[0] * 100) + "%";
+          element.style.top = (geometry.from[1] * 100) + "%";
+          element.style.width = Math.max(2, Math.hypot(dx, dy)) + "px";
+          element.style.transform = "translateY(-50%) rotate(" + Math.atan2(dy, dx) + "rad)";
+        }
+        positionControls(record, geometry);
+      }
+
+      function positionControls(record, geometry) {
+        if (!record.controls) return;
+        if (record.mode === "rect") {
+          record.controls.style.left = (geometry.x * 100) + "%";
+          record.controls.style.top = (geometry.y * 100) + "%";
+          record.controls.style.width = (geometry.width * 100) + "%";
+          record.controls.style.height = (geometry.height * 100) + "%";
+        } else {
+          var points = [geometry.from, geometry.to,
+            [(geometry.from[0] + geometry.to[0]) / 2, (geometry.from[1] + geometry.to[1]) / 2]];
+          [record.startHandle, record.endHandle, record.moveHandle].forEach(function (handle, index) {
+            handle.style.left = (points[index][0] * 100) + "%";
+            handle.style.top = (points[index][1] * 100) + "%";
+          });
+        }
+      }
+
+      function showSelected(record) {
+        records.forEach(function (item) {
+          item.element.classList.toggle("selected-visual-object", item === record);
+          if (item.controls) item.controls.hidden = item !== record;
+        });
+        api.selectVisualObject(slide.id, record.id, record.kind);
+      }
+
+      function boundedPoint(point) {
+        return [Math.max(0, Math.min(1, rounded(point[0]))),
+          Math.max(0, Math.min(1, rounded(point[1])))];
+      }
+
+      function startGesture(record, gesture, event) {
+        if (!api.isEditMode()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        showSelected(record);
+        var initial = objectState[record.id] || sourceGeometry(record);
+        var startX = event.clientX;
+        var startY = event.clientY;
+        var moved = false;
+        function onMove(moveEvent) {
+          moveEvent.preventDefault();
+          var dx = (moveEvent.clientX - startX) / record.article.clientWidth;
+          var dy = (moveEvent.clientY - startY) / record.article.clientHeight;
+          if (Math.abs(dx) + Math.abs(dy) < .001 && !moved) return;
+          moved = true;
+          var next;
+          if (record.mode === "rect") {
+            next = Object.assign({}, initial);
+            if (gesture === "resize") {
+              next.width = Math.max(.03, Math.min(1 - initial.x, rounded(initial.width + dx)));
+              next.height = Math.max(.012, Math.min(1 - initial.y, rounded(initial.height + dy)));
+            } else {
+              next.x = Math.max(0, Math.min(1 - initial.width, rounded(initial.x + dx)));
+              next.y = Math.max(0, Math.min(1 - initial.height, rounded(initial.y + dy)));
+            }
+          } else {
+            next = {kind: record.kind, from: initial.from.slice(), to: initial.to.slice()};
+            if (gesture === "start") next.from = boundedPoint([initial.from[0] + dx, initial.from[1] + dy]);
+            else if (gesture === "end") next.to = boundedPoint([initial.to[0] + dx, initial.to[1] + dy]);
+            else {
+              var minX = Math.min(initial.from[0], initial.to[0]);
+              var maxX = Math.max(initial.from[0], initial.to[0]);
+              var minY = Math.min(initial.from[1], initial.to[1]);
+              var maxY = Math.max(initial.from[1], initial.to[1]);
+              dx = Math.max(-minX, Math.min(1 - maxX, dx));
+              dy = Math.max(-minY, Math.min(1 - maxY, dy));
+              next.from = boundedPoint([initial.from[0] + dx, initial.from[1] + dy]);
+              next.to = boundedPoint([initial.to[0] + dx, initial.to[1] + dy]);
+            }
+          }
+          objectState[record.id] = next;
+          applyGeometry(record, next);
+          api.updateVisualObject(slide.id, record.id, record.kind, next, false);
+        }
+        function onEnd() {
+          document.removeEventListener("pointermove", onMove);
+          document.removeEventListener("pointerup", onEnd);
+          document.removeEventListener("pointercancel", onEnd);
+          document.body.classList.remove("moving-visual-object");
+          if (moved) api.updateVisualObject(slide.id, record.id, record.kind,
+            objectState[record.id], true);
+        }
+        document.body.classList.add("moving-visual-object");
+        document.addEventListener("pointermove", onMove);
+        document.addEventListener("pointerup", onEnd);
+        document.addEventListener("pointercancel", onEnd);
+      }
+
+      records.forEach(function (record) {
+        record.element.classList.add("editable-visual-object");
+        record.element.setAttribute("data-visual-object-id", record.id);
+        record.element.setAttribute("data-visual-object-kind", record.kind);
+        record.element.setAttribute("aria-label", record.id + " editable " + record.mode);
+        record.element.addEventListener("pointerdown", function (event) {
+          startGesture(record, "move", event);
+        });
+        record.element.addEventListener("click", function (event) {
+          if (api.isEditMode()) event.stopPropagation();
+        });
+        if (record.mode === "rect") {
+          var frame = document.createElement("div");
+          frame.className = "accessibility-object-frame";
+          frame.hidden = true;
+          var resize = document.createElement("button");
+          resize.type = "button";
+          resize.className = "accessibility-object-resize";
+          resize.setAttribute("aria-label", "Resize " + record.id);
+          resize.addEventListener("pointerdown", function (event) {
+            startGesture(record, "resize", event);
+          });
+          frame.appendChild(resize);
+          record.controls = frame;
+          frame.addEventListener("click", function (event) { event.stopPropagation(); });
+          record.article.appendChild(frame);
+        } else {
+          var controls = document.createElement("div");
+          controls.className = "accessibility-line-controls";
+          controls.hidden = true;
+          [["start", "accessibility-line-endpoint"], ["end", "accessibility-line-endpoint"],
+           ["move", "accessibility-line-move"]].forEach(function (entry) {
+            var handle = document.createElement("button");
+            handle.type = "button";
+            handle.className = entry[1];
+            handle.setAttribute("aria-label", entry[0] + " handle for " + record.id);
+            handle.addEventListener("pointerdown", function (event) {
+              startGesture(record, entry[0], event);
+            });
+            controls.appendChild(handle);
+            if (entry[0] === "start") record.startHandle = handle;
+            else if (entry[0] === "end") record.endHandle = handle;
+            else record.moveHandle = handle;
+          });
+          record.controls = controls;
+          controls.addEventListener("click", function (event) { event.stopPropagation(); });
+          record.article.appendChild(controls);
+        }
+      });
+
+      requestAnimationFrame(function () {
+        records.forEach(function (record) {
+          if (objectState[record.id]) applyGeometry(record, objectState[record.id]);
+          else positionControls(record, sourceGeometry(record));
+          if (api.selectedObjectId(slide) === record.id) showSelected(record);
+        });
+      });
+      if (window.ResizeObserver) {
+        records.forEach(function (record) {
+          var observer = new ResizeObserver(function () {
+            if (!record.article.isConnected) { observer.disconnect(); return; }
+            var geometry = objectState[record.id] || sourceGeometry(record);
+            if (objectState[record.id]) applyGeometry(record, geometry);
+            else positionControls(record, geometry);
+          });
+          observer.observe(record.article);
+        });
+      }
     }
 
     function mechanismPipeline(canvas, slide) {
