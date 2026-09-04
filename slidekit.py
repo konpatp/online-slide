@@ -1,7 +1,7 @@
 """Contracts for independent scientific slide sources and mutable deck state.
 
-Slide source files are immutable author contributions.  Ordering, visibility,
-and human edits live in a separate revision-checked state file.  Keeping those
+Slide source files are immutable author contributions. Ordering, visibility,
+human overlays, and semantic table structure live in a separate revision-checked state file. Keeping those
 surfaces separate lets several contributors add slides without rewriting a
 shared deck source or overwriting live human decisions.
 """
@@ -16,10 +16,11 @@ from typing import Any, Iterable
 
 
 SLIDE_SCHEMA = "online-slide/slide@1"
-STATE_SCHEMA = "online-slide/state@2"
+STATE_SCHEMA = "online-slide/state@3"
+LEGACY_STATE_SCHEMA = "online-slide/state@2"
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
-    "vector-geometry", "hierarchical-gallery",
+    "vector-geometry", "hierarchical-gallery", "target-accessibility",
 }
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -260,6 +261,34 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             component = components.get(component_id, {})
             _require(component.get("kind") == "text" and component.get("render") == "latex",
                      f"{source}: equations[{index}] must reference a LaTeX text component")
+    elif recipe == "target-accessibility":
+        panels = data.get("panels")
+        _require(isinstance(panels, list) and len(panels) == 2,
+                 f"{source}: target accessibility needs exactly two panels")
+        panel_ids: set[str] = set()
+        for index, panel in enumerate(panels):
+            _require(isinstance(panel, dict), f"{source}: panels[{index}] must be an object")
+            panel_id = panel.get("id")
+            _require(isinstance(panel_id, str) and COMPONENT_ID.fullmatch(panel_id),
+                     f"{source}: panels[{index}] needs a semantic id")
+            _require(panel_id not in panel_ids, f"{source}: duplicate panel id {panel_id}")
+            panel_ids.add(panel_id)
+            for key in ("title", "summary", "target", "b4Fit", "r3Fit"):
+                ref(panel.get(key), f"panels[{index}].{key}")
+            shares = panel.get("shares")
+            _require(isinstance(shares, list) and len(shares) == 3 and
+                     all(isinstance(value, (int, float)) and value > 0 for value in shares),
+                     f"{source}: panels[{index}].shares needs three positive qualitative weights")
+        legend = data.get("legend")
+        _require(isinstance(legend, list) and len(legend) == 3,
+                 f"{source}: target accessibility needs three legend labels")
+        for index, component_id in enumerate(legend):
+            ref(component_id, f"legend[{index}]")
+        equation = data.get("equation")
+        ref(equation, "equation")
+        component = components.get(equation, {})
+        _require(component.get("kind") == "text" and component.get("render") == "latex",
+                 f"{source}: target accessibility equation must use LaTeX")
     else:
         columns = data.get("columns")
         selectors = data.get("selectors")
@@ -376,7 +405,14 @@ def catalog_revision(catalog: dict[str, dict[str, Any]]) -> str:
 
 
 def empty_state() -> dict[str, Any]:
-    return {"schema": STATE_SCHEMA, "revision": 0, "order": [], "hidden": [], "overlays": {}}
+    return {
+        "schema": STATE_SCHEMA,
+        "revision": 0,
+        "order": [],
+        "hidden": [],
+        "overlays": {},
+        "tables": {},
+    }
 
 
 def _insert_new_slide(order: list[str], slide_id: str, catalog: dict[str, dict[str, Any]]) -> None:
@@ -394,6 +430,116 @@ def _insert_new_slide(order: list[str], slide_id: str, catalog: dict[str, dict[s
     order.insert(insert_at, slide_id)
 
 
+def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
+    """Validate human-authored table structure by semantic identity.
+
+    A table override is a complete logical table, not a set of DOM positions.
+    Rows, columns, and cells keep stable ids when their visual order changes.
+    Components introduced by a curator live with that logical table so no
+    positional selector or hidden source rewrite is needed.
+    """
+
+    _require(isinstance(tables, dict), "tables must be an object")
+    for slide_id, table in tables.items():
+        _require(slide_id in catalog, f"table targets unknown slide {slide_id}")
+        slide = catalog[slide_id]
+        _require(slide["recipe"] == "evidence-table",
+                 f"table structure may only target an evidence-table: {slide_id}")
+        _require(isinstance(table, dict) and set(table) == {"columns", "rows", "components"},
+                 f"table override for {slide_id} has an invalid shape")
+        inserted = table["components"]
+        _require(isinstance(inserted, dict), f"table components for {slide_id} must be an object")
+        source_ids = _component_ids(slide)
+        for component_id, component in inserted.items():
+            _require(COMPONENT_ID.fullmatch(component_id) is not None,
+                     f"table component has invalid id: {slide_id}@{component_id}")
+            _require(component_id not in source_ids,
+                     f"table component collides with source: {slide_id}@{component_id}")
+            _require(isinstance(component, dict) and component.get("kind") == "text" and
+                     isinstance(component.get("text"), str) and len(component["text"]) <= 800,
+                     f"inserted table component must be text: {slide_id}@{component_id}")
+            _require(set(component) <= {
+                "kind", "text", "role", "render", "display", "color", "fontScale", "region",
+            }, f"unsupported inserted table component fields: {slide_id}@{component_id}")
+            _require(isinstance(component.get("role", "table-value"), str),
+                     f"inserted table component role is invalid: {slide_id}@{component_id}")
+            _require(component.get("render", "plain") in {"plain", "latex"},
+                     f"inserted table component renderer is invalid: {slide_id}@{component_id}")
+            _require(component.get("display", "inline") in {"inline", "block"},
+                     f"inserted table component display is invalid: {slide_id}@{component_id}")
+            if "color" in component:
+                _require(isinstance(component["color"], str) and HEX_COLOR.fullmatch(component["color"]),
+                         f"inserted table component color is invalid: {slide_id}@{component_id}")
+            if "fontScale" in component:
+                _require(isinstance(component["fontScale"], (int, float)) and
+                         0.7 <= component["fontScale"] <= 1.5,
+                         f"inserted table component fontScale is invalid: {slide_id}@{component_id}")
+            if "region" in component:
+                _validate_text_region(
+                    component["region"],
+                    f"inserted table component region is invalid: {slide_id}@{component_id}",
+                )
+        known_components = source_ids | set(inserted)
+        referenced_inserted: set[str] = set()
+        columns = table["columns"]
+        rows = table["rows"]
+        _require(isinstance(columns, list) and len(columns) >= 2,
+                 f"table override for {slide_id} needs at least two columns")
+        _require(isinstance(rows, list) and rows,
+                 f"table override for {slide_id} needs at least one row")
+        column_ids: list[str] = []
+        for index, column in enumerate(columns):
+            _require(isinstance(column, dict) and set(column) == {"id", "label", "width"},
+                     f"table column {slide_id}[{index}] has an invalid shape")
+            column_id = column.get("id")
+            label = column.get("label")
+            _require(isinstance(column_id, str) and COMPONENT_ID.fullmatch(column_id),
+                     f"table column {slide_id}[{index}] needs a semantic id")
+            _require(column_id not in column_ids,
+                     f"duplicate table column id: {slide_id}@{column_id}")
+            column_ids.append(column_id)
+            _require(label in known_components,
+                     f"table column label disappeared: {slide_id}@{label}")
+            if label in inserted:
+                referenced_inserted.add(label)
+            _require(isinstance(column["width"], (int, float)) and
+                     0.35 <= column["width"] <= 4,
+                     f"table column width is invalid: {slide_id}@{column_id}")
+        row_ids: set[str] = set()
+        used_cells: set[str] = set()
+        for index, row in enumerate(rows):
+            _require(isinstance(row, dict) and set(row) == {
+                "id", "label", "cells", "best", "globalBest",
+            }, f"table row {slide_id}[{index}] has an invalid shape")
+            row_id = row.get("id")
+            _require(isinstance(row_id, str) and COMPONENT_ID.fullmatch(row_id),
+                     f"table row {slide_id}[{index}] needs a semantic id")
+            _require(row_id not in row_ids, f"duplicate table row id: {slide_id}@{row_id}")
+            row_ids.add(row_id)
+            _require(row.get("label") in known_components,
+                     f"table row label disappeared: {slide_id}@{row.get('label')}")
+            if row.get("label") in inserted:
+                referenced_inserted.add(row["label"])
+            cells = row.get("cells")
+            _require(isinstance(cells, list) and len(cells) == len(columns) - 1,
+                     f"table row {slide_id}@{row_id} does not match its columns")
+            for component_id in cells:
+                _require(component_id in known_components,
+                         f"table cell disappeared: {slide_id}@{component_id}")
+                _require(component_id not in used_cells,
+                         f"table cell is reused: {slide_id}@{component_id}")
+                used_cells.add(component_id)
+                if component_id in inserted:
+                    referenced_inserted.add(component_id)
+            for key in ("best", "globalBest"):
+                value = row.get(key)
+                _require(value is None or value in cells,
+                         f"table row {slide_id}@{row_id} has an invalid {key} target")
+        retired = sorted(set(inserted) - referenced_inserted)
+        _require(not retired,
+                 f"table-owned components are unreferenced: {slide_id}@{', '.join(retired)}")
+
+
 def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -> tuple[dict[str, Any], bool]:
     """Add new independent sources without disturbing human ordering.
 
@@ -401,7 +547,7 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
     accepted order, visibility, or component overlays.
     """
 
-    _require(isinstance(state, dict) and state.get("schema") == STATE_SCHEMA,
+    _require(isinstance(state, dict) and state.get("schema") in {STATE_SCHEMA, LEGACY_STATE_SCHEMA},
              "state has an unsupported schema")
     order = list(state.get("order", []))
     existing = set(order)
@@ -409,7 +555,7 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
     removed = sorted(existing - source_ids)
     _require(not removed, "published slide source disappeared: " + ", ".join(removed))
     _require(len(order) == len(existing), "state order contains duplicate ids")
-    changed = False
+    changed = state.get("schema") != STATE_SCHEMA
     pending = set(source_ids - existing)
     while pending:
         ready = [slide_id for slide_id in pending
@@ -426,12 +572,15 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
     overlays = state.get("overlays", {})
     _require(isinstance(overlays, dict), "overlays must be an object")
     validate_overlays(overlays, catalog)
+    tables = state.get("tables", {})
+    validate_tables(tables, catalog)
     reconciled = {
         "schema": STATE_SCHEMA,
         "revision": int(state.get("revision", 0)) + (1 if changed else 0),
         "order": order,
         "hidden": [slide_id for slide_id in order if slide_id in set(hidden)],
         "overlays": overlays,
+        "tables": tables,
     }
     return reconciled, changed
 
@@ -486,6 +635,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
     order = candidate.get("order")
     hidden = candidate.get("hidden")
     overlays = candidate.get("overlays")
+    tables = candidate.get("tables", {})
     known = set(catalog)
     _require(isinstance(order, list) and len(order) == len(known) and set(order) == known,
              "order must contain every published slide exactly once")
@@ -493,12 +643,14 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
     _require(isinstance(hidden, list) and set(hidden) <= known,
              "hidden must contain only published slide ids")
     validate_overlays(overlays, catalog)
+    validate_tables(tables, catalog)
     return {
         "schema": STATE_SCHEMA,
         "revision": int(current["revision"]) + 1,
         "order": list(order),
         "hidden": [slide_id for slide_id in order if slide_id in set(hidden)],
         "overlays": overlays,
+        "tables": tables,
     }
 
 

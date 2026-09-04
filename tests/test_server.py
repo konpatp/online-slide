@@ -53,13 +53,14 @@ class ServerProtocolTests(unittest.TestCase):
 
     @staticmethod
     def mutable_snapshot(state):
-        return {key: json.loads(json.dumps(state[key])) for key in ("schema", "order", "hidden", "overlays")}
+        return {key: json.loads(json.dumps(state[key]))
+                for key in ("schema", "order", "hidden", "overlays", "tables")}
 
     def test_static_page_catalog_and_state_are_available(self):
         status, state = self.get("/api/deck-state")
         self.assertEqual(status, 200)
-        self.assertEqual(state["schema"], "online-slide/state@2")
-        self.assertEqual(len(state["order"]), 5)
+        self.assertEqual(state["schema"], "online-slide/state@3")
+        self.assertEqual(len(state["order"]), 6)
         self.assertEqual(set(state["slides"]), set(state["order"]))
         self.assertEqual(len(state["sourceRevision"]), 64)
         status, health = self.get("/api/health")
@@ -100,6 +101,7 @@ class ServerProtocolTests(unittest.TestCase):
         durable = json.loads(self.state_path.read_text())
         self.assertNotIn("slides", durable)
         self.assertEqual(durable["overlays"], changed["overlays"])
+        self.assertEqual(durable["tables"], {})
 
         with self.assertRaises(HTTPError) as conflict:
             self.post("/api/deck-state", {
@@ -136,6 +138,31 @@ class ServerProtocolTests(unittest.TestCase):
             })
         self.assertEqual(error.exception.code, 400)
         self.assertIn("overlay target disappeared", json.loads(error.exception.read())["error"])
+
+    def test_invalid_table_structure_is_rejected_before_persistence(self):
+        _, state = self.get("/api/deck-state")
+        changed = self.mutable_snapshot(state)
+        changed["tables"] = {
+            "mock-angle-evidence": {
+                "columns": [
+                    {"id": "column-direction", "label": "column-direction", "width": 1.5},
+                    {"id": "column-low", "label": "column-low", "width": 1},
+                ],
+                "rows": [{
+                    "id": "row-random", "label": "row-random",
+                    "cells": ["missing-cell"], "best": "missing-cell", "globalBest": None,
+                }],
+                "components": {},
+            }
+        }
+        with self.assertRaises(HTTPError) as error:
+            self.post("/api/deck-state", {
+                "baseRevision": state["revision"],
+                "baseSourceRevision": state["sourceRevision"],
+                "snapshot": changed,
+            })
+        self.assertEqual(error.exception.code, 400)
+        self.assertIn("table cell disappeared", json.loads(error.exception.read())["error"])
 
     def test_asset_upload_is_content_addressed_and_immutable(self):
         image = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4"/></svg>'

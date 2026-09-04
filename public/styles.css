@@ -64,6 +64,8 @@ button { font: inherit; }
 .workspace-footer { justify-content: space-between; border-top: 1px solid var(--line); border-bottom: 0; font-size: 11px; }
 .workspace-hint { min-width: 255px; margin-left: 12px; overflow: hidden; color: #7f8da1; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .component-tools { margin-left: auto; display: flex; align-items: center; gap: 5px; }
+.table-tools { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding-left: 9px; border-left: 1px solid #dfe5ee; }
+.table-tools[hidden] { display: none; }
 .icon-button { width: 30px; height: 30px; border-radius: 8px; font-size: 17px; line-height: 1; }
 .tool-button { min-width: 32px; height: 28px; padding: 0 8px; border-radius: 7px; font-size: 11px; font-weight: 750; }
 .position { min-width: 50px; color: #53657d; font-size: 12px; font-weight: 800; text-align: center; }
@@ -140,7 +142,7 @@ body.resizing-text-region [contenteditable="true"], body.moving-text-region [con
 .evidence-table { --table-fit-scale: 1; width: 100%; height: auto; border-collapse: separate; border-spacing: 0; table-layout: fixed; color: #2a3d59; }
 .evidence-table th, .evidence-table td { padding: calc(.64cqw * var(--table-fit-scale)) calc(.9cqw * var(--table-fit-scale)); border-bottom: 1px solid #dfe5ee; text-align: center; vertical-align: middle; }
 .evidence-table th:not(:last-child), .evidence-table td:not(:last-child) { border-right: 1px solid #edf1f6; }
-.evidence-table thead th { color: #65758c; background: #f5f7fb; border-top: 1px solid #dfe5ee; font-size: calc(max(1.28cqw, 34.67px) * var(--table-fit-scale)); text-transform: uppercase; letter-spacing: .06em; }
+.evidence-table thead th { position: relative; color: #65758c; background: #f5f7fb; border-top: 1px solid #dfe5ee; font-size: calc(max(1.28cqw, 34.67px) * var(--table-fit-scale)); text-transform: uppercase; letter-spacing: .06em; }
 .evidence-table thead th:first-child { width: 30%; border-radius: 12px 0 0 0; text-align: left; }
 .evidence-table thead th:last-child { border-radius: 0 12px 0 0; }
 .evidence-table tbody th { text-align: left; color: var(--ink); font-size: calc(max(1.68cqw, 34.67px) * var(--table-fit-scale)); }
@@ -149,6 +151,43 @@ body.resizing-text-region [contenteditable="true"], body.moving-text-region [con
 .table-heading, .table-row-label, .table-value { font-size: calc(1em * var(--component-scale, 1)); }
 .row-best { color: #116b52; background: #edf9f4; font-weight: 850; }
 .global-best { color: #173e8c; background: #eaf1ff; box-shadow: inset 0 0 0 2px rgba(47, 111, 237, .38); }
+.table-column-resizer { display: none; position: absolute; z-index: 8; top: 8%; right: -6px; width: 12px; height: 84%; margin: 0; padding: 0; border: 0; border-radius: 99px; background: transparent; cursor: col-resize; }
+.edit-mode .table-column-resizer { display: block; }
+.edit-mode .table-column-resizer::after { content: ""; position: absolute; left: 5px; top: 14%; width: 2px; height: 72%; border-radius: 99px; background: #86a8ec; }
+.edit-mode [data-table-cell]:focus-within { outline: 3px solid rgba(47,111,237,.34); outline-offset: -3px; }
+body.resizing-table-column { cursor: col-resize; user-select: none; }
+
+/* Target accessibility: qualitative target-energy geometry, not a flow chart. */
+.accessibility-body { top: 20.7%; bottom: 11.7%; display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 2.2%; }
+.accessibility-panels { min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4.5%; align-items: stretch; }
+.accessibility-panel { min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; align-items: center; padding: 1.8% 1.8% 2.2%; }
+.accessibility-panel-header { align-self: start; text-align: center; }
+.accessibility-panel-title { margin: 0; color: var(--ink); font-size: calc(max(1.9cqw, 40px) * var(--component-scale, 1)); line-height: 1.02; }
+.accessibility-panel-summary { margin: .42cqw 0 0; color: #65758c; font-size: calc(max(1.18cqw, 34.67px) * var(--component-scale, 1)); font-weight: 720; line-height: 1.08; }
+.accessibility-target-row { align-self: center; display: grid; gap: .72cqw; width: 100%; }
+.accessibility-target-label { color: #334b68; font-size: calc(max(1.35cqw, 34.67px) * var(--component-scale, 1)); font-weight: 820; text-align: left; }
+.accessibility-signal { position: relative; display: flex; width: 100%; height: 4.2cqw; overflow: hidden; border-radius: 999px; box-shadow: inset 0 0 0 1px rgba(20,35,59,.08); }
+.accessibility-signal::after { content: ""; position: absolute; right: .35cqw; top: 50%; width: 1.15cqw; height: 1.15cqw; border-top: .31cqw solid white; border-right: .31cqw solid white; transform: translateY(-50%) rotate(45deg); filter: drop-shadow(0 0 1px rgba(20,35,59,.18)); }
+.accessibility-segment { min-width: 0; height: 100%; }
+.segment-common { background: #70a2ef; }
+.segment-depth { background: #e88a4e; }
+.segment-inaccessible { background: repeating-linear-gradient(135deg, #d9dfe8 0 12px, #eef1f5 12px 24px); }
+.accessibility-reaches { display: grid; gap: .64cqw; width: 100%; }
+.accessibility-reach-row { display: grid; grid-template-columns: 19% 1fr; align-items: center; gap: .65cqw; }
+.accessibility-reach-label { color: #40536c; font-size: calc(max(1.12cqw, 34.67px) * var(--component-scale, 1)); font-weight: 820; text-align: right; }
+.accessibility-reach-line { position: relative; display: block; height: .46cqw; border-radius: 99px; background: currentColor; }
+.accessibility-reach-line::before, .accessibility-reach-line::after { content: ""; position: absolute; top: -.34cqw; width: .15cqw; height: 1.14cqw; border-radius: 99px; background: currentColor; }
+.accessibility-reach-line::before { left: 0; }
+.accessibility-reach-line::after { right: 0; }
+.reach-b4 { color: #2f6fed; }
+.reach-b4 .accessibility-reach-line { width: var(--common-share); }
+.reach-r3 { color: #d86f32; }
+.reach-r3 .accessibility-reach-line { width: var(--recurrent-share); }
+.accessibility-key { display: flex; align-items: center; justify-content: center; gap: 3%; }
+.accessibility-key-item { display: inline-flex; align-items: center; gap: .5cqw; }
+.accessibility-key-swatch { width: 1.55cqw; height: .72cqw; border-radius: 99px; }
+.accessibility-key-label { color: #53657d; font-size: calc(max(1.05cqw, 34.67px) * var(--component-scale, 1)); font-weight: 740; }
+.accessibility-equation { color: #344961; font-size: calc(max(1.18cqw, 34.67px) * var(--component-scale, 1)); text-align: center; white-space: nowrap; }
 
 /* Mechanism pipeline: JointJS owns topology, routing, and node movement. */
 .diagram-body { top: 22.5%; bottom: 12%; }

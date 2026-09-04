@@ -1,0 +1,54 @@
+{
+  "schema": "online-slide/slide@1",
+  "id": "mock-target-accessibility",
+  "recipe": "target-accessibility",
+  "createdAt": "2026-09-03T18:00:00Z",
+  "placement": {"after": "mock-matched-gallery"},
+  "theme": {"accent": "#d46b32"},
+  "eyebrow": "eyebrow",
+  "headline": "headline",
+  "footer": "protocol",
+  "components": {
+    "eyebrow": {"kind": "text", "text": "RECIPE 06 · TARGET ACCESSIBILITY", "role": "eyebrow"},
+    "headline": {"kind": "text", "text": "Extra depth pays when the target contains a reachable correction", "role": "headline"},
+    "direct-title": {"kind": "text", "text": "Alien target", "role": "panel title"},
+    "direct-summary": {"kind": "text", "text": "most target energy stays outside both models", "role": "panel summary"},
+    "direct-target": {"kind": "text", "text": "T_{\\mathrm{alien}}", "render": "latex", "role": "math"},
+    "direct-b4": {"kind": "text", "text": "B4 fit", "role": "projection label"},
+    "direct-r3": {"kind": "text", "text": "R3 fit", "role": "projection label"},
+    "native-title": {"kind": "text", "text": "Model-native target", "role": "panel title"},
+    "native-summary": {"kind": "text", "text": "more target energy lies in the R3-only reach", "role": "panel summary"},
+    "native-target": {"kind": "text", "text": "T_{\\mathrm{native}}", "render": "latex", "role": "math"},
+    "native-b4": {"kind": "text", "text": "B4 fit", "role": "projection label"},
+    "native-r3": {"kind": "text", "text": "R3 fit", "role": "projection label"},
+    "legend-common": {"kind": "text", "text": "common reach", "role": "legend"},
+    "legend-depth": {"kind": "text", "text": "R3-only reach", "role": "legend"},
+    "legend-inaccessible": {"kind": "text", "text": "inaccessible", "role": "legend"},
+    "decomposition": {"kind": "text", "text": "T=T_{\\mathrm{common}}+T_{\\mathrm{depth}}+T_{\\mathrm{inaccessible}}", "render": "latex", "display": "block", "role": "equation"},
+    "protocol": {"kind": "text", "text": "Conceptual component sizes—not measured coefficients", "role": "protocol"}
+  },
+  "data": {
+    "legend": ["legend-common", "legend-depth", "legend-inaccessible"],
+    "equation": "decomposition",
+    "panels": [
+      {
+        "id": "alien-target",
+        "title": "direct-title",
+        "summary": "direct-summary",
+        "target": "direct-target",
+        "b4Fit": "direct-b4",
+        "r3Fit": "direct-r3",
+        "shares": [3, 1, 7]
+      },
+      {
+        "id": "model-native-target",
+        "title": "native-title",
+        "summary": "native-summary",
+        "target": "native-target",
+        "b4Fit": "native-b4",
+        "r3Fit": "native-r3",
+        "shares": [3, 4, 2]
+      }
+    ]
+  }
+}

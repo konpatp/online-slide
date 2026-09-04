@@ -33,6 +33,7 @@
   var textRegionBindings = new Map();
   var textRegionFrame = null;
   var regionGesture = null;
+  var tableColumnGesture = null;
 
   var CANONICAL_SLIDE_WIDTH = 1920;
   var CANONICAL_SLIDE_HEIGHT = 1080;
@@ -44,7 +45,8 @@
       schema: value.schema,
       order: value.order.slice(),
       hidden: value.hidden.slice(),
-      overlays: copy(value.overlays)
+      overlays: copy(value.overlays),
+      tables: copy(value.tables || {})
     };
   }
 
@@ -133,7 +135,9 @@
   }
 
   function effectiveComponent(slide, componentId) {
-    var source = slide.components[componentId];
+    var table = (state.tables || {})[slide.id];
+    var source = slide.components[componentId] || (table && table.components[componentId]);
+    if (!source) throw new Error("Unknown semantic component " + slide.id + "@" + componentId);
     var overlay = overlayFor(slide.id, componentId, false);
     return Object.assign({}, source, overlay);
   }
@@ -147,10 +151,249 @@
 
   function updateOverlay(slideId, componentId, key, value) {
     var source = state.slides[slideId].components[componentId];
+    var table = (state.tables || {})[slideId];
+    if (!source && table && table.components[componentId]) {
+      if (value === undefined || value === null) delete table.components[componentId][key];
+      else table.components[componentId][key] = value;
+      return;
+    }
     var overlay = overlayFor(slideId, componentId, true);
     if (source[key] === value || value === undefined || value === null) delete overlay[key];
     else overlay[key] = value;
     cleanOverlay(slideId, componentId);
+  }
+
+  function sourceTableModel(slide) {
+    return {
+      columns: slide.data.columns.map(function (componentId, index) {
+        return {id: componentId, label: componentId, width: index === 0 ? 1.5 : 1};
+      }),
+      rows: slide.data.rows.map(function (row) {
+        return {
+          id: row.label,
+          label: row.label,
+          cells: row.cells.slice(),
+          best: Number.isInteger(row.best) ? row.cells[row.best] : null,
+          globalBest: Number.isInteger(row.globalBest) ? row.cells[row.globalBest] : null
+        };
+      }),
+      components: {}
+    };
+  }
+
+  function effectiveTable(slide) {
+    return (state.tables || {})[slide.id] || sourceTableModel(slide);
+  }
+
+  function ensureTable(slide) {
+    if (!state.tables) state.tables = {};
+    if (!state.tables[slide.id]) state.tables[slide.id] = sourceTableModel(slide);
+    return state.tables[slide.id];
+  }
+
+  function tableToken() {
+    var random = Math.random().toString(36).slice(2, 8);
+    return Date.now().toString(36) + "-" + random;
+  }
+
+  function insertedTableText(table, prefix, value, role) {
+    var id = prefix + "-" + tableToken();
+    table.components[id] = {kind: "text", text: value, role: role};
+    return id;
+  }
+
+  function retireTableComponent(table, componentId) {
+    if (table.components[componentId]) delete table.components[componentId];
+  }
+
+  function tableCell(slide, componentId) {
+    if (!slide || slide.recipe !== "evidence-table") return null;
+    var table = effectiveTable(slide);
+    for (var columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
+      if (table.columns[columnIndex].label === componentId) {
+        return {header: true, rowIndex: -1, columnIndex: columnIndex,
+          rowId: "table-header", columnId: table.columns[columnIndex].id};
+      }
+    }
+    for (var rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
+      var row = table.rows[rowIndex];
+      if (row.label === componentId) {
+        return {header: false, rowIndex: rowIndex, columnIndex: 0,
+          rowId: row.id, columnId: table.columns[0].id};
+      }
+      var cellIndex = row.cells.indexOf(componentId);
+      if (cellIndex >= 0) {
+        return {header: false, rowIndex: rowIndex, columnIndex: cellIndex + 1,
+          rowId: row.id, columnId: table.columns[cellIndex + 1].id};
+      }
+    }
+    return null;
+  }
+
+  function addTableRow(slide, afterIndex) {
+    var table = ensureTable(slide);
+    var token = tableToken();
+    var label = "table-row-" + token;
+    table.components[label] = {kind: "text", text: "New row", role: "table-row-label"};
+    var cells = table.columns.slice(1).map(function () {
+      return insertedTableText(table, "table-cell", "—", "table-value");
+    });
+    var row = {id: label, label: label, cells: cells, best: null, globalBest: null};
+    table.rows.splice(Math.max(0, Math.min(table.rows.length, afterIndex + 1)), 0, row);
+    return row;
+  }
+
+  function addTableColumn(slide, afterIndex) {
+    var table = ensureTable(slide);
+    var label = insertedTableText(table, "table-column", "New column", "table-heading");
+    var insertAt = Math.max(1, Math.min(table.columns.length, afterIndex + 1));
+    table.columns.splice(insertAt, 0, {id: label, label: label, width: 1});
+    table.rows.forEach(function (row) {
+      row.cells.splice(insertAt - 1, 0,
+        insertedTableText(table, "table-cell", "—", "table-value"));
+    });
+    return insertAt;
+  }
+
+  function mutateSelectedTable(action) {
+    if (!selected || !selected.tableCell) return;
+    var slide = state.slides[selected.slideId];
+    if (!slide || slide.recipe !== "evidence-table") return;
+    var table = ensureTable(slide);
+    var cell = selected.tableCell;
+    beginChange();
+    if (action === "table-reset") {
+      delete state.tables[slide.id];
+      selected = null;
+    } else if (action === "row-add") {
+      var row = addTableRow(slide, cell.rowIndex < 0 ? table.rows.length - 1 : cell.rowIndex);
+      selected.componentId = row.label;
+    } else if (action === "row-delete" && cell.rowIndex >= 0 && table.rows.length > 1) {
+      var removedRow = table.rows.splice(cell.rowIndex, 1)[0];
+      retireTableComponent(table, removedRow.label);
+      removedRow.cells.forEach(function (componentId) {
+        retireTableComponent(table, componentId);
+      });
+      selected = null;
+    } else if ((action === "row-up" || action === "row-down") && cell.rowIndex >= 0) {
+      var rowTarget = cell.rowIndex + (action === "row-up" ? -1 : 1);
+      if (rowTarget >= 0 && rowTarget < table.rows.length) {
+        table.rows.splice(rowTarget, 0, table.rows.splice(cell.rowIndex, 1)[0]);
+      }
+    } else if (action === "column-add") {
+      var columnIndex = addTableColumn(slide, cell.columnIndex);
+      selected.componentId = table.columns[columnIndex].label;
+    } else if (action === "column-delete" && cell.columnIndex > 0 && table.columns.length > 2) {
+      var removed = table.columns.splice(cell.columnIndex, 1)[0];
+      table.rows.forEach(function (rowItem) {
+        var removedCell = rowItem.cells.splice(cell.columnIndex - 1, 1)[0];
+        if (rowItem.best === removedCell) rowItem.best = null;
+        if (rowItem.globalBest === removedCell) rowItem.globalBest = null;
+        retireTableComponent(table, removedCell);
+      });
+      retireTableComponent(table, removed.label);
+      selected = null;
+    } else if ((action === "column-left" || action === "column-right") && cell.columnIndex > 0) {
+      var columnTarget = cell.columnIndex + (action === "column-left" ? -1 : 1);
+      if (columnTarget > 0 && columnTarget < table.columns.length) {
+        table.columns.splice(columnTarget, 0, table.columns.splice(cell.columnIndex, 1)[0]);
+        table.rows.forEach(function (rowItem) {
+          rowItem.cells.splice(columnTarget - 1, 0,
+            rowItem.cells.splice(cell.columnIndex - 1, 1)[0]);
+        });
+      }
+    }
+    render();
+    persist();
+  }
+
+  function setTableText(slide, table, componentId, value) {
+    if (table.components[componentId]) table.components[componentId].text = value;
+    else updateOverlay(slide.id, componentId, "text", value);
+  }
+
+  function pasteTableGrid(slide, componentId, raw) {
+    var start = tableCell(slide, componentId);
+    if (!start) return false;
+    var values = raw.replace(/\r/g, "").split("\n").filter(function (line, index, rows) {
+      return line.length || index < rows.length - 1;
+    }).map(function (line) { return line.split("\t"); });
+    if (!values.length || (values.length === 1 && values[0].length === 1)) return false;
+    var table = ensureTable(slide);
+    beginChange();
+    while (start.columnIndex + Math.max.apply(null, values.map(function (row) { return row.length; })) > table.columns.length) {
+      addTableColumn(slide, table.columns.length - 1);
+    }
+    if (!start.header) {
+      while (start.rowIndex + values.length > table.rows.length) addTableRow(slide, table.rows.length - 1);
+    }
+    values.forEach(function (valuesRow, rowOffset) {
+      valuesRow.forEach(function (value, columnOffset) {
+        var columnIndex = start.columnIndex + columnOffset;
+        var targetId;
+        if (start.header && rowOffset === 0) {
+          targetId = table.columns[columnIndex].label;
+        } else {
+          var rowIndex = start.header ? rowOffset - 1 : start.rowIndex + rowOffset;
+          if (rowIndex < 0) return;
+          targetId = columnIndex === 0 ? table.rows[rowIndex].label : table.rows[rowIndex].cells[columnIndex - 1];
+        }
+        setTableText(slide, table, targetId, value.trim());
+      });
+    });
+    render();
+    persist();
+    return true;
+  }
+
+  function startTableColumnResize(slide, columnId, event) {
+    if (!editMode) return;
+    event.preventDefault();
+    event.stopPropagation();
+    var table = ensureTable(slide);
+    var index = table.columns.findIndex(function (column) { return column.id === columnId; });
+    if (index < 0) return;
+    beginChange();
+    var body = event.target.closest(".table-body").getBoundingClientRect();
+    tableColumnGesture = {
+      slide: slide,
+      table: table,
+      index: index,
+      startX: event.clientX,
+      startWidth: table.columns[index].width,
+      bodyWidth: body.width,
+      total: table.columns.reduce(function (sum, column) { return sum + column.width; }, 0)
+    };
+    document.body.classList.add("resizing-table-column");
+    document.addEventListener("pointermove", moveTableColumnResize);
+    document.addEventListener("pointerup", finishTableColumnResize, {once: true});
+    document.addEventListener("pointercancel", finishTableColumnResize, {once: true});
+  }
+
+  function moveTableColumnResize(event) {
+    if (!tableColumnGesture) return;
+    event.preventDefault();
+    var gesture = tableColumnGesture;
+    var delta = (event.clientX - gesture.startX) / gesture.bodyWidth * gesture.total;
+    gesture.table.columns[gesture.index].width = Math.max(.35, Math.min(4, gesture.startWidth + delta));
+    var tableElement = stage.querySelector(".evidence-table");
+    if (!tableElement) return;
+    var total = gesture.table.columns.reduce(function (sum, column) { return sum + column.width; }, 0);
+    gesture.table.columns.forEach(function (column) {
+      var col = tableElement.querySelector('col[data-table-column-id="' + column.id + '"]');
+      if (col) col.style.width = (column.width / total * 100).toFixed(3) + "%";
+    });
+  }
+
+  function finishTableColumnResize() {
+    document.removeEventListener("pointermove", moveTableColumnResize);
+    document.removeEventListener("pointerup", finishTableColumnResize);
+    document.removeEventListener("pointercancel", finishTableColumnResize);
+    document.body.classList.remove("resizing-table-column");
+    if (!tableColumnGesture) return;
+    tableColumnGesture = null;
+    render();
+    persist();
   }
 
   function beginChange() {
@@ -211,7 +454,8 @@
         setStatus("Saving…", "saving");
         flush();
       }
-    }).catch(function () {
+    }).catch(function (error) {
+      console.error("deck-state save failed", error);
       inFlight = null;
       pending = job;
       setStatus("Offline · retrying", "error");
@@ -258,6 +502,22 @@
       beginChange();
       clearTimeout(inputTimer);
       inputTimer = setTimeout(persist, 260);
+    });
+    element.addEventListener("paste", function (event) {
+      if (!editMode || isLatex) return;
+      var raw = event.clipboardData && event.clipboardData.getData("text/plain");
+      if (!raw || (raw.indexOf("\t") < 0 && raw.indexOf("\n") < 0)) return;
+      if (pasteTableGrid(slide, componentId, raw)) event.preventDefault();
+    });
+    element.addEventListener("keydown", function (event) {
+      if (!editMode || event.key !== "Tab" || !element.closest("[data-table-cell]")) return;
+      event.preventDefault();
+      var cells = Array.from(stage.querySelectorAll("[data-table-cell] .semantic-component"));
+      var index = cells.indexOf(element);
+      var next = cells[index + (event.shiftKey ? -1 : 1)];
+      if (!next) next = cells[event.shiftKey ? cells.length - 1 : 0];
+      next.focus();
+      next.click();
     });
     element.addEventListener("dblclick", function (event) {
       if (!editMode || !isLatex) return;
@@ -701,6 +961,8 @@
     bindTextRegion: bindTextRegion,
     galleryImage: galleryImage,
     effectiveComponent: effectiveComponent,
+    effectiveTable: effectiveTable,
+    startTableColumnResize: startTableColumnResize,
     fitTextInRegion: registerTextFit,
     fitGroupInRegion: registerGroupFit,
     isEditMode: function () { return editMode; }
@@ -736,7 +998,11 @@
     document.querySelector("[data-next]").disabled = index === state.order.length - 1;
     if (selected && selected.slideId === currentId) {
       var element = stage.querySelector('[data-component-id="' + selected.componentId + '"]');
-      if (element) element.classList.add("selected-component");
+      if (element) {
+        element.classList.add("selected-component");
+        selected.tableCell = tableCell(slide, selected.componentId);
+        if (!selected.tableCell) delete selected.tableCell;
+      }
     }
     requestAnimationFrame(syncTextRegionFrame);
   }
@@ -800,6 +1066,17 @@
     document.querySelectorAll("[data-font-delta], [data-color]").forEach(function (button) { button.disabled = !textSelected; });
     document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
     document.querySelector("[data-reset-component]").disabled = !(editMode && component);
+    var tableSelected = Boolean(editMode && selected && selected.tableCell);
+    document.querySelectorAll("[data-table-action]").forEach(function (button) {
+      var action = button.getAttribute("data-table-action");
+      var cell = selected && selected.tableCell;
+      var disabled = !tableSelected;
+      if (cell && action.indexOf("row-") === 0 && cell.header) disabled = true;
+      if (cell && action === "column-delete" && cell.columnIndex === 0) disabled = true;
+      if (cell && (action === "column-left" || action === "column-right") && cell.columnIndex === 0) disabled = true;
+      button.disabled = disabled;
+    });
+    document.querySelector("[data-table-tools]").hidden = !tableSelected;
     selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId +
       (textSelected ? " · drag top edge · resize corner" : "") : "Select a component in edit mode";
   }
@@ -815,6 +1092,18 @@
 
   function selectComponent(slideId, componentId, element) {
     selected = slideId ? {slideId: slideId, componentId: componentId} : null;
+    if (selected && element) {
+      var cell = element.closest("[data-table-cell]");
+      if (cell) {
+        selected.tableCell = {
+          header: cell.dataset.tableRowId === "table-header",
+          rowIndex: Number(cell.dataset.tableRowIndex),
+          columnIndex: Number(cell.dataset.tableColumnIndex),
+          rowId: cell.dataset.tableRowId,
+          columnId: cell.dataset.tableColumnId
+        };
+      }
+    }
     stage.querySelectorAll(".selected-component").forEach(function (node) { node.classList.remove("selected-component"); });
     if (element) element.classList.add("selected-component");
     renderTools();
@@ -932,6 +1221,11 @@
     if (state.overlays[selected.slideId]) delete state.overlays[selected.slideId][selected.componentId];
     cleanOverlay(selected.slideId, selected.componentId);
     render(); persist();
+  });
+  document.querySelectorAll("[data-table-action]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      mutateSelectedTable(button.getAttribute("data-table-action"));
+    });
   });
 
   document.addEventListener("keydown", function (event) {

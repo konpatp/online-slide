@@ -10,6 +10,7 @@ from slidekit import (
     catalog_receipt,
     load_catalog,
     reconcile_state,
+    validate_state_snapshot,
     validate_slide_spec,
 )
 
@@ -23,17 +24,30 @@ class SlideKitContractTests(unittest.TestCase):
 
     def initial_state(self):
         state, _ = reconcile_state({
-            "schema": "online-slide/state@2", "revision": 0,
+            "schema": "online-slide/state@3", "revision": 0,
             "order": [], "hidden": [], "overlays": {}
         }, self.catalog)
         return state
 
-    def test_five_recipes_and_semantic_components_are_complete(self):
+    def test_six_recipes_and_semantic_components_are_complete(self):
         receipt = catalog_receipt(self.catalog)
-        self.assertEqual(receipt["slides"], 5)
+        self.assertEqual(receipt["slides"], 6)
         self.assertEqual(set(receipt["recipes"].values()), {1})
-        self.assertEqual(receipt["semanticComponentIds"], 109)
+        self.assertEqual(receipt["semanticComponentIds"], 126)
         self.assertEqual(receipt["positionalComponentIds"], 0)
+
+    def test_state_v2_is_upgraded_but_an_old_client_cannot_erase_tables(self):
+        upgraded, changed = reconcile_state({
+            "schema": "online-slide/state@2", "revision": 7,
+            "order": [], "hidden": [], "overlays": {},
+        }, self.catalog)
+        self.assertTrue(changed)
+        self.assertEqual(upgraded["schema"], "online-slide/state@3")
+        self.assertEqual(upgraded["tables"], {})
+        stale_client = dict(upgraded)
+        stale_client["schema"] = "online-slide/state@2"
+        with self.assertRaisesRegex(ContractError, "unsupported state schema"):
+            validate_state_snapshot(stale_client, upgraded, self.catalog)
 
     def test_vector_geometry_requires_latex_equations_and_bounded_labels(self):
         geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
@@ -77,6 +91,104 @@ class SlideKitContractTests(unittest.TestCase):
             reconciled["overlays"]["mock-guidance-vector-geometry"]["remove-label"]["region"],
             region,
         )
+
+    def test_native_table_structure_uses_stable_row_column_and_cell_ids(self):
+        state = self.initial_state()
+        slide = self.catalog["mock-angle-evidence"]
+        rows = slide["data"]["rows"]
+        columns = slide["data"]["columns"]
+        state["tables"] = {
+            slide["id"]: {
+                "columns": [
+                    {"id": component_id, "label": component_id,
+                     "width": 1.5 if index == 0 else 1}
+                    for index, component_id in enumerate(columns)
+                ],
+                "rows": [
+                    {
+                        "id": row["label"], "label": row["label"],
+                        "cells": list(row["cells"]),
+                        "best": row["cells"][row["best"]],
+                        "globalBest": row["cells"][row["globalBest"]]
+                        if "globalBest" in row else None,
+                    }
+                    for row in reversed(rows)
+                ],
+                "components": {},
+            }
+        }
+        # Row reorder never changes any saved cell identity.
+        validated = validate_state_snapshot(state, state, self.catalog)
+        self.assertEqual(
+            validated["tables"][slide["id"]]["rows"][0]["cells"],
+            rows[-1]["cells"],
+        )
+
+    def test_native_table_rejects_duplicate_ids_and_missing_cells(self):
+        state = self.initial_state()
+        slide = self.catalog["mock-angle-evidence"]
+        state["tables"] = {
+            slide["id"]: {
+                "columns": [
+                    {"id": component_id, "label": component_id, "width": 1}
+                    for component_id in slide["data"]["columns"]
+                ],
+                "rows": [{
+                    "id": row["label"], "label": row["label"],
+                    "cells": list(row["cells"]),
+                    "best": row["cells"][row["best"]], "globalBest": None,
+                } for row in slide["data"]["rows"]],
+                "components": {},
+            }
+        }
+        state["tables"][slide["id"]]["rows"][1]["id"] = state["tables"][slide["id"]]["rows"][0]["id"]
+        with self.assertRaisesRegex(ContractError, "duplicate table row id"):
+            validate_state_snapshot(state, state, self.catalog)
+        state = self.initial_state()
+        state["tables"] = {
+            slide["id"]: {
+                "columns": [
+                    {"id": component_id, "label": component_id, "width": 1}
+                    for component_id in slide["data"]["columns"]
+                ],
+                "rows": [{
+                    "id": "row-broken", "label": "row-random",
+                    "cells": ["random-low", "missing-cell", "random-high", "random-best"],
+                    "best": "random-low", "globalBest": None,
+                }],
+                "components": {},
+            }
+        }
+        with self.assertRaisesRegex(ContractError, "table cell disappeared"):
+            validate_state_snapshot(state, state, self.catalog)
+
+    def test_native_table_rejects_unreferenced_inserted_components(self):
+        state = self.initial_state()
+        slide = self.catalog["mock-angle-evidence"]
+        state["tables"] = {
+            slide["id"]: {
+                "columns": [
+                    {"id": component_id, "label": component_id, "width": 1}
+                    for component_id in slide["data"]["columns"]
+                ],
+                "rows": [{
+                    "id": row["label"], "label": row["label"],
+                    "cells": list(row["cells"]),
+                    "best": row["cells"][row["best"]], "globalBest": None,
+                } for row in slide["data"]["rows"]],
+                "components": {
+                    "retired-cell": {"kind": "text", "text": "stale", "role": "table-value"}
+                },
+            }
+        }
+        with self.assertRaisesRegex(ContractError, "unreferenced"):
+            validate_state_snapshot(state, state, self.catalog)
+
+    def test_target_accessibility_is_a_two_panel_latex_decomposition(self):
+        slide = self.catalog["mock-target-accessibility"]
+        self.assertEqual(slide["recipe"], "target-accessibility")
+        self.assertEqual(len(slide["data"]["panels"]), 2)
+        self.assertEqual(slide["components"][slide["data"]["equation"]]["render"], "latex")
 
     def test_gallery_image_caption_is_an_independent_semantic_text_leaf(self):
         gallery = copy.deepcopy(self.catalog["mock-matched-gallery"])
@@ -140,7 +252,7 @@ class SlideKitContractTests(unittest.TestCase):
         state = self.initial_state()
         state["order"] = ["mock-matched-gallery", "mock-growth-trajectories",
                           "mock-angle-evidence", "mock-vector-construction",
-                          "mock-guidance-vector-geometry"]
+                          "mock-guidance-vector-geometry", "mock-target-accessibility"]
         state["hidden"] = ["mock-angle-evidence"]
         state["overlays"] = {"mock-growth-trajectories": {"headline": {"text": "Human-authored headline"}}}
         changed_catalog = copy.deepcopy(self.catalog)
@@ -198,18 +310,18 @@ class SlideKitContractTests(unittest.TestCase):
         catalog = copy.deepcopy(self.catalog)
         catalog["mock-matched-gallery"]["createdAt"] = "2026-01-01T00:00:00Z"
         state, _ = reconcile_state({
-            "schema": "online-slide/state@2", "revision": 0,
+            "schema": "online-slide/state@3", "revision": 0,
             "order": [], "hidden": [], "overlays": {}
         }, catalog)
         self.assertEqual(state["order"], [
             "mock-growth-trajectories", "mock-angle-evidence",
             "mock-vector-construction", "mock-guidance-vector-geometry",
-            "mock-matched-gallery",
+            "mock-matched-gallery", "mock-target-accessibility",
         ])
         catalog["mock-growth-trajectories"]["placement"] = {"after": "mock-matched-gallery"}
         with self.assertRaisesRegex(ContractError, "placement graph contains a cycle"):
             reconcile_state({
-                "schema": "online-slide/state@2", "revision": 0,
+                "schema": "online-slide/state@3", "revision": 0,
                 "order": [], "hidden": [], "overlays": {}
             }, catalog)
 

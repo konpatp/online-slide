@@ -1,7 +1,8 @@
 {
-  "schema": "online-slide/state@2",
+  "schema": "online-slide/state@3",
   "revision": 0,
   "order": [],
   "hidden": [],
-  "overlays": {}
+  "overlays": {},
+  "tables": {}
 }

@@ -30,6 +30,8 @@ and editing do not require Node. To change them, run
 Open <http://127.0.0.1:8000/>. Enable edit mode to:
 
 - edit any semantic text leaf directly;
+- edit evidence tables structurally: add, remove, and reorder rows/columns,
+  resize columns, move cell-to-cell with Tab, and paste TSV blocks;
 - drag the selected text region by its top edge and resize it from its corner;
 - change the selected leaf's font size or theme color;
 - reorder or hide slides without changing their source;
@@ -47,7 +49,7 @@ Use `?present=1#slide-id` for an exact 16:9 presentation surface, for example:
 
 <http://127.0.0.1:8000/?present=1#mock-growth-trajectories>
 
-## Five canonical recipes
+## Six canonical recipes
 
 Each file in [`slides/`](slides/) is independently authored and has a permanent
 slide id plus stable semantic component ids.
@@ -59,6 +61,7 @@ slide id plus stable semantic component ids.
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
 | `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors/arcs, explicit label regions, KaTeX equations |
 | `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, persistent view state, snug non-cropping images, fitted caption regions |
+| `target-accessibility` | Two qualitative target decompositions with nested B4/R3 reach | Aligned component bars, stable reach spans, one shared legend, KaTeX decomposition |
 
 The source gives scientific intent and data. The recipe owns repeated spatial
 decisions. Custom layout remains possible by adding another recipe rather than
@@ -128,6 +131,18 @@ source catalog. An edited semantic leaf may move among siblings without losing
 its override. Removing an edited leaf or a published slide fails closed rather
 than silently moving or discarding the human change.
 
+Evidence-table structure is also service-owned state. Rows, columns, and cells
+are stored by semantic id, not array position. Reordering changes only the
+explicit order; it never changes which text an existing cell id names. New
+cells are table-owned semantic text components. The server validates the
+complete rectangular model, uniqueness, widths, and every component reference
+before an optimistic save becomes durable.
+
+Table-aware state uses `online-slide/state@3`. The server upgrades retained
+`state@2` order, visibility, and overlays in place by adding an empty table
+surface; an older client cannot submit a `state@2` snapshot after the upgrade
+and thereby erase table edits.
+
 ## Fast path and browser acceptance
 
 The normal source gate uses Python's standard library and the already-built
@@ -145,7 +160,7 @@ a machine-readable receipt and completes in milliseconds.
 The optional browser acceptance gate requires Playwright and exercises actual
 click/type/format/save/reload, slide ordering, external image drop, semantic
 overlay persistence, editor-mode KaTeX hydration, fullscreen entry/exit,
-component geometry, and five 1920×1080 captures:
+component geometry, native table structure, and six 1920×1080 captures:
 
 ```bash
 ONLINE_SLIDE_BROWSER_CHECK=1 ./scripts/test.sh

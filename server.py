@@ -2,7 +2,8 @@
 """Dependency-free server for the ScientificSlideKit pilot.
 
 Authored SlideSpecs are loaded independently from ``slides/*.json``. Mutable
-human state contains only order, visibility, and semantic component overlays.
+human state contains order, visibility, semantic component overlays, and
+semantic evidence-table structure.
 Both source and state revisions participate in saves, so a source change can
 never silently retarget a live edit.
 """
@@ -156,6 +157,7 @@ def make_server(
         payload["order"] = list(state["order"])
         payload["hidden"] = list(state["hidden"])
         payload["overlays"] = json.loads(json.dumps(state["overlays"]))
+        payload["tables"] = json.loads(json.dumps(state.get("tables", {})))
         payload["sourceRevision"] = source_revision
         payload["slides"] = catalog
         return payload

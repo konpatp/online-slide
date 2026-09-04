@@ -8,6 +8,8 @@
     var bindTextRegion = api.bindTextRegion;
     var galleryImage = api.galleryImage;
     var effectiveComponent = api.effectiveComponent;
+    var effectiveTable = api.effectiveTable;
+    var startTableColumnResize = api.startTableColumnResize;
     var fitTextInRegion = api.fitTextInRegion;
     var fitGroupInRegion = api.fitGroupInRegion;
 
@@ -72,30 +74,66 @@
     }
 
     function evidenceTable(canvas, slide) {
+      var model = effectiveTable(slide);
       var body = document.createElement("div");
       body.className = "recipe-body table-body";
       var table = document.createElement("table");
       table.className = "evidence-table";
+      table.setAttribute("data-native-table", slide.id);
+      var colgroup = document.createElement("colgroup");
+      var totalWidth = model.columns.reduce(function (sum, column) { return sum + column.width; }, 0);
+      model.columns.forEach(function (column) {
+        var col = document.createElement("col");
+        col.setAttribute("data-table-column-id", column.id);
+        col.style.width = (column.width / totalWidth * 100).toFixed(3) + "%";
+        colgroup.appendChild(col);
+      });
+      table.appendChild(colgroup);
       var head = document.createElement("thead");
       var headRow = document.createElement("tr");
-      slide.data.columns.forEach(function (componentId) {
+      model.columns.forEach(function (column, columnIndex) {
         var th = document.createElement("th");
-        th.appendChild(editableText(slide, componentId, "div", "table-heading"));
+        th.setAttribute("data-table-cell", "header:" + column.id);
+        th.setAttribute("data-table-row-id", "table-header");
+        th.setAttribute("data-table-row-index", "-1");
+        th.setAttribute("data-table-column-id", column.id);
+        th.setAttribute("data-table-column-index", String(columnIndex));
+        th.appendChild(editableText(slide, column.label, "div", "table-heading"));
+        var resizer = document.createElement("button");
+        resizer.type = "button";
+        resizer.className = "table-column-resizer";
+        resizer.setAttribute("aria-label", "Resize " + effectiveComponent(slide, column.label).text + " column");
+        resizer.addEventListener("pointerdown", function (event) {
+          startTableColumnResize(slide, column.id, event);
+        });
+        th.appendChild(resizer);
         headRow.appendChild(th);
       });
       head.appendChild(headRow);
       table.appendChild(head);
       var tbody = document.createElement("tbody");
-      slide.data.rows.forEach(function (row) {
+      model.rows.forEach(function (row, rowIndex) {
         var tr = document.createElement("tr");
+        tr.setAttribute("data-table-row", row.id);
         var label = document.createElement("th");
         label.scope = "row";
+        label.setAttribute("data-table-cell", row.id + ":" + model.columns[0].id);
+        label.setAttribute("data-table-row-id", row.id);
+        label.setAttribute("data-table-row-index", String(rowIndex));
+        label.setAttribute("data-table-column-id", model.columns[0].id);
+        label.setAttribute("data-table-column-index", "0");
         label.appendChild(editableText(slide, row.label, "div", "table-row-label"));
         tr.appendChild(label);
         row.cells.forEach(function (componentId, index) {
           var td = document.createElement("td");
-          if (index === row.best) td.classList.add("row-best");
-          if (index === row.globalBest) td.classList.add("global-best");
+          var column = model.columns[index + 1];
+          td.setAttribute("data-table-cell", row.id + ":" + column.id);
+          td.setAttribute("data-table-row-id", row.id);
+          td.setAttribute("data-table-row-index", String(rowIndex));
+          td.setAttribute("data-table-column-id", column.id);
+          td.setAttribute("data-table-column-index", String(index + 1));
+          if (componentId === row.best) td.classList.add("row-best");
+          if (componentId === row.globalBest) td.classList.add("global-best");
           td.appendChild(editableText(slide, componentId, "div", "table-value"));
           tr.appendChild(td);
         });
@@ -111,6 +149,74 @@
         maxScale: 1,
         contentSelector: ".table-heading, .table-row-label, .table-value"
       });
+    }
+
+    function targetAccessibility(canvas, slide) {
+      var body = document.createElement("div");
+      body.className = "recipe-body accessibility-body";
+      var panels = document.createElement("div");
+      panels.className = "accessibility-panels";
+      slide.data.panels.forEach(function (panel) {
+        var total = panel.shares.reduce(function (sum, value) { return sum + value; }, 0);
+        var common = panel.shares[0] / total * 100;
+        var recurrent = (panel.shares[0] + panel.shares[1]) / total * 100;
+        var article = document.createElement("article");
+        article.className = "accessibility-panel";
+        article.setAttribute("data-accessibility-panel", panel.id);
+        article.style.setProperty("--common-share", common.toFixed(3) + "%");
+        article.style.setProperty("--recurrent-share", recurrent.toFixed(3) + "%");
+        var header = document.createElement("header");
+        header.className = "accessibility-panel-header";
+        header.appendChild(editableText(slide, panel.title, "h2", "accessibility-panel-title"));
+        header.appendChild(editableText(slide, panel.summary, "p", "accessibility-panel-summary"));
+        article.appendChild(header);
+        var target = document.createElement("div");
+        target.className = "accessibility-target-row";
+        target.appendChild(editableText(slide, panel.target, "div", "accessibility-target-label"));
+        var bar = document.createElement("div");
+        bar.className = "accessibility-signal";
+        ["common", "depth", "inaccessible"].forEach(function (kind, index) {
+          var segment = document.createElement("span");
+          segment.className = "accessibility-segment segment-" + kind;
+          segment.style.flexGrow = String(panel.shares[index]);
+          bar.appendChild(segment);
+        });
+        target.appendChild(bar);
+        article.appendChild(target);
+        var reaches = document.createElement("div");
+        reaches.className = "accessibility-reaches";
+        var b4 = document.createElement("div");
+        b4.className = "accessibility-reach-row reach-b4";
+        b4.appendChild(editableText(slide, panel.b4Fit, "span", "accessibility-reach-label"));
+        var b4Line = document.createElement("span");
+        b4Line.className = "accessibility-reach-line";
+        b4.appendChild(b4Line);
+        reaches.appendChild(b4);
+        var r3 = document.createElement("div");
+        r3.className = "accessibility-reach-row reach-r3";
+        r3.appendChild(editableText(slide, panel.r3Fit, "span", "accessibility-reach-label"));
+        var r3Line = document.createElement("span");
+        r3Line.className = "accessibility-reach-line";
+        r3.appendChild(r3Line);
+        reaches.appendChild(r3);
+        article.appendChild(reaches);
+        panels.appendChild(article);
+      });
+      body.appendChild(panels);
+      var key = document.createElement("div");
+      key.className = "accessibility-key";
+      ["common", "depth", "inaccessible"].forEach(function (kind, index) {
+        var item = document.createElement("div");
+        item.className = "accessibility-key-item";
+        var swatch = document.createElement("span");
+        swatch.className = "accessibility-key-swatch segment-" + kind;
+        item.appendChild(swatch);
+        item.appendChild(editableText(slide, slide.data.legend[index], "span", "accessibility-key-label"));
+        key.appendChild(item);
+      });
+      body.appendChild(key);
+      body.appendChild(editableText(slide, slide.data.equation, "div", "accessibility-equation"));
+      canvas.appendChild(body);
     }
 
     function mechanismPipeline(canvas, slide) {
@@ -387,6 +493,7 @@
     return {
       "hero-plot": heroPlot,
       "evidence-table": evidenceTable,
+      "target-accessibility": targetAccessibility,
       "mechanism-pipeline": mechanismPipeline,
       "vector-geometry": vectorGeometry,
       "hierarchical-gallery": hierarchicalGallery

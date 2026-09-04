@@ -29,6 +29,7 @@ SLIDES = [
     "mock-vector-construction",
     "mock-guidance-vector-geometry",
     "mock-matched-gallery",
+    "mock-target-accessibility",
 ]
 
 
@@ -104,6 +105,115 @@ def main() -> int:
                 if page.locator(".thumb").nth(1).get_attribute("data-id") != first_id:
                     findings.append("human slide move did not survive reload")
 
+                # A table is edited as a table: cells navigate with Tab,
+                # row/column structure has semantic ids, TSV paste expands the
+                # matrix, and column width survives a real pointer resize.
+                page.goto(base + "/#mock-angle-evidence", wait_until="networkidle")
+                if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
+                    page.locator("[data-edit-toggle]").click()
+                depth_mid = page.locator('[data-component-id="depth-mid"]')
+                depth_mid.click()
+                if not page.locator("[data-table-tools]").is_visible():
+                    findings.append("selecting a table cell did not expose native table controls")
+                depth_mid.press("Tab")
+                if "depth-high" not in page.locator("[data-selected-component]").text_content():
+                    findings.append("Tab did not move to the next semantic table cell")
+                page.locator('[data-component-id="depth-mid"]').click()
+                page.locator('[data-table-action="row-add"]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                inserted_row = page.locator("tbody tr").nth(2)
+                inserted_label = inserted_row.locator("th .semantic-component")
+                inserted_label.fill("Inserted comparison")
+                inserted_first = inserted_row.locator("td .semantic-component").first
+                inserted_first.evaluate("node => node.focus()")
+                page.evaluate("""raw => {
+                  const node=document.querySelectorAll('.evidence-table tbody tr')[2].querySelector('td .semantic-component');
+                  const transfer=new DataTransfer();
+                  transfer.setData('text/plain',raw);
+                  node.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:transfer}));
+                }""", "11\t12\n21\t22")
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                if page.locator(".evidence-table tbody tr").count() != 5:
+                    findings.append("TSV paste did not preserve/add the required table rows")
+                inserted_label = page.locator(".evidence-table tbody tr").nth(2).locator("th .semantic-component")
+                inserted_label.click()
+                page.locator('[data-table-action="row-down"]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                if page.locator(".evidence-table tbody tr").nth(3).locator("th").text_content() != "Inserted comparison":
+                    findings.append("native row reorder retargeted the inserted row")
+                page.locator('[data-component-id="column-high"]').click()
+                page.locator('[data-table-action="column-add"]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                if page.locator(".evidence-table thead th").count() != 6:
+                    findings.append("native column insertion did not expand the table")
+                inserted_header = page.locator(".evidence-table thead th").nth(4).locator(".semantic-component")
+                inserted_header.fill("Audit")
+                inserted_header.click()
+                page.locator('[data-table-action="column-left"]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                moved_header = page.locator(".evidence-table thead th").nth(3)
+                moved_header.wait_for(state="visible")
+                if moved_header.locator(".semantic-component").text_content() != "Audit":
+                    findings.append("native column reorder retargeted the inserted column")
+                resizer = moved_header.locator(".table-column-resizer")
+                resizer.wait_for(state="visible")
+                before_width = moved_header.bounding_box()["width"]
+                resize_box = resizer.bounding_box()
+                page.mouse.move(resize_box["x"] + resize_box["width"] / 2,
+                                resize_box["y"] + resize_box["height"] / 2)
+                page.mouse.down()
+                page.mouse.move(resize_box["x"] + resize_box["width"] / 2 + 70,
+                                resize_box["y"] + resize_box["height"] / 2, steps=7)
+                page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                if page.locator(".evidence-table thead th").nth(3).bounding_box()["width"] <= before_width + 30:
+                    findings.append("native column resize did not change the selected column width")
+                page.reload(wait_until="networkidle")
+                if page.locator(".evidence-table thead th").nth(3).locator(".semantic-component").text_content() != "Audit":
+                    findings.append("native table structure did not survive save/reload")
+                page.locator("[data-edit-toggle]").click()
+                page.locator(".evidence-table thead th").nth(3).locator(".semantic-component").click()
+                table_editor = output / "editor-native-table.png"
+                page.screenshot(path=str(table_editor))
+                captures["native-table-editor"] = str(table_editor)
+                table_state = page.evaluate("() => fetch('api/deck-state',{cache:'no-store'}).then(r=>r.json())")
+                logical = table_state.get("tables", {}).get("mock-angle-evidence")
+                if not logical or not all("id" in row for row in logical["rows"]):
+                    findings.append("native table state did not persist semantic row identities")
+
+                # Source sibling insertion and source-row reorder cannot move
+                # the accepted human table structure to another meaning.
+                table_path = slides_root / "02-evidence-table.json"
+                table_original = table_path.read_text(encoding="utf-8")
+                table_source = json.loads(table_original)
+                table_source["components"] = {
+                    "unrelated-source-label": {"kind": "text", "text": "Unrelated", "role": "annotation"},
+                    **table_source["components"],
+                }
+                table_source["data"]["rows"] = list(reversed(table_source["data"]["rows"]))
+                table_path.write_text(json.dumps(table_source, indent=2) + "\n", encoding="utf-8")
+                page.reload(wait_until="networkidle")
+                if page.locator(".evidence-table thead th").nth(3).locator(".semantic-component").text_content() != "Audit":
+                    findings.append("source reorder retargeted a human table column")
+                if page.locator(".evidence-table tbody tr").nth(3).locator("th").text_content() != "Inserted comparison":
+                    findings.append("source reorder retargeted a human table row")
+                page.locator("[data-edit-toggle]").click()
+                page.locator(".evidence-table tbody tr").nth(3).locator("th .semantic-component").click()
+                page.locator('[data-table-action="row-delete"]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                if page.get_by_text("Inserted comparison", exact=True).count():
+                    findings.append("native row deletion did not remove the selected logical row")
+                page.get_by_text("Audit", exact=True).click()
+                page.locator('[data-table-action="column-delete"]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
+                if page.get_by_text("Audit", exact=True).count():
+                    findings.append("native column deletion did not remove the selected logical column")
+                table_path.write_text(table_original, encoding="utf-8")
+                # Reload onto the restored source revision before the next
+                # mutation. This is the same fail-closed revision handshake a
+                # real contributor/source update requires.
+                page.reload(wait_until="networkidle")
+
                 # A real external-file drop becomes a durable content-addressed asset.
                 page.goto(base + "/#mock-matched-gallery", wait_until="networkidle")
                 page.locator("[data-edit-toggle]").click()
@@ -116,6 +226,9 @@ def main() -> int:
                     new DragEvent("drop", {bubbles: true, cancelable: true, dataTransfer: transfer})
                   );
                 }""")
+                page.wait_for_function(
+                    "document.querySelector('[data-component-id=\"image-01-a\"] img').src.includes('/uploads/')"
+                )
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
                 page.reload(wait_until="networkidle")
                 if "uploads/" not in page.locator('[data-component-id="image-01-a"] img').get_attribute("src"):
@@ -383,7 +496,7 @@ def main() -> int:
                     body: JSON.stringify({
                       baseRevision: current.revision,
                       baseSourceRevision: current.sourceRevision,
-                      snapshot: {schema: current.schema, order, hidden: [], overlays: {}}
+                      snapshot: {schema: current.schema, order, hidden: [], overlays: {}, tables: {}}
                     })
                   });
                   if (!response.ok) throw new Error('could not reset browser acceptance state');
@@ -549,6 +662,28 @@ def main() -> int:
                         )
                         if table_fit["mode"] != "evidence-table-region" or table_fit["overflow"] != "false" or not (0.95 <= table_fit["scale"] <= 1):
                             findings.append("evidence table did not choose a contained region-fit scale")
+                    if slide_id == "mock-target-accessibility":
+                        if clean.locator(".joint-paper").count():
+                            findings.append("target accessibility regressed into a connector diagram")
+                        if clean.locator(".accessibility-panel").count() != 2:
+                            findings.append("target accessibility needs two aligned target panels")
+                        widths = clean.evaluate("""() => [...document.querySelectorAll('.accessibility-panel')].map(panel => ({
+                          common: panel.querySelector('.segment-common').getBoundingClientRect().width,
+                          depth: panel.querySelector('.segment-depth').getBoundingClientRect().width,
+                          inaccessible: panel.querySelector('.segment-inaccessible').getBoundingClientRect().width,
+                          b4: panel.querySelector('.reach-b4 .accessibility-reach-line').getBoundingClientRect().width,
+                          r3: panel.querySelector('.reach-r3 .accessibility-reach-line').getBoundingClientRect().width,
+                        }))""")
+                        if len(widths) == 2:
+                            if not (widths[0]["inaccessible"] > widths[0]["common"] > widths[0]["depth"]):
+                                findings.append("alien target does not read as mostly inaccessible")
+                            if not (widths[1]["depth"] > widths[1]["inaccessible"]):
+                                findings.append("model-native target does not expose a larger R3-only component")
+                            if not ((widths[0]["r3"] - widths[0]["b4"]) <
+                                    (widths[1]["r3"] - widths[1]["b4"])):
+                                findings.append("depth payoff is not visibly larger for the model-native target")
+                        if clean.locator('.accessibility-equation[data-math-engine="katex"]').count() != 1:
+                            findings.append("target decomposition did not render as one KaTeX equation")
                     accent_rail = clean.evaluate("""() => {
                       const style = getComputedStyle(document.querySelector('.slide-canvas'), '::before');
                       return style.content !== 'none' && style.content !== 'normal';
@@ -574,6 +709,8 @@ def main() -> int:
             "semantic text edit + formatting survives save/reload",
             "generic and bounded text regions move, resize, refit, and persist through physical handles",
             "semantic edit survives unrelated source insertion and component reorder",
+            "table cells navigate, add, delete, reorder, paste, resize, and persist by semantic id",
+            "human table structure survives an unrelated source insertion and source-row reorder",
             "human slide order survives save/reload",
             "external image drop persists by content hash",
             "hierarchical gallery facets, metric, and page survive slide navigation",
@@ -590,6 +727,7 @@ def main() -> int:
             "LaTeX hydrates through KaTeX in editor and presentation modes",
             "all vector geometry mathematics renders through KaTeX",
             "one vector equation spans and centers in the full equation band",
+            "target accessibility uses aligned qualitative decompositions instead of a connector graph",
             "parallel diagrams preserve semantic lane centerlines and a 26pt audience-text floor",
         ],
         "findings": findings,
