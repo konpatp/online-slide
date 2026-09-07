@@ -105,6 +105,12 @@
       var chart = document.createElement("div");
       chart.className = "native-chart";
       chart.dataset.chartId = panel.chart;
+      api.bindTextRegion(slide,panel.chart,chart,chart,{});
+      chart.addEventListener('click',function(event) {
+        if(!api.isEditMode())return;
+        var box=chart.getBoundingClientRect(),edge=Math.min(event.clientX-box.left,box.right-event.clientX,event.clientY-box.top,box.bottom-event.clientY);
+        if(edge<=12) {event.stopPropagation();api.selectBoundedComponent(slide.id,panel.chart,chart);}
+      });
       if(api.effectiveComponent(slide,panel.chart).hidden) {
         chart.classList.add('curator-hidden-component');
         chart.dataset.chartReady='true';

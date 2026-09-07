@@ -867,6 +867,11 @@
     binding.host.style.width = (region.width * scale.x).toFixed(2) + "px";
     binding.host.style.height = (region.height * scale.y).toFixed(2) + "px";
     binding.host.classList.add("text-region-bounded");
+    if(component.kind==='chart') {
+      binding.host.style.flex='none';
+      if(binding.host._fullLayout && window.Plotly && (binding.host.layout.width!==binding.host.clientWidth || binding.host.layout.height!==binding.host.clientHeight)) window.Plotly.relayout(binding.host,{width:binding.host.clientWidth,height:binding.host.clientHeight});
+      return;
+    }
     ensureTextRegionFit(binding);
     fitTextInRegion(binding.element, binding.host, {
       mode: binding.fitMode,
@@ -883,7 +888,7 @@
   function currentTextRegionBinding() {
     if (!selected || !editMode) return null;
     var component = selectedComponent();
-    if (!component || component.kind !== "text") return null;
+    if (!component || !['text','chart'].includes(component.kind)) return null;
     return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
   }
 
@@ -939,6 +944,9 @@
       canvas.appendChild(textRegionFrame);
     }
     textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
+    var regionKind=effectiveComponent(state.slides[binding.slideId],binding.componentId).kind==='chart'?'chart':'text';
+    textRegionFrame.querySelector('.text-region-move-handle').setAttribute('aria-label','Move '+regionKind+' region');
+    textRegionFrame.querySelector('.text-region-resize-handle').setAttribute('aria-label','Resize '+regionKind+' region');
     var canvasRect = canvas.getBoundingClientRect();
     var rect = binding.host.getBoundingClientRect();
     var scale = canvasRenderScale(canvas);
@@ -1140,6 +1148,7 @@
     svgElement: svgElement,
     editableText: editableText,
     bindTextRegion: bindTextRegion,
+    selectBoundedComponent: selectComponent,
     galleryImage: galleryImage,
     effectiveComponent: effectiveComponent,
     effectiveTable: effectiveTable,

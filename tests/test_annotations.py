@@ -3,7 +3,7 @@
 import copy
 import unittest
 from pathlib import Path
-from slidekit import ContractError,load_catalog,validate_slide_spec,validate_objects,catalog_receipt
+from slidekit import ContractError,load_catalog,validate_slide_spec,validate_objects,catalog_receipt,validate_overlays
 
 def fixture():
     spec=copy.deepcopy(load_catalog(Path(__file__).resolve().parents[1]/'slides')['mock-growth-trajectories'])
@@ -15,6 +15,16 @@ def fixture():
     return spec
 
 class AnnotationTests(unittest.TestCase):
+    def test_chart_regions_are_bounded_without_mutating_evidence(self):
+        spec=fixture();spec['components']['measured']={'kind':'chart','figure':{'data':[{'uid':'a','x':[1,2],'y':[3,4]}],'layout':{}}}
+        region={'x':2,'y':30,'width':1200,'height':600}
+        values=copy.deepcopy(spec['components']['measured']['figure'])
+        validate_overlays({spec['id']:{'measured':{'region':region}}},{spec['id']:spec})
+        self.assertEqual(spec['components']['measured']['figure'],values)
+        region['width']=-1
+        with self.assertRaisesRegex(ContractError,'region overlay is invalid'):
+            validate_overlays({spec['id']:{'measured':{'region':region}}},{spec['id']:spec})
+
     def test_all_recipe_shapes_are_semantic_and_reorder_safe(self):
         spec=fixture();validate_slide_spec(spec)
         state={spec['id']:{'human-highlight':{'kind':'annotation-rect','x':.5,'y':.4,'width':.19,'height':.1}}}

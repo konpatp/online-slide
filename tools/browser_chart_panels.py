@@ -69,8 +69,18 @@ def main():
                 page.keyboard.press('Enter')
                 page.wait_for_function("fetch('api/deck-state').then(r=>r.json()).then(s=>s.overlays['mock-native-chart']?.evidence?.chartLayout?.annotations?.['terminal-result']?.text === 'Curator endpoint')")
                 before=json.loads(state_path.read_text())
+                chart=page.locator('.native-chart');box=chart.bounding_box()
+                page.mouse.click(box['x']+3,box['y']+3)
+                move=page.get_by_role('button',name='Move chart region',exact=True);box=move.bounding_box()
+                page.mouse.move(box['x']+box['width']/2,box['y']+box['height']/2);page.mouse.down();page.mouse.move(box['x']+box['width']/2+12,box['y']+box['height']/2+15,steps=4);page.mouse.up()
+                page.wait_for_function("fetch('api/deck-state').then(r=>r.json()).then(s=>!!s.overlays['mock-native-chart']?.evidence?.region)")
+                before=json.loads(state_path.read_text())
+                assert before['overlays']['mock-native-chart']['evidence']['region']['y']>0
+                moved_box=chart.bounding_box()
                 page.reload(wait_until='networkidle')
                 page.wait_for_selector('[data-chart-ready="true"]')
+                reloaded_box=page.locator('.native-chart').bounding_box()
+                assert all(abs(moved_box[k]-reloaded_box[k])<1 for k in ['x','y','width','height'])
                 assert page.locator('.annotation-text').filter(has_text='Curator endpoint').count()==1
                 page.locator('[data-notes-toggle]').click()
                 assert 'Synthetic source note' in page.locator('[data-notes-dialog]').inner_text()

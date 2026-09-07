@@ -145,6 +145,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                     f"{source}: text component {component_id!r} has an invalid region",
                 )
         elif kind == "chart":
+            if 'region' in component:_validate_text_region(component['region'],f'{source}: chart region is invalid')
             figure = component.get("figure")
             _require(isinstance(figure, dict) and isinstance(figure.get("data"), list)
                      and figure["data"] and isinstance(figure.get("layout"), dict),
@@ -1061,8 +1062,8 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
                          0.65 <= overlay["imageScale"] <= 1.35,
                          "imageScale must be between 0.65 and 1.35")
             if "region" in overlay:
-                _require(component["kind"] == "text",
-                         "region overlay must target text")
+                _require(component["kind"] in {"text","chart"},
+                         "region overlay must target text or chart")
                 _validate_text_region(
                     overlay["region"],
                     f"region overlay is invalid on {slide_id}@{component_id}",
