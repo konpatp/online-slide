@@ -67,6 +67,12 @@ def _component_ids(spec: dict[str, Any]) -> set[str]:
 def _visual_objects(spec: dict[str, Any]) -> dict[str, str]:
     """Return source-authored editable geometry identities for one slide."""
 
+    return {**_recipe_visual_objects(spec), **{
+        item['id']: 'annotation-rect' if item['kind']=='rect' else 'annotation-line'
+        for item in spec.get('annotations',[]) if item['kind']!='text'}}
+
+
+def _recipe_visual_objects(spec: dict[str, Any]) -> dict[str, str]:
     data = spec["data"]
     if spec["recipe"] == "mechanism-pipeline":
         return {
@@ -180,6 +186,24 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
 
     data = spec.get("data")
     _require(isinstance(data, dict), f"{source}: data must be an object")
+    annotations=spec.get('annotations',[])
+    _require(isinstance(annotations,list),f'{source}: annotations must be a list')
+    annotation_ids=set();annotation_objects={}
+    for item in annotations:
+        _require(isinstance(item,dict) and item.get('kind') in {'text','rect','line','arrow'},f'{source}: invalid annotation kind')
+        if item['kind']=='text':
+            ref(item.get('component'),'annotation text')
+            _require(components[item['component']].get('kind')=='text' and 'region' in components[item['component']],f'{source}: annotation text requires a bounded region')
+            continue
+        key=item.get('id')
+        _require(isinstance(key,str) and COMPONENT_ID.fullmatch(key) and key not in annotation_ids and key not in components and key not in _recipe_visual_objects(spec),f'{source}: annotation identity must be unique')
+        annotation_ids.add(key)
+        _require(HEX_COLOR.fullmatch(str(item.get('color',''))) is not None,f'{source}: annotation requires hex color')
+        _require(_finite_number(item.get('strokeWidth',3)) and 1<=item.get('strokeWidth',3)<=20,f'{source}: invalid annotation stroke width')
+        _require(_finite_number(item.get('cornerRadius',0)) and 0<=item.get('cornerRadius',0)<=40,f'{source}: invalid annotation corner radius')
+        _require(isinstance(item.get('geometry'),dict),f'{source}: annotation geometry required')
+        annotation_objects[key]={**item['geometry'],'kind':'annotation-rect' if item['kind']=='rect' else 'annotation-line'}
+    if annotation_objects:validate_objects({spec['id']:annotation_objects},{spec['id']:spec})
     recipe = spec["recipe"]
     if recipe == 'slide-index':
         sections=data.get('sections')
@@ -909,7 +933,7 @@ def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
             kind = known[object_id]
             _require(geometry.get("kind") == kind,
                      f"visual object kind changed: {slide_id}@{object_id}")
-            if kind in {"diagram-node", "accessibility-target"}:
+            if kind in {"diagram-node", "accessibility-target", "annotation-rect"}:
                 _require(set(geometry) == {"kind", "x", "y", "width", "height"},
                          f"{kind} geometry is invalid: {slide_id}@{object_id}")
                 _require(all(_finite_number(geometry[key]) for key in ("x", "y", "width", "height")),
@@ -939,7 +963,7 @@ def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
                     _require(left <= point[0] <= right and bottom <= point[1] <= top,
                              f"{kind} endpoint leaves its bounded plane: {slide_id}@{object_id}")
             else:
-                _require(kind == "accessibility-reach" and
+                _require(kind in {"accessibility-reach","annotation-line"} and
                          set(geometry) == {"kind", "from", "to"},
                          f"{kind} geometry is invalid: {slide_id}@{object_id}")
                 for endpoint in ("from", "to"):
@@ -1108,6 +1132,7 @@ def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
     visual_object_counts = {
         "diagram-node": 0, "diagram-edge": 0, "vector": 0, "segment": 0,
         "accessibility-target": 0, "accessibility-reach": 0,
+        "annotation-rect": 0, "annotation-line": 0,
     }
     for spec in catalog.values():
         recipe_counts[spec["recipe"]] += 1

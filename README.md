@@ -308,3 +308,13 @@ multi-tenant service. Add authentication, authorization, durable object
 storage, and production observability before exposing it outside a trusted
 environment. The application shell remains framework-free; mature diagram,
 geometry, and math engines are bundled behind narrow recipe boundaries.
+### Native annotations on any recipe
+
+An optional `annotations` list retains semantic `rect`, `line`, `arrow`, and
+bounded text objects over a composition. Shape `geometry` is normalized to the
+whole slide: rectangles use `x/y/width/height`, lines and arrows use `from/to`.
+Every shape has a unique `id`, `color`, and optional `strokeWidth` and
+`cornerRadius`. Text entries reference a normal text component with a `region`.
+The existing native shape drag/resize handles and revision-safe object store
+own editing; normal presentation mode leaves chart and gallery input alone.
+Removing an edited annotation fails closed, just like removing a diagram node.

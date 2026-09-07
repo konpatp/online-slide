@@ -234,7 +234,6 @@
       body.className = "recipe-body accessibility-body";
       var panels = document.createElement("div");
       panels.className = "accessibility-panels";
-      var objectState = api.objectsForSlide(slide);
       var records = [];
       slide.data.panels.forEach(function (panel) {
         var total = panel.shares.reduce(function (sum, value) { return sum + value; }, 0);
@@ -316,6 +315,13 @@
       body.appendChild(editableText(slide, slide.data.equation, "div", "accessibility-equation"));
       canvas.appendChild(body);
 
+      wireVisualObjects(slide,records);
+    }
+
+    // One bounded drag/resize implementation for authored shapes and recipe
+    // marks. Coordinates belong to the owning plane, never the viewport.
+    function wireVisualObjects(slide,records) {
+      var objectState=api.objectsForSlide(slide);
       function rounded(value) { return Math.round(value * 10000) / 10000; }
 
       function rectGeometry(record) {
@@ -339,6 +345,7 @@
       }
 
       function sourceGeometry(record) {
+        if(record.source) return record.source;
         return record.mode === "rect" ? rectGeometry(record) : lineGeometry(record);
       }
 
@@ -398,6 +405,9 @@
         if (!api.isEditMode()) return;
         event.preventDefault();
         event.stopPropagation();
+        // Selection may reveal a midpoint handle beneath the pointer. Keep
+        // the gesture's up/click on its original owner instead of the canvas.
+        if(event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
         showSelected(record);
         var initial = objectState[record.id] || sourceGeometry(record);
         var startX = event.clientX;
@@ -505,7 +515,7 @@
 
       requestAnimationFrame(function () {
         records.forEach(function (record) {
-          if (objectState[record.id]) applyGeometry(record, objectState[record.id]);
+          if (objectState[record.id] || record.source) applyGeometry(record, objectState[record.id] || record.source);
           else positionControls(record, sourceGeometry(record));
           if (api.selectedObjectId(slide) === record.id) showSelected(record);
         });
@@ -521,6 +531,28 @@
           observer.observe(record.article);
         });
       }
+    }
+
+    function annotations(canvas,slide) {
+      var records=[];
+      (slide.annotations || []).forEach(function(item) {
+        if(item.kind==='text') {
+          var text=editableText(slide,item.component,'div','slide-annotation-text');
+          canvas.appendChild(text);
+          bindTextRegion(slide,item.component,text,text,{alwaysFit:true});
+          return;
+        }
+        var element=document.createElement('div');
+        element.className='slide-annotation-shape annotation-'+item.kind;
+        element.style.setProperty('--annotation-color',item.color);
+        element.style.setProperty('--annotation-width',(item.strokeWidth || 3)+'px');
+        element.style.borderRadius=(item.cornerRadius || 0)+'px';
+        canvas.appendChild(element);
+        records.push({id:item.id,kind:item.kind==='rect'?'annotation-rect':'annotation-line',
+          mode:item.kind==='rect'?'rect':'line',article:canvas,element:element,
+          source:Object.assign({kind:item.kind==='rect'?'annotation-rect':'annotation-line'},item.geometry)});
+      });
+      wireVisualObjects(slide,records);
     }
 
     function mechanismPipeline(canvas, slide) {
@@ -863,6 +895,7 @@
         body.appendChild(definitions);canvas.appendChild(body);
       },
       "section-divider": function () {},
+      annotations: annotations,
       "chart-panels": function (canvas, slide) { return global.renderScientificChartPanels(canvas, slide, api); },
       "hero-plot": heroPlot,
       "evidence-table": evidenceTable,

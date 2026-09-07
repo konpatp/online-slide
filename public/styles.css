@@ -379,3 +379,9 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .hero-equation-frame { min-height:0; display:grid; place-items:center; padding:28px; }
 .hero-equation-value { font-size:150px; color:var(--accent); }
 .hero-equation-definitions { display:flex; justify-content:center; gap:70px; padding:25px; font-size:40px; }
+.slide-annotation-shape { position:absolute; z-index:8; box-sizing:border-box; pointer-events:none; transform-origin:0 50%; }
+.slide-annotation-shape.annotation-rect { border:var(--annotation-width) solid var(--annotation-color); background:transparent; }
+.slide-annotation-shape.annotation-line,.slide-annotation-shape.annotation-arrow { height:var(--annotation-width); background:var(--annotation-color); }
+.slide-annotation-shape.annotation-arrow::after { content:""; position:absolute; right:-1px; top:50%; width:12px; height:12px; border-right:var(--annotation-width) solid var(--annotation-color); border-top:var(--annotation-width) solid var(--annotation-color); transform:translateY(-50%) rotate(45deg); }
+.edit-mode .slide-annotation-shape { pointer-events:auto; cursor:move; }
+.slide-annotation-text { position:absolute; left:0; top:0; z-index:9; font-size:40px; }

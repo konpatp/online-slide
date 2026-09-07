@@ -1194,6 +1194,7 @@
     var canvas = slideShell(slide);
     renderRecipe[slide.recipe](canvas, slide);
     addFooter(canvas, slide);
+    renderRecipe.annotations(canvas,slide);
     stage.appendChild(canvas);
     fitStage();
     stage.classList.toggle("edit-mode", editMode);
