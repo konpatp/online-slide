@@ -117,7 +117,27 @@ def main() -> int:
                 # A table is edited as a table: cells navigate with Tab,
                 # row/column structure has semantic ids, TSV paste expands the
                 # matrix, and column width survives a real pointer resize.
+                table_fixture = slides_root / "02-evidence-table.json"
+                original_fixture = table_fixture.read_text()
+                math_fixture = json.loads(original_fixture)
+                math_fixture['components']['random-best'].update(
+                    text=r'\boxed{A}', render='latex')
+                table_fixture.write_text(json.dumps(math_fixture))
                 page.goto(base + "/#mock-angle-evidence", wait_until="networkidle")
+                page.wait_for_function("document.querySelector('.evidence-table').dataset.fitScale")
+                fit = page.locator('.evidence-table').evaluate("e => ({scale:+e.dataset.fitScale, overflow:e.dataset.fitOverflow})")
+                if fit['scale'] < .95 or fit['overflow'] != 'false':
+                    findings.append("a contained boxed formula unnecessarily shrank the complete table")
+                # A genuinely oversized, unbreakable formula must still be
+                # reported, not accepted merely because it is mathematics.
+                math_fixture['components']['random-best']['text'] = r'\text{' + 'W' * 100 + '}'
+                table_fixture.write_text(json.dumps(math_fixture))
+                page.reload(wait_until="networkidle")
+                page.wait_for_function("document.querySelector('.evidence-table').dataset.fitScale")
+                if page.locator('.evidence-table').get_attribute('data-fit-overflow') != 'true':
+                    findings.append("an oversized formula escaped table containment review")
+                table_fixture.write_text(original_fixture)
+                page.reload(wait_until="networkidle")
                 if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                     page.locator("[data-edit-toggle]").click()
                 depth_mid = page.locator('[data-component-id="depth-mid"]')

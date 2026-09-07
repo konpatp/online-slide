@@ -709,16 +709,29 @@
     var leaves = function () {
       return options.contentSelector ? Array.from(element.querySelectorAll(options.contentSelector)) : [];
     };
+    var leafFits = function (leaf) {
+      var math=leaf.querySelector('.katex-html'),cell=leaf.closest('td,th');
+      if(math && cell) {
+        // KaTeX's accessibility/strut boxes can exceed the text leaf's
+        // scrollHeight while the visible formula fits its padded table cell.
+        // Judge rendered mathematics in that actual allocation, not hidden
+        // MathML dimensions; long formulae still fail horizontal containment.
+        var ink=math.getBoundingClientRect(),box=cell.getBoundingClientRect();
+        var scale=box.width/cell.offsetWidth,style=getComputedStyle(cell);
+        return ink.left>=box.left+parseFloat(style.paddingLeft)*scale-tolerance &&
+          ink.right<=box.right-parseFloat(style.paddingRight)*scale+tolerance &&
+          ink.top>=box.top+parseFloat(style.paddingTop)*scale-tolerance &&
+          ink.bottom<=box.bottom-parseFloat(style.paddingBottom)*scale+tolerance;
+      }
+      return leaf.scrollWidth <= leaf.clientWidth + tolerance && leaf.scrollHeight <= leaf.clientHeight + tolerance;
+    };
     var fits = function (scale) {
       element.style.setProperty(property, scale.toFixed(4));
       var box = element.getBoundingClientRect();
       var outer = region.getBoundingClientRect();
       var contained = box.width <= outer.width + tolerance && box.height <= outer.height + tolerance;
       return contained && element.scrollWidth <= element.clientWidth + tolerance &&
-        element.scrollHeight <= element.clientHeight + tolerance && leaves().every(function (leaf) {
-        return leaf.scrollWidth <= leaf.clientWidth + tolerance &&
-          leaf.scrollHeight <= leaf.clientHeight + tolerance;
-      });
+        element.scrollHeight <= element.clientHeight + tolerance && leaves().every(leafFits);
     };
     var low = minScale;
     var high = maxScale;
@@ -738,10 +751,7 @@
       finalBox.height > finalOuter.height + tolerance ||
       element.scrollWidth > element.clientWidth + tolerance ||
       element.scrollHeight > element.clientHeight + tolerance ||
-      leaves().some(function (leaf) {
-        return leaf.scrollWidth > leaf.clientWidth + tolerance ||
-          leaf.scrollHeight > leaf.clientHeight + tolerance;
-      });
+      leaves().some(function (leaf) {return !leafFits(leaf);});
     element.dataset.fitMode = options.mode || "group-region";
     element.dataset.fitScale = best.toFixed(4);
     element.dataset.fitOverflow = String(overflow);
