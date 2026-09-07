@@ -58,6 +58,11 @@ Use `?present=1#slide-id` for an exact 16:9 presentation surface, for example:
 
 ## Six canonical recipes
 
+Open `catalog.html` (the **Layouts** link) to browse available recipes and
+automatically discovered source examples. Previews load only when requested;
+downloads contain source without human overrides. No per-slide catalog entry
+is needed. Recipes save layout work, but authors still inspect every new slide.
+
 Each file in [`slides/`](slides/) is independently authored and has a permanent
 slide id plus stable semantic component ids.
 

@@ -121,3 +121,6 @@ Primary references:
 - [Tiptap TableKit](https://tiptap.dev/docs/editor/extensions/nodes/table)
 - [AG Grid](https://github.com/ag-grid/ag-grid)
 - [Toast UI Grid](https://github.com/nhn/tui.grid)
+# Lightweight recipe discovery
+
+The catalog follows the useful pattern in [Storybook Autodocs](https://storybook.js.org/docs/writing-docs/autodocs): derive discovery from working examples rather than duplicate registrations. For this small framework-free engine, adding Storybook's build/runtime would be unnecessary. A read-only page groups the existing deck API by recipe, uses the actual slide renderer for on-demand previews, and downloads the authored JSON. Usage guidance lives beside each shared recipe. No new dependency, screenshot cache, database, or per-slide registry is introduced. Visual review remains the author's responsibility.

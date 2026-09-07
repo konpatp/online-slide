@@ -2,6 +2,16 @@
 (function (global) {
   "use strict";
 
+  // Documentation lives beside the layout implementation, never per slide.
+  global.scientificRecipeGuides = {
+    "hero-plot": {use: "Compare measured trajectories on one pair of axes.", owns: "Plot region, axes, legend, series styling, and protocol placement."},
+    "evidence-table": {use: "Compare aligned values and emphasize selected cells.", owns: "Column alignment, padded cells, bounded whole-table fitting, and native table editing."},
+    "mechanism-pipeline": {use: "Explain a process through connected states or models.", owns: "Node sizing, ranked layout, connector routing, and fitted text regions."},
+    "vector-geometry": {use: "Explain vectors, projections, angles, and equal-norm constructions.", owns: "Equal-aspect coordinates, proportional scaling, vector handles, and bounded math labels. Authors supply meaningful geometry."},
+    "hierarchical-gallery": {use: "Explore images by facets and identity pages.", owns: "Image regions, compact controls, fitted captions, metric placement, and persistent selection."},
+    "target-accessibility": {use: "Compare qualitative target decompositions and model reach.", owns: "Aligned signal regions, reach marks, shared legend, and bounded labels."}
+  };
+
   global.createScientificSlideRecipes = function (api) {
     var svgElement = api.svgElement;
     var editableText = api.editableText;
