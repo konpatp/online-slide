@@ -25,12 +25,15 @@ from urllib.parse import urlsplit
 
 from slidekit import (
     ContractError,
+    EditConflict,
     STATE_SCHEMA,
     catalog_receipt,
     catalog_revision,
     empty_state,
     load_catalog,
     reconcile_state,
+    merge_state_snapshot,
+    source_revisions,
     validate_state_snapshot,
 )
 
@@ -146,11 +149,11 @@ def make_server(
         if candidate_revision == source_revision:
             return
         reconciled, reconciled_changed = reconcile_state(state, candidate)
+        if reconciled_changed:
+            atomic_write_json(state_path, reconciled)
         catalog = candidate
         source_revision = candidate_revision
-        if reconciled_changed:
-            state = reconciled
-            atomic_write_json(state_path, state)
+        state = reconciled
 
     def deck_payload() -> dict[str, Any]:
         payload = dict(state)
@@ -160,6 +163,7 @@ def make_server(
         payload["tables"] = json.loads(json.dumps(state.get("tables", {})))
         payload["objects"] = json.loads(json.dumps(state.get("objects", {})))
         payload["sourceRevision"] = source_revision
+        payload["slideRevisions"] = source_revisions(catalog)
         payload["slides"] = catalog
         return payload
 
@@ -184,7 +188,8 @@ def make_server(
             route = urlsplit(self.path).path
             try:
                 with lock:
-                    refresh_sources()
+                    if route in {"/api/health", "/api/deck-state"}:
+                        refresh_sources()
                     if route == "/api/health":
                         response(self, 200, {
                             "ok": True,
@@ -267,12 +272,23 @@ def make_server(
                 except (ContractError, OSError, json.JSONDecodeError) as exc:
                     response(self, 503, {"error": f"source contract failed: {exc}"})
                     return
-                if base_revision != int(state["revision"]) or base_source_revision != source_revision:
+                if "baseSnapshot" not in body and (
+                    base_revision != int(state["revision"]) or base_source_revision != source_revision
+                ):
                     response(self, 409, {"error": "revision conflict", "state": deck_payload()})
                     return
                 try:
-                    state = validate_state_snapshot(body.get("snapshot"), state, catalog)
-                    atomic_write_json(state_path, state)
+                    if "baseSnapshot" in body:
+                        candidate = merge_state_snapshot(
+                            body["baseSnapshot"], body.get("snapshot"), state, catalog,
+                            body.get("baseSlideRevisions"))
+                    else:
+                        candidate = validate_state_snapshot(body.get("snapshot"), state, catalog)
+                    atomic_write_json(state_path, candidate)
+                    state = candidate
+                except EditConflict as exc:
+                    response(self, 409, {"error": str(exc), "state": deck_payload()})
+                    return
                 except (ContractError, OSError) as exc:
                     response(self, 400, {"error": str(exc)})
                     return

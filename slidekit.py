@@ -9,6 +9,7 @@ shared deck source or overwriting live human decisions.
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import re
 from pathlib import Path
@@ -439,6 +440,98 @@ def load_catalog(slides_dir: Path) -> dict[str, dict[str, Any]]:
 def catalog_revision(catalog: dict[str, dict[str, Any]]) -> str:
     raw = json.dumps(catalog, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()
+
+
+def source_revisions(catalog: dict[str, dict[str, Any]]) -> dict[str, str]:
+    return {key: catalog_revision({key: spec}) for key, spec in catalog.items()}
+
+
+class EditConflict(ContractError):
+    """An edited target changed since the caller observed it."""
+
+
+def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
+                         catalog: dict[str, dict[str, Any]],
+                         base_sources: Any) -> dict[str, Any]:
+    """Three-way merge by semantic edit target, never last-writer-wins.
+
+    Ordering is one conflict domain; visibility is per slide, overlays per
+    attribute, geometry per object, and table structure per table. Source-only
+    additions do not conflict with edits to an unchanged existing slide.
+    Preconditions travel with the request, so retries remain idempotent without
+    an unbounded server revision history.
+    """
+    _require(isinstance(base, dict) and isinstance(candidate, dict),
+             "baseSnapshot and snapshot must be objects")
+    _require(isinstance(base_sources, dict), "baseSlideRevisions must be an object")
+    ids = base.get("order")
+    _require(isinstance(ids, list) and all(isinstance(key, str) for key in ids),
+             "baseSnapshot needs slide identities")
+    _require(set(ids) <= set(catalog), "baseSnapshot contains removed slide identities")
+    subset = {key: catalog[key] for key in ids}
+    validate_state_snapshot(base, current, subset)
+    validate_state_snapshot(candidate, current, subset)
+    result = copy.deepcopy(current)
+    revisions = source_revisions(catalog)
+    missing = object()
+
+    def choose(old: Any, new: Any, remote: Any, path: tuple[str, ...]) -> Any:
+        if old == new:
+            return remote
+        if len(path) > 1 and path[0] in {"overlays", "objects", "tables"}:
+            key = path[1]
+            if base_sources.get(key) != revisions[key]:
+                raise EditConflict("source changed for edited slide: " + key)
+        if remote != old and remote != new:
+            raise EditConflict("edit conflict: " + "/".join(path))
+        return new
+
+    def merge_map(old: dict, new: dict, remote: dict, depth: int,
+                  path: tuple[str, ...]) -> dict:
+        merged = copy.deepcopy(remote)
+        for key in old.keys() | new.keys():
+            before, after = old.get(key, missing), new.get(key, missing)
+            actual = remote.get(key, missing)
+            if before == after:
+                continue
+            if depth > 1:
+                value = merge_map(
+                    {} if before is missing else before,
+                    {} if after is missing else after,
+                    {} if actual is missing else actual, depth - 1, (*path, key))
+                if value:
+                    merged[key] = value
+                else:
+                    merged.pop(key, None)
+            else:
+                value = choose(before, after, actual, (*path, key))
+                if value is missing:
+                    merged.pop(key, None)
+                else:
+                    merged[key] = copy.deepcopy(value)
+        return merged
+
+    base_order, new_order = base["order"], candidate["order"]
+    if base_order != new_order:
+        old_ids = set(base_order)
+        remote_order = [key for key in current["order"] if key in old_ids]
+        chosen = choose(base_order, new_order, remote_order, ("order",))
+        replacements = iter(chosen)
+        result["order"] = [
+            next(replacements) if key in old_ids else key for key in current["order"]]
+    hidden = set(current["hidden"])
+    for key in ids:
+        value = choose(key in base["hidden"], key in candidate["hidden"],
+                       key in hidden, ("hidden", key))
+        if value:
+            hidden.add(key)
+        else:
+            hidden.discard(key)
+    result["hidden"] = [key for key in result["order"] if key in hidden]
+    for field, depth in (("overlays", 3), ("objects", 2), ("tables", 1)):
+        result[field] = merge_map(base.get(field, {}), candidate.get(field, {}),
+                                  current.get(field, {}), depth, (field,))
+    return validate_state_snapshot(result, current, catalog)
 
 
 def empty_state() -> dict[str, Any]:

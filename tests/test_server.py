@@ -2,6 +2,7 @@
 import json
 import tempfile
 import threading
+import shutil
 import unittest
 from pathlib import Path
 from urllib.error import HTTPError
@@ -19,8 +20,10 @@ class ServerProtocolTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.state_path = root / "state.json"
         self.uploads_path = root / "uploads"
+        self.slides_path = root / "slides"
+        shutil.copytree(ROOT / "slides", self.slides_path)
         self.http = server.make_server(
-            ROOT / "public", ROOT / "slides", ROOT / "data" / "seed-state.json",
+            ROOT / "public", self.slides_path, ROOT / "data" / "seed-state.json",
             self.state_path, self.uploads_path,
         )
         self.thread = threading.Thread(target=self.http.serve_forever, daemon=True)
@@ -199,6 +202,80 @@ class ServerProtocolTests(unittest.TestCase):
         status, served = self.get("/" + receipt["src"])
         self.assertEqual(status, 200)
         self.assertEqual(served, image)
+
+    def merge_save(self, base, snapshot):
+        return self.post("/api/deck-state", {
+            "baseRevision": base["revision"],
+            "baseSourceRevision": base["sourceRevision"],
+            "baseSlideRevisions": base["slideRevisions"],
+            "baseSnapshot": self.mutable_snapshot(base),
+            "snapshot": snapshot,
+        })[1]
+
+    def test_two_contributors_and_human_reorder_do_not_lose_edits(self):
+        _, base = self.get("/api/deck-state")
+        first = self.mutable_snapshot(base)
+        first["overlays"] = {"mock-growth-trajectories": {"headline": {"text": "Human A"}}}
+        self.merge_save(base, first)
+        # Independent source contributions arrive while another editor retains
+        # an older catalog and order. Neither contributor edits a registry.
+        for name in ("contribution-a", "contribution-b"):
+            spec = json.loads(json.dumps(base["slides"]["mock-growth-trajectories"]))
+            spec["id"] = name
+            spec["placement"] = {"after": "mock-growth-trajectories"}
+            (self.slides_path / (name + ".json")).write_text(json.dumps(spec))
+        second = self.mutable_snapshot(base)
+        second["order"] = list(reversed(second["order"]))
+        second["hidden"] = ["mock-angle-evidence"]
+        second["overlays"] = {"mock-angle-evidence": {"headline": {"text": "Human B"}}}
+        saved = self.merge_save(base, second)
+        self.assertEqual([key for key in saved["order"] if key in base["order"]],
+                         second["order"])
+        self.assertIn("contribution-a", saved["order"])
+        self.assertIn("contribution-b", saved["order"])
+        self.assertEqual(saved["overlays"]["mock-growth-trajectories"]["headline"]["text"], "Human A")
+        self.assertEqual(saved["overlays"]["mock-angle-evidence"]["headline"]["text"], "Human B")
+        self.assertEqual(saved["hidden"], second["hidden"])
+        self.assertEqual(json.loads(self.state_path.read_text())["overlays"], saved["overlays"])
+
+    def test_same_target_conflict_is_explicit_and_atomic(self):
+        _, base = self.get("/api/deck-state")
+        first = self.mutable_snapshot(base)
+        first["overlays"] = {"mock-growth-trajectories": {"headline": {"text": "First"}}}
+        self.merge_save(base, first)
+        before = self.state_path.read_bytes()
+        second = self.mutable_snapshot(base)
+        second["overlays"] = {"mock-growth-trajectories": {"headline": {"text": "Second"}}}
+        with self.assertRaises(HTTPError) as error:
+            self.merge_save(base, second)
+        self.assertEqual(error.exception.code, 409)
+        self.assertIn("headline/text", json.loads(error.exception.read())["error"])
+        self.assertEqual(self.state_path.read_bytes(), before)
+
+    def test_source_change_on_edited_slide_fails_closed(self):
+        _, base = self.get("/api/deck-state")
+        path = self.slides_path / "01-hero-plot.json"
+        spec = json.loads(path.read_text())
+        spec["components"]["headline"]["text"] = "New source interpretation"
+        path.write_text(json.dumps(spec))
+        changed = self.mutable_snapshot(base)
+        changed["overlays"] = {"mock-growth-trajectories": {"headline": {"text": "Old interpretation"}}}
+        with self.assertRaises(HTTPError) as error:
+            self.merge_save(base, changed)
+        self.assertEqual(error.exception.code, 409)
+        self.assertIn("source changed", json.loads(error.exception.read())["error"])
+
+    def test_failed_write_does_not_advance_in_memory_revision(self):
+        from unittest.mock import patch
+        _, base = self.get("/api/deck-state")
+        changed = self.mutable_snapshot(base)
+        changed["hidden"] = ["mock-angle-evidence"]
+        with patch.object(server, "atomic_write_json", side_effect=OSError("disk full")):
+            with self.assertRaises(HTTPError):
+                self.merge_save(base, changed)
+        _, after = self.get("/api/deck-state")
+        self.assertEqual(after["revision"], base["revision"])
+        self.assertEqual(after["hidden"], base["hidden"])
 
 
 if __name__ == "__main__":

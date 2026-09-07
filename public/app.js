@@ -17,6 +17,8 @@
   var fullscreenToggle = document.querySelector("[data-fullscreen-toggle]");
   var presentationExit = document.querySelector("[data-presentation-exit]");
   var undoButton = document.querySelector("[data-undo]");
+  var draftButton = document.querySelector("[data-conflict-draft]");
+  var draftKey = "slidekit-conflict-draft:" + location.pathname;
   var toast = document.querySelector("[data-toast]");
   var selectedLabel = document.querySelector("[data-selected-component]");
   var state = null;
@@ -55,6 +57,57 @@
 
   function sameSnapshot(a, b) {
     return JSON.stringify(snapshot(a)) === JSON.stringify(snapshot(b));
+  }
+
+  // Carry only edits made after a request started onto the server's merged
+  // response. Replaying a whole snapshot here would erase another editor.
+  function carryForward(base, local, remote) {
+    var result = copy(remote);
+    function changed(a, b) { return JSON.stringify(a) !== JSON.stringify(b); }
+    function merge(a, b, c, depth) {
+      var out = copy(c || {});
+      Object.keys(Object.assign({}, a || {}, b || {})).forEach(function (key) {
+        var old = (a || {})[key], next = (b || {})[key];
+        if (!changed(old, next)) return;
+        if (depth > 1) {
+          out[key] = merge(old, next, out[key], depth - 1);
+          if (!Object.keys(out[key]).length) delete out[key];
+        } else if (next === undefined) delete out[key];
+        else out[key] = copy(next);
+      });
+      return out;
+    }
+    if (changed(base.order, local.order)) {
+      var known = new Set(base.order), remaining = local.order.slice();
+      result.order = remote.order.map(function (key) {
+        return known.has(key) ? remaining.shift() : key;
+      });
+    }
+    var hidden = new Set(remote.hidden);
+    base.order.forEach(function (key) {
+      if (base.hidden.includes(key) !== local.hidden.includes(key)) {
+        if (local.hidden.includes(key)) hidden.add(key); else hidden.delete(key);
+      }
+    });
+    result.hidden = result.order.filter(function (key) { return hidden.has(key); });
+    [["overlays", 3], ["objects", 2], ["tables", 1]].forEach(function (row) {
+      result[row[0]] = merge(base[row[0]], local[row[0]], remote[row[0]], row[1]);
+    });
+    return result;
+  }
+
+  function retainDraft(message, restored) {
+    var draft = restored || {message: message, base: snapshot(accepted),
+      sourceRevision: accepted.sourceRevision, local: snapshot(state)};
+    try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch (_) {}
+    draftButton.hidden = false;
+    draftButton.onclick = function () {
+      var url = URL.createObjectURL(new Blob([JSON.stringify(draft, null, 2)],
+        {type: "application/json"}));
+      var link = document.createElement("a");
+      link.href = url; link.download = "unsaved-slide-edits.json"; link.click();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    };
   }
 
   function setStatus(label, kind) {
@@ -467,6 +520,8 @@
       body: JSON.stringify({
         baseRevision: accepted.revision,
         baseSourceRevision: accepted.sourceRevision,
+        baseSlideRevisions: accepted.slideRevisions,
+        baseSnapshot: snapshot(accepted),
         snapshot: job
       })
     }).then(function (response) {
@@ -477,23 +532,31 @@
       inFlight = null;
       if (!result.ok) {
         if (result.status === 409 && result.payload.state) {
+          retainDraft(result.payload.error);
           accepted = result.payload.state;
           state = copy(accepted);
           pending = null;
           undoBase = null;
           selected = null;
           render();
-          setStatus("Conflict · reloaded", "error");
-          showToast("Source or another editor changed first; the accepted state is shown.");
+          setStatus("Conflict · draft retained", "error");
+          showToast(result.payload.error + ". Your unsaved changes are available to download.");
+        } else if (result.status === 400) {
+          retainDraft(result.payload.error);
+          pending = null;
+          setStatus("Invalid edit · draft retained", "error");
+          showToast(result.payload.error);
         } else {
-          pending = job;
+          pending = pending || job;
           setStatus("Offline · retrying", "error");
           setTimeout(flush, 1400);
         }
         return;
       }
+      state = carryForward(job, state, result.payload);
       accepted = result.payload;
-      if (!pending && sameSnapshot(state, accepted)) {
+      pending = sameSnapshot(state, accepted) ? null : snapshot(state);
+      if (!pending) {
         state = copy(accepted);
         undoBase = null;
         render();
@@ -505,7 +568,7 @@
     }).catch(function (error) {
       console.error("deck-state save failed", error);
       inFlight = null;
-      pending = job;
+      pending = pending || job;
       setStatus("Offline · retrying", "error");
       setTimeout(flush, 1400);
     });
@@ -1354,6 +1417,10 @@
     var requested = location.hash.slice(1);
     currentId = state.order.indexOf(requested) >= 0 ? requested : state.order[0];
     render();
+    try {
+      var draft = JSON.parse(localStorage.getItem(draftKey));
+      if (draft) retainDraft(draft.message, draft);
+    } catch (_) {}
   }).catch(function (error) {
     setStatus("Load failed", "error");
     stage.textContent = error.message;

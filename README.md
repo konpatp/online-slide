@@ -154,7 +154,12 @@ mock-guidance-vector-geometry @ raw
 ```
 
 The server checks both the mutable state revision and a hash of the complete
-source catalog. An edited semantic leaf may move among siblings without losing
+source catalog. New clients submit a base snapshot and per-slide source
+identities: unrelated editor changes and newly contributed slides merge by
+semantic target. Two changes to the same property, conflicting human order
+changes, or an edited slide whose source changed fail explicitly; a conflicting
+browser draft is retained and can be downloaded. Persistence completes before
+the in-memory revision advances. An edited semantic leaf may move among siblings without losing
 its override. Removing an edited leaf or a published slide fails closed rather
 than silently moving or discarding the human change.
 
@@ -178,6 +183,27 @@ primitives: each compound target bar is one semantic rectangle, and each B4/R3
 reach mark is one semantic line with independent endpoints. Their geometry is
 normalized to the owning panel, so dragging, resizing, or rotating one shape
 survives panel reorder without creating DOM- or index-based targets.
+
+## Independent contributions
+
+Add or edit only your `slides/<permanent-id>.json` and its assets. Declare
+`placement.after` for a new slide; do not edit an existing deck's human order
+file. Source additions are discovered automatically. For a separate deck,
+`python /path/to/toolkit/build_deck.py /path/to/deck --output /path/to/deck/site`
+packages `slides/`, `assets/`, and an optional first-start `seed-state.json`
+with this renderer. It validates before replacing generated output and refuses
+to overwrite live authoring state. Serve with `--data` outside the generated
+release directory; a build never copies live state.
+
+Authors work on separate branches and run the fast source/unit checks plus
+changed-slide visual review. The host's normal serialized landing operation
+integrates the latest main and activates an immutable release; no dedicated
+slide-master is needed. A same-slide source conflict is resolved explicitly,
+never by replacing the whole deck with a stale branch.
+
+`python tools/browser_concurrency.py` exercises two physical editors, two new
+source contributions, a human reorder, and a retained same-target conflict
+using only temporary local state.
 
 ## Fast path and browser acceptance
 
