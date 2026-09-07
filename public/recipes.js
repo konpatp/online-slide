@@ -331,8 +331,9 @@
         var moved = false;
         function onMove(moveEvent) {
           moveEvent.preventDefault();
-          var dx = (moveEvent.clientX - startX) / record.article.clientWidth;
-          var dy = (moveEvent.clientY - startY) / record.article.clientHeight;
+          var rendered = record.article.getBoundingClientRect();
+          var dx = (moveEvent.clientX - startX) / rendered.width;
+          var dy = (moveEvent.clientY - startY) / rendered.height;
           if (Math.abs(dx) + Math.abs(dy) < .001 && !moved) return;
           moved = true;
           var next;

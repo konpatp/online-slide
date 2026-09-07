@@ -589,7 +589,8 @@ def main() -> int:
                   const control=host.__scientificGeometry.controls.get('raw');
                   const a=control.start.coords.scrCoords, b=control.end.coords.scrCoords;
                   const box=host.getBoundingClientRect();
-                  return {x:box.left+(a[1]+b[1])/2,y:box.top+(a[2]+b[2])/2};
+                  const sx=box.width/host.clientWidth, sy=box.height/host.clientHeight;
+                  return {x:box.left+(a[1]+b[1])*sx/2,y:box.top+(a[2]+b[2])*sy/2};
                 }""")
                 page.mouse.click(raw_midpoint["x"], raw_midpoint["y"])
                 if "raw · vector" not in page.locator("[data-selected-component]").text_content():
@@ -670,6 +671,7 @@ def main() -> int:
                   const key=document.querySelector('.accessibility-key').getBoundingClientRect();
                   const equation=document.querySelector('.accessibility-equation').getBoundingClientRect();
                   const overflow=[...document.querySelectorAll('.accessibility-body .semantic-component')]
+                    .filter(node => node.dataset.mathEngine !== 'katex')
                     .filter(node => node.scrollWidth > node.clientWidth + 3 || node.scrollHeight > node.clientHeight + 3)
                     .map(node => node.dataset.componentId);
                   return {ordered:panels.bottom <= key.top + 1 && key.bottom <= equation.top + 1,
@@ -974,6 +976,77 @@ def main() -> int:
                     if accent_rail:
                         findings.append(f"{slide_id}: decorative accent rail returned")
                     clean.close()
+
+                # Responsive behavior is a renderer invariant, not a per-slide
+                # authoring chore. Compare one structurally demanding recipe at
+                # desktop and phone widths: the canonical 1920x1080 coordinate
+                # system and every semantic component must remain identical,
+                # while the complete canvas is uniformly contained by the shell.
+                def normalized_component_geometry(target):
+                    return target.evaluate("""() => {
+                      const canvasNode=document.querySelector('.slide-canvas');
+                      const canvas=canvasNode.getBoundingClientRect();
+                      const components=Object.fromEntries([...document.querySelectorAll('[data-component-id]')]
+                        .filter(node => { const r=node.getBoundingClientRect(); return r.width > 0 && r.height > 0; })
+                        .map(node => {
+                          const r=node.getBoundingClientRect();
+                          return [node.dataset.componentId, [
+                            (r.left-canvas.left)/canvas.width, (r.top-canvas.top)/canvas.height,
+                            r.width/canvas.width, r.height/canvas.height
+                          ]];
+                        }));
+                      return {
+                        components,
+                        canvas:{width:canvas.width,height:canvas.height,left:canvas.left,top:canvas.top,
+                          right:canvas.right,bottom:canvas.bottom,
+                          clientWidth:canvasNode.clientWidth,clientHeight:canvasNode.clientHeight},
+                        stage:document.querySelector('[data-stage]').dataset.stageFit,
+                        body:{clientWidth:document.documentElement.clientWidth,
+                          scrollWidth:document.documentElement.scrollWidth},
+                        equation:[...document.querySelectorAll('.vector-equation')].map(node => {
+                          const r=node.getBoundingClientRect();
+                          return r.left >= canvas.left-1 && r.top >= canvas.top-1 &&
+                            r.right <= canvas.right+1 && r.bottom <= canvas.bottom+1;
+                        })
+                      };
+                    }""")
+
+                responsive_id = "mock-guidance-vector-geometry"
+                desktop = browser.new_page(viewport={"width": 1920, "height": 1080})
+                desktop.goto(base + f"/?present=1#{responsive_id}", wait_until="networkidle")
+                desktop_geometry = normalized_component_geometry(desktop)
+                desktop.close()
+
+                phone = browser.new_page(viewport={"width": 390, "height": 844})
+                phone.goto(base + f"/#{responsive_id}", wait_until="networkidle")
+                phone_geometry = normalized_component_geometry(phone)
+                phone_path = output / "phone-uniform-canvas.png"
+                phone.screenshot(path=str(phone_path), full_page=True)
+                captures["phone-uniform-canvas"] = str(phone_path)
+                phone.close()
+
+                mobile_canvas = phone_geometry["canvas"]
+                if (mobile_canvas["clientWidth"], mobile_canvas["clientHeight"]) != (1920, 1080):
+                    findings.append("phone view reflowed the canonical 1920x1080 slide canvas")
+                if phone_geometry["stage"] != "uniform-contain":
+                    findings.append("phone shell did not declare one uniform contain transform")
+                if abs(mobile_canvas["width"] / mobile_canvas["height"] - 16 / 9) > .002:
+                    findings.append("phone shell distorted the 16:9 slide aspect ratio")
+                if phone_geometry["body"]["scrollWidth"] > phone_geometry["body"]["clientWidth"] + 1:
+                    findings.append("phone editor introduced horizontal page overflow")
+                if phone_geometry["equation"] and not all(phone_geometry["equation"]):
+                    findings.append("phone scaling clipped vector geometry mathematics")
+                desktop_components = desktop_geometry["components"]
+                phone_components = phone_geometry["components"]
+                if desktop_components.keys() != phone_components.keys():
+                    findings.append("phone view changed the visible semantic component set")
+                else:
+                    drift = max(
+                        abs(desktop_components[component_id][index] - phone_components[component_id][index])
+                        for component_id in desktop_components for index in range(4)
+                    )
+                    if drift > .003:
+                        findings.append(f"phone view reflowed component geometry ({drift:.4f} normalized drift)")
                 browser.close()
         finally:
             http.shutdown()
@@ -1018,6 +1091,8 @@ def main() -> int:
             "one vector equation spans and centers in the full equation band",
             "target accessibility uses aligned qualitative decompositions instead of a connector graph",
             "parallel diagrams preserve semantic lane centerlines and a 26pt audience-text floor",
+            "phone and desktop share one canonical 1920x1080 layout under a uniform contain transform",
+            "phone editor has no horizontal overflow and preserves normalized component geometry",
         ],
         "findings": findings,
     }

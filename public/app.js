@@ -8,6 +8,7 @@
     document.body.classList.add("present-only");
   }
   var stage = document.querySelector("[data-stage]");
+  var stageWrap = document.querySelector(".stage-wrap");
   var thumbList = document.querySelector("[data-thumb-list]");
   var count = document.querySelector("[data-slide-count]");
   var position = document.querySelector("[data-position]");
@@ -37,6 +38,7 @@
 
   var CANONICAL_SLIDE_WIDTH = 1920;
   var CANONICAL_SLIDE_HEIGHT = 1080;
+  var EDITOR_MAX_SLIDE_WIDTH = 1280;
 
   function copy(value) { return JSON.parse(JSON.stringify(value)); }
 
@@ -67,6 +69,32 @@
     toastTimer = setTimeout(function () { toast.classList.remove("visible"); }, 2700);
   }
 
+  function stageContentBox() {
+    var style = getComputedStyle(stageWrap);
+    return {
+      width: Math.max(0, stageWrap.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)),
+      height: Math.max(0, stageWrap.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+    };
+  }
+
+  function fitStage() {
+    var available = stageContentBox();
+    if (!available.width || !available.height) return;
+    var presentation = document.body.classList.contains("present-only");
+    var width = presentation ? available.width : Math.min(available.width, EDITOR_MAX_SLIDE_WIDTH);
+    var scale = Math.min(width / CANONICAL_SLIDE_WIDTH, available.height / CANONICAL_SLIDE_HEIGHT);
+    if (!Number.isFinite(scale) || scale <= 0) return;
+    stage.style.width = (CANONICAL_SLIDE_WIDTH * scale).toFixed(2) + "px";
+    stage.style.height = (CANONICAL_SLIDE_HEIGHT * scale).toFixed(2) + "px";
+    stage.style.setProperty("--stage-scale", String(scale));
+    stage.dataset.stageFit = "uniform-contain";
+    stage.dataset.stageScale = scale.toFixed(6);
+    requestAnimationFrame(function () {
+      applyAllTextRegions();
+      syncTextRegionFrame();
+    });
+  }
+
   function revealPresentationExit() {
     if (!document.body.classList.contains("present-only")) return;
     presentationExit.classList.add("visible");
@@ -86,6 +114,7 @@
   function setPresentationMode(enabled) {
     document.body.classList.toggle("present-only", enabled);
     fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
+    requestAnimationFrame(fitStage);
     if (enabled) revealPresentationExit();
     else {
       clearTimeout(presentationExitTimer);
@@ -696,10 +725,18 @@
     return binding.host;
   }
 
-  function canvasScale(canvas) {
+  function canvasCoordinateScale(canvas) {
     return {
       x: canvas.clientWidth / CANONICAL_SLIDE_WIDTH,
       y: canvas.clientHeight / CANONICAL_SLIDE_HEIGHT
+    };
+  }
+
+  function canvasRenderScale(canvas) {
+    var rect = canvas.getBoundingClientRect();
+    return {
+      x: rect.width / canvas.clientWidth,
+      y: rect.height / canvas.clientHeight
     };
   }
 
@@ -721,7 +758,7 @@
       if (binding.alwaysFit) ensureTextRegionFit(binding);
       return;
     }
-    var scale = canvasScale(canvas);
+    var scale = canvasCoordinateScale(canvas);
     binding.host.style.translate = (region.x * scale.x).toFixed(2) + "px " +
       (region.y * scale.y).toFixed(2) + "px";
     binding.host.style.width = (region.width * scale.x).toFixed(2) + "px";
@@ -754,7 +791,7 @@
 
   function regionFromBinding(binding) {
     var canvas = binding.host.closest(".slide-canvas");
-    var scale = canvasScale(canvas);
+    var scale = canvasRenderScale(canvas);
     var rect = binding.host.getBoundingClientRect();
     var component = effectiveComponent(state.slides[binding.slideId], binding.componentId);
     return component.region ? Object.assign({}, component.region) : {
@@ -801,10 +838,11 @@
     textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
     var canvasRect = canvas.getBoundingClientRect();
     var rect = binding.host.getBoundingClientRect();
-    textRegionFrame.style.left = (rect.left - canvasRect.left) + "px";
-    textRegionFrame.style.top = (rect.top - canvasRect.top) + "px";
-    textRegionFrame.style.width = rect.width + "px";
-    textRegionFrame.style.height = rect.height + "px";
+    var scale = canvasRenderScale(canvas);
+    textRegionFrame.style.left = ((rect.left - canvasRect.left) / scale.x) + "px";
+    textRegionFrame.style.top = ((rect.top - canvasRect.top) / scale.y) + "px";
+    textRegionFrame.style.width = (rect.width / scale.x) + "px";
+    textRegionFrame.style.height = (rect.height / scale.y) + "px";
   }
 
   function startTextRegionGesture(kind, event) {
@@ -836,7 +874,7 @@
     if (!regionGesture) return;
     event.preventDefault();
     var gesture = regionGesture;
-    var scale = canvasScale(gesture.canvas);
+    var scale = canvasRenderScale(gesture.canvas);
     var dx = event.clientX - gesture.startX;
     var dy = event.clientY - gesture.startY;
     var next = Object.assign({}, gesture.region);
@@ -886,6 +924,8 @@
     canvas.className = "slide-canvas recipe-" + slide.recipe;
     canvas.style.setProperty("--accent", slide.theme.accent);
     canvas.setAttribute("data-slide-id", slide.id);
+    canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
+    canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
     canvas.addEventListener("click", function () {
       if (editMode) selectComponent(null, null);
     });
@@ -1015,6 +1055,7 @@
     renderRecipe[slide.recipe](canvas, slide);
     addFooter(canvas, slide);
     stage.appendChild(canvas);
+    fitStage();
     stage.classList.toggle("edit-mode", editMode);
     applyAllTextRegions();
     if (window.ResizeObserver) {
@@ -1297,6 +1338,12 @@
       render();
     }
   });
+
+  if (window.ResizeObserver) {
+    new ResizeObserver(fitStage).observe(stageWrap);
+  } else {
+    window.addEventListener("resize", fitStage);
+  }
 
   fetch("api/deck-state", {cache: "no-store"}).then(function (response) {
     if (!response.ok) throw new Error("Could not load the deck");

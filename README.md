@@ -121,6 +121,14 @@ component may also declare the same optional `region` object in source; `x`
 and `y` are offsets from the recipe-owned anchor and `width`/`height` are the
 available text area.
 
+The slide itself never reflows for a phone, editor pane, projector, or
+fullscreen window. Recipes always lay out once on a canonical 1920×1080
+canvas; the shell applies one uniform contain transform to that complete
+canvas. Text, KaTeX, plots, diagrams, images, and edit hit targets therefore
+keep the same normalized geometry at every viewport. A single shared browser
+regression compares desktop and phone geometry, so individual slide authors do
+not need to maintain device-specific layouts or repeat a mobile test matrix.
+
 ## Concurrency and human authority
 
 The repository separates three kinds of state:
