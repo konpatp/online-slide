@@ -236,6 +236,19 @@ to the same semantic object.
 
 ## Add a slide independently
 
+For ordinary contributions, capture just the changed slide and its automatic
+predecessor/successor seams in one browser:
+
+```bash
+python3 tools/review_deck.py --slide YOUR-SLIDE-ID --output artifacts/review
+```
+
+Use `--all` for a shared renderer change. `--root` accepts a packaged deck;
+`--url` captures an already served deck without saving edits. The receipt checks
+canvas containment, fitting, images, and math; the author still inspects the
+PNG for scientific meaning and readability. Full interaction tests belong at
+shared-editor changes, not every content edit.
+
 Copy the closest file from [`slides/`](slides/) and change:
 
 - `id` to a new permanent id;
