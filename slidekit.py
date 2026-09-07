@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import copy
 import json
+import itertools
 import re
 from pathlib import Path
 from typing import Any, Iterable
@@ -21,13 +22,13 @@ STATE_SCHEMA = "online-slide/state@4"
 LEGACY_STATE_SCHEMAS = {"online-slide/state@2", "online-slide/state@3"}
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
-    "vector-geometry", "hierarchical-gallery", "target-accessibility",
+    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels",
 }
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 ALLOWED_OVERLAY_KEYS = {
-    "text", "color", "fontScale", "src", "imageScale", "region",
+    "text", "color", "fontScale", "src", "imageScale", "region", "chartLayout",
 }
 
 
@@ -120,7 +121,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         _require(isinstance(component, dict),
                  f"{source}: component {component_id!r} must be an object")
         kind = component.get("kind")
-        _require(kind in {"text", "image"},
+        _require(kind in {"text", "image", "chart"},
                  f"{source}: component {component_id!r} has invalid kind")
         if kind == "text":
             _require(isinstance(component.get("text"), str),
@@ -136,6 +137,28 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                     component["region"],
                     f"{source}: text component {component_id!r} has an invalid region",
                 )
+        elif kind == "chart":
+            figure = component.get("figure")
+            _require(isinstance(figure, dict) and isinstance(figure.get("data"), list)
+                     and figure["data"] and isinstance(figure.get("layout"), dict),
+                     f"{source}: chart needs source-native data and layout")
+            try:
+                json.dumps(figure, allow_nan=False)
+            except (ValueError, TypeError):
+                raise ContractError(f"{source}: chart contains non-finite or non-JSON evidence")
+            _require(all(isinstance(trace, dict) for trace in figure["data"]),
+                     f"{source}: chart traces must be objects")
+            identities = [trace.get("uid") for trace in figure["data"]]
+            _require(all(isinstance(key, str) and key for key in identities)
+                     and len(set(identities)) == len(identities),
+                     f"{source}: chart traces need unique authored uids")
+            annotations = figure["layout"].get("annotations", [])
+            _require(isinstance(annotations, list) and all(isinstance(item, dict) for item in annotations),
+                     f"{source}: chart annotations must be objects")
+            names = [item.get("name") for item in annotations]
+            _require(all(isinstance(key, str) and key for key in names)
+                     and len(set(names)) == len(names),
+                     f"{source}: chart annotations need unique authored names")
         else:
             _require(isinstance(component.get("src"), str) and component["src"],
                      f"{source}: image component {component_id!r} needs src")
@@ -157,7 +180,61 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     data = spec.get("data")
     _require(isinstance(data, dict), f"{source}: data must be an object")
     recipe = spec["recipe"]
-    if recipe == "hero-plot":
+    if recipe == "chart-panels":
+        def chart_composition(composition):
+            panels = composition.get("panels")
+            _require(isinstance(panels, list) and 1 <= len(panels) <= 3,
+                     f"{source}: chart-panels needs one to three panels")
+            for panel in panels:
+                _require(isinstance(panel, dict), f"{source}: panel must be an object")
+                ref(panel.get("chart"), "panel.chart")
+                _require(components.get(panel.get("chart"), {}).get("kind") == "chart",
+                         f"{source}: panel must reference a chart")
+                for key in ("heading", "caption"):
+                    if panel.get(key):
+                        ref(panel[key], "panel."+key)
+            _require(len({panel["chart"] for panel in panels}) == len(panels),
+                     f"{source}: the same chart cannot occupy two panels")
+            for item in composition.get("legend", []):
+                ref(item.get("label"), "legend.label")
+            for key in ("xLabel", "yLabel"):
+                if composition.get(key):
+                    ref(composition[key], key)
+
+        if "views" in data:
+            selectors, views = data.get("selectors"), data["views"]
+            _require(isinstance(selectors, list) and selectors and isinstance(views, list) and views,
+                     f"{source}: faceted charts need selectors and views")
+            allowed = {}
+            for selector in selectors:
+                key = selector.get("id")
+                _require(isinstance(key,str) and COMPONENT_ID.fullmatch(key) and key not in allowed,
+                         f"{source}: selectors need unique semantic ids")
+                ref(selector.get("label"), "selector.label")
+                options = selector.get("options")
+                _require(isinstance(options,list) and options, f"{source}: selector options missing")
+                values = [option.get("value") for option in options]
+                _require(all(isinstance(value,str) and value for value in values) and len(set(values)) == len(values),
+                         f"{source}: selector options must be unique")
+                allowed[key] = values
+                for option in options:
+                    ref(option.get("label"), "option.label")
+            keys = list(allowed)
+            combinations = set()
+            for view in views:
+                selection = view.get("selection", {})
+                _require(set(selection) == set(keys) and all(selection[key] in allowed[key] for key in keys),
+                         f"{source}: invalid view selection")
+                combination = tuple(selection[key] for key in keys)
+                _require(combination not in combinations, f"{source}: ambiguous chart view")
+                combinations.add(combination)
+                # Scientific arrays were already checked once above. A view
+                # validates only its references, not the whole matrix again.
+                chart_composition({**data, **view})
+            _require(combinations == set(itertools.product(*(allowed[key] for key in keys))),
+                     f"{source}: chart facet combinations are incomplete")
+        chart_composition(data)
+    elif recipe == "hero-plot":
         for axis in ("xAxis", "yAxis"):
             axis_spec = data.get(axis)
             _require(isinstance(axis_spec, dict), f"{source}: {axis} is required")
@@ -195,8 +272,8 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             for cell_index, component_id in enumerate(cells):
                 ref(component_id, f"rows[{row_index}].cells[{cell_index}]")
             best = row.get("best")
-            _require(isinstance(best, int) and 0 <= best < len(cells),
-                     f"{source}: row {row_index} needs a valid best index")
+            _require(best is None or isinstance(best, int) and not isinstance(best, bool) and 0 <= best < len(cells),
+                     f"{source}: row {row_index} needs a valid best index or no emphasis")
     elif recipe == "mechanism-pipeline":
         nodes = data.get("nodes")
         edges = data.get("edges")
@@ -333,7 +410,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         views = data.get("views")
         page_sets = data.get("pageSets")
         _require(isinstance(columns, list) and columns, f"{source}: gallery needs columns")
-        _require(isinstance(selectors, list) and selectors, f"{source}: gallery needs selectors")
+        _require(isinstance(selectors, list), f"{source}: gallery selectors must be a list")
         _require(isinstance(views, list) and views, f"{source}: gallery needs views")
         _require(isinstance(page_sets, dict) and page_sets, f"{source}: gallery needs pageSets")
         for index, component_id in enumerate(columns):
@@ -372,6 +449,8 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                 for row_index, row in enumerate(rows):
                     ref(row.get("label"),
                         f"pageSets.{page_set_id}[{page_index}].rows[{row_index}].label")
+                    if row.get("detail"):
+                        ref(row["detail"], "gallery row detail")
                     images = row.get("images")
                     _require(isinstance(images, list) and 0 < len(images) <= len(columns),
                              f"{source}: gallery row {row_index} must fit the declared columns")
@@ -803,6 +882,9 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
             _require(set(overlay) <= ALLOWED_OVERLAY_KEYS,
                      f"unsupported overlay fields on {slide_id}@{component_id}")
             component = catalog[slide_id]["components"][component_id]
+            if "chartLayout" in overlay:
+                _require(component["kind"] == "chart", "chartLayout must target a chart")
+                validate_chart_layout(overlay["chartLayout"], component)
             if "text" in overlay:
                 _require(component["kind"] == "text", "text overlay must target text")
                 _require(isinstance(overlay["text"], str) and len(overlay["text"]) <= 800,
@@ -831,6 +913,34 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
                     overlay["region"],
                     f"region overlay is invalid on {slide_id}@{component_id}",
                 )
+
+
+def validate_chart_layout(value: Any, component: dict) -> None:
+    """Only presentation edits; never permit an overlay to replace scientific data.
+
+    Names, not annotation indices, are durable targets. Removing an edited
+    annotation is refused even if a different annotation occupies its old slot.
+    """
+    _require(isinstance(value, dict) and set(value) <= {"legend", "annotations"},
+             "unsupported chart edit")
+    if "legend" in value:
+        legend = value["legend"]
+        _require(isinstance(legend, dict) and set(legend) <= {"x", "y"}, "invalid legend edit")
+        _require(all(isinstance(v, (int, float)) and -10 <= v <= 10 for v in legend.values()),
+                 "legend position out of bounds")
+    names = {item["name"] for item in component["figure"]["layout"].get("annotations", [])}
+    annotations = value.get("annotations", {})
+    _require(isinstance(annotations, dict) and set(annotations) <= names,
+             "edited chart annotation disappeared")
+    for changes in annotations.values():
+        _require(isinstance(changes, dict) and set(changes) <= {"x", "y", "ax", "ay", "text"},
+                 "invalid annotation edit")
+        for key, item in changes.items():
+            if key == "text":
+                _require(isinstance(item, str) and len(item) <= 2000, "invalid annotation text")
+            else:
+                _require(isinstance(item, (int, float)) and abs(item) < 1e12,
+                         "invalid annotation position")
 
 
 def validate_state_snapshot(candidate: Any, current: dict[str, Any],
@@ -864,7 +974,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
 
 def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
     recipe_counts = {recipe: 0 for recipe in sorted(RECIPES)}
-    component_counts = {"text": 0, "image": 0}
+    component_counts = {"text": 0, "image": 0, "chart": 0}
     visual_object_counts = {
         "diagram-node": 0, "diagram-edge": 0, "vector": 0, "segment": 0,
         "accessibility-target": 0, "accessibility-reach": 0,

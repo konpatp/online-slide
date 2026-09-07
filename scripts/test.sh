@@ -11,6 +11,7 @@ node --check public/app.js
 node --check public/recipes.js
 node --check public/catalog.js
 node --check public/joint-diagram.js
+node --check public/chart-panels.js
 
 if [[ "${ONLINE_SLIDE_BROWSER_CHECK:-0}" == "1" ]]; then
   python3 tools/browser_smoke.py

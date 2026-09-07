@@ -25,6 +25,7 @@
       </a>
       <div class="top-actions">
         <a class="button quiet" href="catalog.html">Layouts</a>
+        <button class="button quiet" type="button" data-notes-toggle>Facts / notes</button>
         <span class="save-state saved" data-save-state role="status">Saved</span>
         <button class="button quiet" type="button" data-undo disabled>Undo</button>
         <button class="button quiet" type="button" data-conflict-draft hidden>Download unsaved edits</button>
@@ -89,9 +90,15 @@
     </main>
 
     <div class="toast" data-toast role="status" aria-live="polite"></div>
+    <dialog class="scientific-notes" data-notes-dialog>
+      <form method="dialog"><button class="button" autofocus>Close</button></form>
+      <div data-notes-content></div>
+    </dialog>
     <script src="joint-diagram.js?v=__ASSET_REVISION__"></script>
     <script src="geometry-runtime.js?v=__ASSET_REVISION__"></script>
     <script src="recipes.js?v=__ASSET_REVISION__"></script>
+    <script src="plotly.min.js?v=__ASSET_REVISION__"></script>
+    <script src="chart-panels.js?v=__ASSET_REVISION__"></script>
     <script src="app.js?v=__ASSET_REVISION__"></script>
   </body>
 </html>

@@ -110,7 +110,7 @@ def make_server(
     uploads_dir = uploads_dir or state_path.parent / "uploads"
     runtime_assets = [
         "styles.css", "app.js", "recipes.js", "joint-diagram.js",
-        "geometry-runtime.js", "geometry-runtime.css",
+        "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
     ]
     asset_revision = hashlib.sha256(b"".join(
         (public_dir / name).read_bytes() for name in runtime_assets

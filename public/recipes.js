@@ -4,6 +4,7 @@
 
   // Documentation lives beside the layout implementation, never per slide.
   global.scientificRecipeGuides = {
+    "chart-panels": {use: "Compare source-native scientific plots, singly or in aligned panels.", owns: "Bounded plot regions, shared axis regions, native log axes, hover, zoom, export, and semantic annotation editing."},
     "hero-plot": {use: "Compare measured trajectories on one pair of axes.", owns: "Plot region, axes, legend, series styling, and protocol placement."},
     "evidence-table": {use: "Compare aligned values and emphasize selected cells.", owns: "Column alignment, padded cells, bounded whole-table fitting, and native table editing."},
     "mechanism-pipeline": {use: "Explain a process through connected states or models.", owns: "Node sizing, ranked layout, connector routing, and fitted text regions."},
@@ -26,6 +27,23 @@
     var selectedObjectId = api.selectedObjectId;
     var selectVisualObject = api.selectVisualObject;
     var updateVisualObject = api.updateVisualObject;
+
+    global.renderScientificFacetControls = function (host, slide, selectors, selection, onChange) {
+      host.textContent = "";
+      selectors.forEach(function (selector) {
+        var group = document.createElement("div"); group.className = "gallery-selector";
+        group.appendChild(editableText(slide, selector.label, "span", "gallery-selector-label"));
+        var options = document.createElement("div"); options.className = "gallery-option-row";
+        selector.options.forEach(function (option) {
+          var button = document.createElement("button"); button.type = "button";
+          button.textContent = effectiveComponent(slide, option.label).text;
+          button.setAttribute("aria-pressed", String(selection[selector.id] === option.value));
+          button.addEventListener("click", function (event) { event.stopPropagation(); onChange(selector.id, option.value); });
+          options.appendChild(button);
+        });
+        group.appendChild(options); host.appendChild(group);
+      });
+    };
 
     function heroPlot(canvas, slide) {
       var data = slide.data;
@@ -664,6 +682,7 @@
     function hierarchicalGallery(canvas, slide) {
       var body = document.createElement("div");
       body.className = "recipe-body hierarchical-gallery-body";
+      if (!slide.data.selectors.length && Object.values(slide.data.pageSets).every(function (pages) { return pages.length === 1; })) body.classList.add("static-gallery");
       var controls = document.createElement("div");
       controls.className = "gallery-controls";
       var summary = document.createElement("div");
@@ -689,29 +708,11 @@
         localStorage.setItem(storageKey, JSON.stringify(galleryState));
       }
       function renderGallery() {
-        controls.textContent = "";
-        slide.data.selectors.forEach(function (selector) {
-          var group = document.createElement("div");
-          group.className = "gallery-selector";
-          group.appendChild(editableText(slide, selector.label, "span", "gallery-selector-label"));
-          var options = document.createElement("div");
-          options.className = "gallery-option-row";
-          selector.options.forEach(function (option) {
-            var button = document.createElement("button");
-            button.type = "button";
-            button.textContent = componentText(option.label);
-            button.setAttribute("aria-pressed", String(galleryState.selection[selector.id] === option.value));
-            button.addEventListener("click", function (event) {
-              event.stopPropagation();
-              galleryState.selection[selector.id] = option.value;
-              galleryState.page = 0;
-              saveGalleryState();
-              renderGallery();
-            });
-            options.appendChild(button);
-          });
-          group.appendChild(options);
-          controls.appendChild(group);
+        global.renderScientificFacetControls(controls, slide, slide.data.selectors, galleryState.selection, function (key, value) {
+          galleryState.selection[key] = value;
+          galleryState.page = 0;
+          saveGalleryState();
+          renderGallery();
         });
 
         var view = activeView();
@@ -745,10 +746,18 @@
         grid.style.setProperty("--gallery-rows", String(page.rows.length));
         grid.appendChild(document.createElement("div"));
         slide.data.columns.forEach(function (componentId) {
-          grid.appendChild(editableText(slide, componentId, "div", "gallery-heading"));
+          var frame = document.createElement("div"); frame.className = "gallery-heading-region";
+          var heading = editableText(slide, componentId, "div", "gallery-heading");
+          frame.appendChild(heading); grid.appendChild(frame);
+          bindTextRegion(slide, componentId, heading, frame, {alwaysFit:true,fitMode:"gallery-heading-region",minSize:30});
         });
         page.rows.forEach(function (row) {
-          grid.appendChild(editableText(slide, row.label, "div", "gallery-row-label"));
+          var frame = document.createElement("div"); frame.className = "gallery-identity-region";
+          var label = editableText(slide, row.label, "div", "gallery-row-label");
+          frame.appendChild(label);
+          if (row.detail) frame.appendChild(editableText(slide,row.detail,"div","gallery-row-detail"));
+          grid.appendChild(frame);
+          bindTextRegion(slide,row.label,label,frame,{alwaysFit:true,fitMode:"gallery-identity-region",minSize:30});
           row.images.forEach(function (componentId) { grid.appendChild(galleryImage(slide, componentId)); });
         });
         viewHost.appendChild(grid);
@@ -761,6 +770,7 @@
     }
 
     return {
+      "chart-panels": function (canvas, slide) { return global.renderScientificChartPanels(canvas, slide, api); },
       "hero-plot": heroPlot,
       "evidence-table": evidenceTable,
       "target-accessibility": targetAccessibility,

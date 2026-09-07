@@ -124,3 +124,20 @@ Primary references:
 # Lightweight recipe discovery
 
 The catalog follows the useful pattern in [Storybook Autodocs](https://storybook.js.org/docs/writing-docs/autodocs): derive discovery from working examples rather than duplicate registrations. For this small framework-free engine, adding Storybook's build/runtime would be unnecessary. A read-only page groups the existing deck API by recipe, uses the actual slide renderer for on-demand previews, and downloads the authored JSON. Usage guidance lives beside each shared recipe. No new dependency, screenshot cache, database, or per-slide registry is introduced. Visual review remains the author's responsibility.
+
+## Source-native scientific charts
+
+Use pinned MIT-licensed [Plotly.js](https://github.com/plotly/plotly.js) for
+native scientific figures: logarithmic axes, bars, hover precision, zoom, and
+vector export. Reimplementing these in the simple SVG trajectory recipe would
+duplicate a mature plotting engine and increase migration risk. The shared
+`chart-panels` recipe owns bounded panel regions, shared labels, and typography;
+Plotly owns axes and automatic margins. The vendored runtime and license are
+copied from the pinned npm package, with no CDN dependency.
+
+The [configuration API](https://plotly.com/javascript/configuration-options/)
+allows only annotation text/position and legend position in edit mode. Source
+trace UIDs and annotation names are mandatory. Browser event indices are
+immediately resolved to those names; only presentation overlays persist. A
+real pointer/type/save/reload regression also inserts an unrelated annotation
+to prove that a curator edit retains its semantic target.

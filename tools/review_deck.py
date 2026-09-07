@@ -70,12 +70,15 @@ def main():
             page.goto(base + "/?present=1#" + key, wait_until="networkidle")
             page.wait_for_function("""() => document.fonts.status === 'loaded' &&
               document.querySelector('.slide-canvas') &&
-              [...document.images].every(i => i.complete)""")
+              [...document.images].every(i => i.complete) &&
+              [...document.querySelectorAll('.native-chart')].every(c => c.dataset.chartReady === 'true' || c.dataset.chartError)""")
             page.wait_for_timeout(180)
             audit = page.evaluate("""() => {
               const canvas=document.querySelector('.slide-canvas');
               const c=canvas.getBoundingClientRect();
               const errors=[];
+              for (const n of document.querySelectorAll('.native-chart'))
+                if (n.dataset.chartReady!=='true') errors.push('native chart failed: '+n.dataset.chartId);
               if (canvas.clientWidth!==1920 || canvas.clientHeight!==1080)
                 errors.push('canonical canvas missing');
               if (c.left < -1 || c.top < -1 || c.right > innerWidth+1 || c.bottom > innerHeight+1)

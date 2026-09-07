@@ -982,6 +982,21 @@
     return effectiveComponent(slide, slide.headline).text;
   }
 
+  document.querySelector("[data-notes-toggle]").addEventListener("click", function () {
+    var slide = currentSlide();
+    var host = document.querySelector("[data-notes-content]");
+    host.textContent = "";
+    ["facts", "notes", "narrative"].forEach(function (key) {
+      if (!slide[key]) return;
+      var heading = document.createElement("h2"); heading.textContent = key;
+      var text = document.createElement("div"); text.className = "notes-text";
+      text.textContent = typeof slide[key] === "string" ? slide[key] : JSON.stringify(slide[key], null, 2);
+      host.append(heading, text);
+    });
+    if (!host.childNodes.length) host.textContent = "No private notes for this slide.";
+    document.querySelector("[data-notes-dialog]").showModal();
+  });
+
   function slideShell(slide) {
     var canvas = document.createElement("article");
     canvas.className = "slide-canvas recipe-" + slide.recipe;
@@ -1103,7 +1118,12 @@
       removeTextRegionFrame();
       renderTools();
     },
-    updateVisualObject: updateVisualObject
+    updateVisualObject: updateVisualObject,
+    saveChartLayout: function (slideId, componentId, value) {
+      beginChange();
+      updateOverlay(slideId, componentId, "chartLayout", value);
+      persist();
+    }
   });
 
   function renderStage() {
@@ -1113,6 +1133,9 @@
     clearFitObservers();
     removeTextRegionFrame();
     textRegionBindings.clear();
+    stage.querySelectorAll(".native-chart").forEach(function (chart) {
+      if (window.Plotly) window.Plotly.purge(chart);
+    });
     stage.textContent = "";
     var canvas = slideShell(slide);
     renderRecipe[slide.recipe](canvas, slide);

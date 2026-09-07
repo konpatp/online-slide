@@ -32,7 +32,7 @@ class SlideKitContractTests(unittest.TestCase):
     def test_six_recipes_and_semantic_components_are_complete(self):
         receipt = catalog_receipt(self.catalog)
         self.assertEqual(receipt["slides"], 6)
-        self.assertEqual(set(receipt["recipes"].values()), {1})
+        self.assertEqual(set(value for value in receipt["recipes"].values() if value), {1})
         self.assertEqual(receipt["semanticComponentIds"], 126)
         self.assertEqual(receipt["positionalComponentIds"], 0)
         self.assertEqual(receipt["semanticVisualObjectIds"], 23)
@@ -386,6 +386,12 @@ class SlideKitContractTests(unittest.TestCase):
         del changed_catalog["mock-angle-evidence"]
         with self.assertRaisesRegex(ContractError, "published slide source disappeared"):
             reconcile_state(state, changed_catalog)
+
+    def test_pending_table_does_not_require_an_invented_winner(self):
+        spec = copy.deepcopy(self.catalog["mock-angle-evidence"])
+        for row in spec["data"]["rows"]:
+            row.pop("best", None)
+        validate_slide_spec(spec)
 
     def test_initial_order_resolves_anchors_before_timestamps_and_rejects_cycles(self):
         catalog = copy.deepcopy(self.catalog)

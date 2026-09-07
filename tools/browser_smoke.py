@@ -983,6 +983,10 @@ def main() -> int:
                 # system and every semantic component must remain identical,
                 # while the complete canvas is uniformly contained by the shell.
                 def normalized_component_geometry(target):
+                    # Network idle is not application readiness: boot still
+                    # awaits the deck state and mounted math/layout work.
+                    target.wait_for_selector('.slide-canvas', timeout=10000)
+                    target.wait_for_function("document.fonts.status === 'loaded'")
                     return target.evaluate("""() => {
                       const canvasNode=document.querySelector('.slide-canvas');
                       const canvas=canvasNode.getBoundingClientRect();

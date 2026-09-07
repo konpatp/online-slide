@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, copyFile } from "node:fs/promises";
 
 async function normalizeBundle(path) {
   const source = await readFile(path, "utf8");
@@ -35,3 +35,5 @@ await build({
   assetNames: "assets/[name]-[hash]",
 });
 await normalizeBundle("public/geometry-runtime.js");
+await copyFile("node_modules/plotly.js-dist-min/plotly.min.js", "public/plotly.min.js");
+await copyFile("node_modules/plotly.js-dist-min/LICENSE", "public/plotly.LICENSE");
