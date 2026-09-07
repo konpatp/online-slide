@@ -33,6 +33,13 @@ class AnnotationTests(unittest.TestCase):
         spec['annotations']=[a for a in spec['annotations'] if a.get('id')!='human-highlight']
         with self.assertRaisesRegex(ContractError,'target disappeared'):validate_objects(state,{spec['id']:spec})
 
+    def test_recipe_frame_is_revision_bound_geometry(self):
+        spec=fixture();spec['frame']={'id':'evidence-frame','geometry':{'x':.05,'y':.2,'width':.9,'height':.65}}
+        validate_slide_spec(spec)
+        state={spec['id']:{'evidence-frame':{'kind':'recipe-frame',**spec['frame']['geometry']}}}
+        validate_objects(state,{spec['id']:spec});spec.pop('frame')
+        with self.assertRaisesRegex(ContractError,'target disappeared'):validate_objects(state,{spec['id']:spec})
+
     def test_duplicate_unbounded_and_malformed_annotations_fail(self):
         spec=fixture();spec['annotations'].append(copy.deepcopy(spec['annotations'][0]))
         with self.assertRaisesRegex(ContractError,'identity must be unique'):validate_slide_spec(spec)

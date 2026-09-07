@@ -145,6 +145,17 @@
         layout.paper_bgcolor = "white";
         layout.plot_bgcolor = "white";
         layout.font = Object.assign({family:"Inter, sans-serif",size:36,color:"#14233b"}, layout.font);
+        // Endpoint labels outside paper coordinates need their own gutter.
+        // Plotly does not include annotation ink in axis automargins.
+        (layout.annotations || []).forEach(function(annotation) {
+          if(annotation.xref!=='paper' || annotation.x<1 || annotation.xanchor!=='left')return;
+          var measure=document.createElement('canvas').getContext('2d');
+          var text=document.createElement('span');text.innerHTML=annotation.text || '';
+          var font=Object.assign({},layout.font,annotation.font || {});
+          measure.font='700 '+font.size+'px '+font.family;
+          layout.margin=Object.assign({},layout.margin);
+          layout.margin.r=Math.max(layout.margin.r || 0,Math.ceil(measure.measureText(text.textContent).width+40));
+        });
         if (slide.data.layout==='main-with-diagnostics') {
           // One shared horizontal decoder and the authored metric headings
           // reserve the compact diagnostic panels for measured data.

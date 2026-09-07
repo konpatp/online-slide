@@ -12,18 +12,27 @@ def main():
     from playwright.sync_api import sync_playwright
     with tempfile.TemporaryDirectory() as directory:
         root=Path(directory);sources=root/'slides';sources.mkdir()
-        spec=fixture();path=sources/'plot.json';path.write_text(json.dumps(spec))
+        spec=fixture();spec['frame']={'id':'evidence-frame','geometry':{'x':.08,'y':.2,'width':.84,'height':.65}}
+        path=sources/'plot.json';path.write_text(json.dumps(spec))
         seed=root/'seed.json';seed.write_text(json.dumps({'schema':'online-slide/state@4','revision':0,'order':[],'hidden':[],'overlays':{},'objects':{},'tables':{}}))
         http=server.make_server(ROOT/'public',sources,seed,root/'state.json',root/'uploads')
         threading.Thread(target=http.serve_forever,daemon=True).start()
         try:
             with sync_playwright() as p:
                 browser=p.chromium.launch(headless=True);page=browser.new_page(viewport={'width':1920,'height':1080})
-                page.goto('http://%s:%s/'%http.server_address,wait_until='networkidle')
                 errors=[];page.on('pageerror',lambda error:errors.append(str(error)))
+                page.goto('http://%s:%s/'%http.server_address,wait_until='networkidle')
                 note=page.locator('[data-component-id="human-note"]')
-                assert note.is_visible()
+                page.wait_for_function("(()=>{let e=document.querySelector('[data-component-id=human-note]');return e && e.getBoundingClientRect().height>0})()")
+                assert note.is_visible(),(errors,note.evaluate('e=>({html:e.outerHTML,rect:e.getBoundingClientRect().toJSON()})'))
                 page.locator('[data-edit-toggle]').click()
+                move=page.get_by_role('button',name='Move layout frame',exact=True);box=move.bounding_box()
+                page.mouse.move(box['x']+8,box['y']+8);page.mouse.down();page.mouse.move(box['x']+28,box['y']+28,steps=4);page.mouse.up()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                frame_before=page.evaluate("fetch('api/deck-state').then(r=>r.json()).then(s=>s.objects['mock-growth-trajectories']['evidence-frame'])")
+                axis=page.locator('[data-component-id="'+spec['data']['xAxis']['label']+'"]');axis.click();axis.fill('Edited x axis')
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert frame_before==page.evaluate("fetch('api/deck-state').then(r=>r.json()).then(s=>s.objects['mock-growth-trajectories']['evidence-frame'])")
                 rect=page.locator('[data-visual-object-id="human-highlight"]')
                 box=rect.bounding_box();page.mouse.move(box['x']+4,box['y']+4);page.mouse.down();page.mouse.move(box['x']+64,box['y']+34,steps=5);page.mouse.up()
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")

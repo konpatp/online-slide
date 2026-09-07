@@ -67,7 +67,7 @@ def _component_ids(spec: dict[str, Any]) -> set[str]:
 def _visual_objects(spec: dict[str, Any]) -> dict[str, str]:
     """Return source-authored editable geometry identities for one slide."""
 
-    return {**_recipe_visual_objects(spec), **{
+    return {**_recipe_visual_objects(spec), **({spec['frame']['id']:'recipe-frame'} if spec.get('frame') else {}), **{
         item['id']: 'annotation-rect' if item['kind']=='rect' else 'annotation-line'
         for item in spec.get('annotations',[]) if item['kind']!='text'}}
 
@@ -188,6 +188,11 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     data = spec.get("data")
     _require(isinstance(data, dict), f"{source}: data must be an object")
     annotations=spec.get('annotations',[])
+    frame=spec.get('frame')
+    if frame is not None:
+        _require(isinstance(frame,dict) and set(frame)=={'id','geometry'},f'{source}: invalid recipe frame')
+        _require(isinstance(frame['id'],str) and COMPONENT_ID.fullmatch(frame['id']) and frame['id'] not in components and frame['id'] not in _recipe_visual_objects(spec),f'{source}: frame needs unique semantic identity')
+        validate_objects({spec['id']:{frame['id']:{'kind':'recipe-frame',**frame['geometry']}}},{spec['id']:spec})
     _require(isinstance(annotations,list),f'{source}: annotations must be a list')
     annotation_ids=set();annotation_objects={}
     for item in annotations:
@@ -197,7 +202,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             _require(components[item['component']].get('kind')=='text' and 'region' in components[item['component']],f'{source}: annotation text requires a bounded region')
             continue
         key=item.get('id')
-        _require(isinstance(key,str) and COMPONENT_ID.fullmatch(key) and key not in annotation_ids and key not in components and key not in _recipe_visual_objects(spec),f'{source}: annotation identity must be unique')
+        _require(isinstance(key,str) and COMPONENT_ID.fullmatch(key) and key not in annotation_ids and key not in components and key not in _recipe_visual_objects(spec) and key!=(frame or {}).get('id'),f'{source}: annotation identity must be unique')
         annotation_ids.add(key)
         _require(HEX_COLOR.fullmatch(str(item.get('color',''))) is not None,f'{source}: annotation requires hex color')
         _require(_finite_number(item.get('strokeWidth',3)) and 1<=item.get('strokeWidth',3)<=20,f'{source}: invalid annotation stroke width')
@@ -934,7 +939,7 @@ def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
             kind = known[object_id]
             _require(geometry.get("kind") == kind,
                      f"visual object kind changed: {slide_id}@{object_id}")
-            if kind in {"diagram-node", "accessibility-target", "annotation-rect"}:
+            if kind in {"diagram-node", "accessibility-target", "annotation-rect", "recipe-frame"}:
                 _require(set(geometry) == {"kind", "x", "y", "width", "height"},
                          f"{kind} geometry is invalid: {slide_id}@{object_id}")
                 _require(all(_finite_number(geometry[key]) for key in ("x", "y", "width", "height")),
@@ -1134,6 +1139,7 @@ def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
         "diagram-node": 0, "diagram-edge": 0, "vector": 0, "segment": 0,
         "accessibility-target": 0, "accessibility-reach": 0,
         "annotation-rect": 0, "annotation-line": 0,
+        "recipe-frame": 0,
     }
     for spec in catalog.values():
         recipe_counts[spec["recipe"]] += 1

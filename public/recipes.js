@@ -373,6 +373,9 @@
 
       function positionControls(record, geometry) {
         if (!record.controls) return;
+        if(record.selector) {
+          record.selector.style.left=(geometry.x*100)+'%';record.selector.style.top=(geometry.y*100)+'%';
+        }
         if (record.mode === "rect") {
           record.controls.style.left = (geometry.x * 100) + "%";
           record.controls.style.top = (geometry.y * 100) + "%";
@@ -403,6 +406,7 @@
 
       function startGesture(record, gesture, event) {
         if (!api.isEditMode()) return;
+        if(record.kind==='recipe-frame' && gesture==='move' && event.target!==record.element) return;
         event.preventDefault();
         event.stopPropagation();
         // Selection may reveal a midpoint handle beneath the pointer. Keep
@@ -489,6 +493,13 @@
           record.controls = frame;
           frame.addEventListener("click", function (event) { event.stopPropagation(); });
           record.article.appendChild(frame);
+          if(record.kind==='recipe-frame') {
+            var selector=document.createElement('button');selector.type='button';selector.className='recipe-frame-select';
+            selector.textContent='Layout';selector.setAttribute('aria-label','Move layout frame');
+            selector.addEventListener('pointerdown',function(event){startGesture(record,'frame',event);});
+            selector.addEventListener('click',function(event){event.stopPropagation();});
+            record.selector=selector;record.article.appendChild(selector);
+          }
         } else {
           var controls = document.createElement("div");
           controls.className = "accessibility-line-controls";
@@ -535,6 +546,11 @@
 
     function annotations(canvas,slide) {
       var records=[];
+      if(slide.frame) {
+        var body=canvas.querySelector(':scope > .recipe-body');
+        if(body) records.push({id:slide.frame.id,kind:'recipe-frame',mode:'rect',article:canvas,element:body,
+          source:Object.assign({kind:'recipe-frame'},slide.frame.geometry)});
+      }
       (slide.annotations || []).forEach(function(item) {
         if(item.kind==='text') {
           var text=editableText(slide,item.component,'div','slide-annotation-text');

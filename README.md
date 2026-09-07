@@ -318,3 +318,16 @@ Every shape has a unique `id`, `color`, and optional `strokeWidth` and
 The existing native shape drag/resize handles and revision-safe object store
 own editing; normal presentation mode leaves chart and gallery input alone.
 Removing an edited annotation fails closed, just like removing a diagram node.
+
+An optional semantic `frame: {id, geometry}` places the whole recipe body in a
+bounded normalized region. Its Layout handle moves/resizes the composition;
+child text and chart interactions keep priority. Scientific chart components
+also accept the existing canonical-pixel `region` override, with border
+selection and move/resize handles. Neither operation changes measured arrays.
+
+For a catalog migration, `prepare_migration.py` validates a captured live
+baseline and writes a **new**, separate authoring generation. It refuses lost
+edits, reordered existing slides, visibility changes, stale baselines, or
+replacement of an existing different state file. Recheck its baseline digest
+immediately before service cutover, and retain the old release/state pair for
+rollback. This command prepares state; it does not deploy or rewrite live state.

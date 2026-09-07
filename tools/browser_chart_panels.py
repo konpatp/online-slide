@@ -22,7 +22,8 @@ def main():
                   {"uid":"control","name":"Control","type":"scatter","mode":"lines","x":[0,1,2],"y":[100,50,25]}],
                   "layout":{"xaxis":{"title":{"text":"Training epoch"}},
                     "yaxis":{"type":"log","title":{"text":"Synthetic error"}},
-                    "annotations":[{"name":"terminal-result","text":"Measured endpoint", "x":1,"y":1.9,"showarrow":False}],
+                    "annotations":[{"name":"terminal-result","text":"Measured endpoint", "x":1,"y":1.9,"showarrow":False},
+                      {"name":"outside-endpoint","text":"B12","xref":"paper","yref":"paper","x":1.01,"y":.3,"xanchor":"left","showarrow":False}],
                     "margin":{"t":40,"b":100,"l":130,"r":60}}}}},
               "data":{"panels":[{"chart":"evidence"}],"smoothing":{"radius":1,"max":2,"step":1,"unit":"epochs"}}}
     source.pop('theme',None)  # The schema's default theme must render too.
@@ -43,6 +44,9 @@ def main():
                 page.goto(base,wait_until='networkidle')
                 page.locator('[data-edit-toggle]').click()
                 page.wait_for_selector('[data-chart-ready="true"]')
+                endpoint=page.locator('.annotation-text').filter(has_text='B12').bounding_box()
+                bounds=page.locator('.native-chart').bounding_box()
+                assert endpoint['x']+endpoint['width']<=bounds['x']+bounds['width']+1
                 assert page.locator('.native-chart').evaluate('c=>c.data[0].y[0]')==75
                 slider=page.get_by_role('slider',name='Centered smoothing radius')
                 slider.focus();page.keyboard.press('Home')

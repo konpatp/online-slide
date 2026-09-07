@@ -77,8 +77,15 @@ def main():
               const canvas=document.querySelector('.slide-canvas');
               const c=canvas.getBoundingClientRect();
               const errors=[];
-              for (const n of document.querySelectorAll('.native-chart'))
+              for (const n of document.querySelectorAll('.native-chart')) {
                 if (n.dataset.chartReady!=='true') errors.push('native chart failed: '+n.dataset.chartId);
+                const bounds=n.getBoundingClientRect();
+                for(const label of n.querySelectorAll('.annotation-text')) {
+                  const r=label.getBoundingClientRect();
+                  if(r.width && r.height && (r.left<bounds.left-1 || r.right>bounds.right+1 || r.top<bounds.top-1 || r.bottom>bounds.bottom+1))
+                    errors.push('chart annotation clipped: '+n.dataset.chartId+' / '+label.textContent);
+                }
+              }
               if (canvas.clientWidth!==1920 || canvas.clientHeight!==1080)
                 errors.push('canonical canvas missing');
               if (c.left < -1 || c.top < -1 || c.right > innerWidth+1 || c.bottom > innerHeight+1)
