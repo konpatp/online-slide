@@ -267,7 +267,8 @@
   function sourceTableModel(slide) {
     return {
       columns: slide.data.columns.map(function (componentId, index) {
-        return {id: componentId, label: componentId, width: index === 0 ? 1.5 : 1};
+        return {id: componentId, label: componentId,
+          width: (slide.data.columnWeights || [])[index] || (index === 0 ? 1.5 : 1)};
       }),
       rows: slide.data.rows.map(function (row) {
         return {
@@ -602,6 +603,7 @@
     element.setAttribute("aria-label", component.role || componentId);
     element.contentEditable = editMode && !isLatex ? "true" : "false";
     applyComponentStyle(element, component);
+    if (component.hidden) element.classList.add('curator-hidden-component');
     element.addEventListener("click", function (event) {
       if (!editMode) return;
       event.stopPropagation();
@@ -1054,6 +1056,7 @@
     var component = effectiveComponent(slide, componentId);
     var cell = document.createElement("div");
     cell.className = "gallery-cell semantic-component";
+    if(component.hidden) cell.classList.add('curator-hidden-component');
     cell.setAttribute("data-component-id", componentId);
     cell.setAttribute("data-component-kind", "image");
     cell.setAttribute("aria-label", component.alt);
@@ -1229,6 +1232,9 @@
     document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
     var objectSelected = Boolean(editMode && selected && selected.visualObject);
     document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected));
+    var hideButton=document.querySelector('[data-hide-component]');
+    hideButton.disabled=!(editMode && component);
+    hideButton.textContent=component && component.hidden ? 'Show' : 'Hide';
     var tableSelected = Boolean(editMode && selected && selected.tableCell);
     document.querySelectorAll("[data-table-action]").forEach(function (button) {
       var action = button.getAttribute("data-table-action");
@@ -1396,6 +1402,11 @@
       cleanOverlay(selected.slideId, selected.componentId);
     }
     render(); persist();
+  });
+  document.querySelector('[data-hide-component]').addEventListener('click',function(){
+    var component=selectedComponent();if(!editMode || !component)return;
+    beginChange();updateOverlay(selected.slideId,selected.componentId,'hidden',!component.hidden);
+    render();persist();
   });
   document.querySelectorAll("[data-table-action]").forEach(function (button) {
     button.addEventListener("click", function () {

@@ -22,13 +22,13 @@ STATE_SCHEMA = "online-slide/state@4"
 LEGACY_STATE_SCHEMAS = {"online-slide/state@2", "online-slide/state@3"}
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
-    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider",
+    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider", "hero-equation",
 }
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 ALLOWED_OVERLAY_KEYS = {
-    "text", "color", "fontScale", "src", "imageScale", "region", "chartLayout",
+    "text", "color", "fontScale", "src", "imageScale", "region", "chartLayout", "hidden",
 }
 
 
@@ -182,6 +182,17 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     recipe = spec["recipe"]
     if recipe == "section-divider":
         _require(not data, f"{source}: section dividers contain only headline and optional eyebrow/footer")
+    elif recipe == "hero-equation":
+        ref(data.get('equation'), 'equation')
+        _require(components.get(data.get('equation'),{}).get('render')=='latex',
+                 f'{source}: hero equation must be native LaTeX')
+        definitions=data.get('definitions',[])
+        _require(isinstance(definitions,list) and 1 <= len(definitions) <= 4,
+                 f'{source}: hero equation needs one to four local definitions')
+        for label in definitions:
+            ref(label,'definition')
+        if data.get('question'):
+            ref(data['question'],'question')
     elif recipe == "chart-panels":
         def chart_composition(composition):
             panels = composition.get("panels")
@@ -192,13 +203,18 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                 ref(panel.get("chart"), "panel.chart")
                 _require(components.get(panel.get("chart"), {}).get("kind") == "chart",
                          f"{source}: panel must reference a chart")
-                for key in ("heading", "caption"):
+                for key in ("heading", "subheading", "caption"):
                     if panel.get(key):
                         ref(panel[key], "panel."+key)
+                for endpoint in panel.get('endpoints',[]):
+                    for key in ('label','value','horizon'):
+                        ref(endpoint.get(key),'endpoint.'+key)
             _require(len({panel["chart"] for panel in panels}) == len(panels),
                      f"{source}: the same chart cannot occupy two panels")
             for item in composition.get("legend", []):
                 ref(item.get("label"), "legend.label")
+            for label in composition.get("decoders", []):
+                ref(label, "decoder")
             for key in ("xLabel", "yLabel"):
                 if composition.get(key):
                     ref(composition[key], key)
@@ -263,6 +279,12 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         rows = data.get("rows")
         _require(isinstance(columns, list) and columns, f"{source}: table needs columns")
         _require(isinstance(rows, list) and rows, f"{source}: table needs rows")
+        if "columnWeights" in data:
+            weights = data["columnWeights"]
+            _require(isinstance(weights, list) and len(weights) == len(columns) and
+                     all(isinstance(value, (int, float)) and not isinstance(value, bool) and
+                         0.35 <= value <= 4 for value in weights),
+                     f"{source}: table columnWeights must match columns and lie in [0.35,4]")
         for index, component_id in enumerate(columns):
             ref(component_id, f"columns[{index}]")
         for row_index, row in enumerate(rows):
@@ -680,8 +702,10 @@ def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
                      isinstance(component.get("text"), str) and len(component["text"]) <= 800,
                      f"inserted table component must be text: {slide_id}@{component_id}")
             _require(set(component) <= {
-                "kind", "text", "role", "render", "display", "color", "fontScale", "region",
+                "kind", "text", "role", "render", "display", "color", "fontScale", "region", "hidden",
             }, f"unsupported inserted table component fields: {slide_id}@{component_id}")
+            if 'hidden' in component:
+                _require(isinstance(component['hidden'],bool), 'inserted component hidden state must be boolean')
             _require(isinstance(component.get("role", "table-value"), str),
                      f"inserted table component role is invalid: {slide_id}@{component_id}")
             _require(component.get("render", "plain") in {"plain", "latex"},
@@ -893,6 +917,8 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
             _require(set(overlay) <= ALLOWED_OVERLAY_KEYS,
                      f"unsupported overlay fields on {slide_id}@{component_id}")
             component = catalog[slide_id]["components"][component_id]
+            if 'hidden' in overlay:
+                _require(isinstance(overlay['hidden'],bool), 'component hidden state must be boolean')
             if "chartLayout" in overlay:
                 _require(component["kind"] == "chart", "chartLayout must target a chart")
                 validate_chart_layout(overlay["chartLayout"], component)

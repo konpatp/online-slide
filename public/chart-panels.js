@@ -30,14 +30,17 @@
     }
     var body = document.createElement("div");
     body.className = "recipe-body native-charts";
-    if (slide.data.legend) {
+    if (slide.data.legend || slide.data.decoders) {
       var legend = document.createElement("div"); legend.className = "plot-legend native-shared-legend";
-      slide.data.legend.forEach(function (item) {
+      (slide.data.legend || []).forEach(function (item) {
         var entry = document.createElement("div"); entry.className = "legend-item";
         var swatch = document.createElement("span"); swatch.className = "legend-swatch";
         swatch.style.setProperty("--series", item.color);
         entry.append(swatch, api.editableText(slide, item.label, "span", "legend-label"));
         legend.appendChild(entry);
+      });
+      (slide.data.decoders || []).forEach(function (label) {
+        legend.appendChild(api.editableText(slide,label,"span","legend-label"));
       });
       body.appendChild(legend);
       body.classList.add("with-shared-legend");
@@ -50,16 +53,31 @@
       var column = document.createElement("section");
       column.className = "native-chart-column";
       if (panel.heading) column.appendChild(api.editableText(slide, panel.heading, "h2", "native-panel-heading"));
+      if (panel.subheading) column.appendChild(api.editableText(slide,panel.subheading,"div","native-panel-subheading"));
       var chart = document.createElement("div");
       chart.className = "native-chart";
       chart.dataset.chartId = panel.chart;
+      if(api.effectiveComponent(slide,panel.chart).hidden) {
+        chart.classList.add('curator-hidden-component');
+        chart.dataset.chartReady='true';
+      }
       chart.setAttribute("aria-label", panel.heading ? api.effectiveComponent(slide, panel.heading).text : "Scientific evidence plot");
       column.appendChild(chart);
       if (panel.caption) column.appendChild(api.editableText(slide, panel.caption, "div", "native-panel-caption"));
+      if(panel.endpoints) {
+        var strip=document.createElement('div');strip.className='native-endpoint-strip';
+        panel.endpoints.forEach(function(endpoint){
+          var item=document.createElement('div');item.className='native-endpoint';
+          ['label','value','horizon'].forEach(function(key){item.appendChild(api.editableText(slide,endpoint[key],'span','native-endpoint-'+key));});
+          strip.appendChild(item);
+        });
+        column.appendChild(strip);
+      }
       panels.appendChild(column);
       requestAnimationFrame(function () {
         if (!chart.isConnected) return;
         var component = api.effectiveComponent(slide, panel.chart);
+        if(component.hidden && !api.isEditMode()) return;
         var figure = JSON.parse(JSON.stringify(component.figure));
         var layout = figure.layout;
         var edits = component.chartLayout || {};

@@ -42,6 +42,18 @@ def main():
                 page.goto(base,wait_until='networkidle')
                 page.locator('[data-edit-toggle]').click()
                 page.wait_for_selector('[data-chart-ready="true"]')
+                page.locator('[data-component-id="headline"]').click()
+                page.locator('[data-hide-component]').click()
+                page.wait_for_function("fetch('api/deck-state').then(r=>r.json()).then(s=>s.overlays['mock-native-chart']?.headline?.hidden === true)")
+                page.reload(wait_until='networkidle')
+                heading=page.locator('[data-component-id="headline"]')
+                assert 'curator-hidden-component' in heading.get_attribute('class')
+                if page.locator('[data-edit-toggle]').get_attribute('aria-pressed')!='true':
+                    page.locator('[data-edit-toggle]').click()
+                heading.click()
+                page.locator('[data-hide-component]').click()
+                page.wait_for_function("fetch('api/deck-state').then(r=>r.json()).then(s=>s.overlays['mock-native-chart']?.headline?.hidden !== true)")
+                page.wait_for_selector('[data-chart-ready="true"]')
                 label=page.locator('.annotation-text').filter(has_text='Measured endpoint')
                 box=label.bounding_box()
                 page.mouse.click(box['x']+box['width']/2,box['y']+box['height']/2)
@@ -96,7 +108,7 @@ def main():
                 browser.close()
                 print(json.dumps({"ok":True,"physicalClickTypeSaveReload":True,
                                   "semanticInsertionPreserved":True,"facetSelectionPersists":True,
-                                  "notesAvailable":True,"liveWrites":0}))
+                                  "notesAvailable":True,"componentHideShowPersists":True,"liveWrites":0}))
         finally:
             http.shutdown();http.server_close();thread.join()
 

@@ -71,6 +71,7 @@ slide id plus stable semantic component ids.
 | `hero-plot` | Multi-series line plot with an incomplete trace | Axes, ticks, grid, legend, line endpoints, protocol strip |
 | `chart-panels` | One to three source-native Plotly figures, including log axes and bars | Bounded panels, shared axes/legend, automatic axis margins, semantic annotation edits, hover and export |
 | `section-divider` | One change of question or method | A bounded, vertically centered title; optional eyebrow and protocol |
+| `hero-equation` | One organizing relation and local definitions | A padded, fitted LaTeX region and aligned decoders |
 | `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing, whole-table region fit |
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
 | `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors/arcs, explicit label regions, KaTeX equations |
@@ -88,6 +89,13 @@ Human chart edits save presentation coordinates and annotation text by name,
 never by array index and never by rewriting scientific arrays. Removed edited
 annotations fail validation. Optional `notes`, `facts`, and `narrative` remain
 available from the Notes drawer without competing with projected evidence.
+
+Tables may supply bounded `columnWeights`; the same widths seed native column
+resizing. Chart panels may separate `heading`, `subheading`, local `decoders`,
+and endpoint labels rather than packing them into one editable string. Text
+and image components support reversible Hide/Show overlays, retained across
+reloads; hidden content remains discoverable in edit mode. LaTeX is never
+capitalized by heading or table-label typography.
 
 Mechanism nodes are content-sized by default: the browser measures their
 actual label, detail, and rendered math before JointJS lays out the graph, then

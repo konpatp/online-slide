@@ -4,6 +4,7 @@
 
   // Documentation lives beside the layout implementation, never per slide.
   global.scientificRecipeGuides = {
+    "hero-equation": {use:"Introduce one organizing relation.",owns:"A dominant fitted LaTeX region, aligned local definitions, and an optional question region."},
     "section-divider": {use:"Mark a change of question or method.",owns:"One bounded, vertically centered headline region; optional eyebrow and protocol."},
     "chart-panels": {use: "Compare source-native scientific plots, singly or in aligned panels.", owns: "Bounded plot regions, shared axis regions, native log axes, hover, zoom, export, and semantic annotation editing."},
     "hero-plot": {use: "Compare measured trajectories on one pair of axes.", owns: "Plot region, axes, legend, series styling, and protocol placement."},
@@ -775,6 +776,20 @@
     }
 
     return {
+      "hero-equation": function (canvas,slide) {
+        var body=document.createElement('div');body.className='recipe-body hero-equation-body';
+        if(slide.data.question) {
+          body.classList.add('with-question');
+          body.appendChild(editableText(slide,slide.data.question,'p','hero-equation-question'));
+        }
+        var frame=document.createElement('div');frame.className='hero-equation-frame';
+        var equation=editableText(slide,slide.data.equation,'div','hero-equation-value');
+        frame.appendChild(equation);body.appendChild(frame);
+        bindTextRegion(slide,slide.data.equation,equation,frame,{alwaysFit:true,fitMode:'hero-equation',minSize:40});
+        var definitions=document.createElement('div');definitions.className='hero-equation-definitions';
+        slide.data.definitions.forEach(function(key){definitions.appendChild(editableText(slide,key,'div','hero-equation-definition'));});
+        body.appendChild(definitions);canvas.appendChild(body);
+      },
       "section-divider": function () {},
       "chart-panels": function (canvas, slide) { return global.renderScientificChartPanels(canvas, slide, api); },
       "hero-plot": heroPlot,

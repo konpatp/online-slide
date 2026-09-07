@@ -92,6 +92,10 @@ body.present-only .presentation-exit.visible, body.present-only .presentation-ex
 .hidden-ribbon { position: absolute; right: 2.4%; top: 2.5%; z-index: 8; padding: .55% .8%; border-radius: 99px; color: #8a5d28; background: #fff5df; font-size: .72cqw; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 
 .semantic-component { outline: none; }
+.curator-hidden-component { display:none !important; }
+.edit-mode .curator-hidden-component { display:revert !important; opacity:.25; outline:2px dashed #d69a2d; }
+.semantic-component .katex { text-transform: none; letter-spacing: normal; }
+body.present-only .hidden-ribbon { right: 14%; }
 .edit-mode .semantic-component { border-radius: 5px; box-shadow: inset 0 0 0 1.5px rgba(47, 111, 237, .24); cursor: text; }
 .edit-mode .gallery-cell.semantic-component { cursor: copy; }
 .edit-mode .semantic-component:hover { box-shadow: inset 0 0 0 2px rgba(47, 111, 237, .5); }
@@ -144,7 +148,7 @@ body.resizing-text-region [contenteditable="true"], body.moving-text-region [con
 .evidence-table th, .evidence-table td { padding: calc(.64cqw * var(--table-fit-scale)) calc(.9cqw * var(--table-fit-scale)); border-bottom: 1px solid #dfe5ee; text-align: center; vertical-align: middle; }
 .evidence-table th:not(:last-child), .evidence-table td:not(:last-child) { border-right: 1px solid #edf1f6; }
 .evidence-table thead th { position: relative; color: #65758c; background: #f5f7fb; border-top: 1px solid #dfe5ee; font-size: calc(max(1.28cqw, 34.67px) * var(--table-fit-scale)); text-transform: uppercase; letter-spacing: .06em; }
-.evidence-table thead th:first-child { width: 30%; border-radius: 12px 0 0 0; text-align: left; }
+.evidence-table thead th:first-child { border-radius: 12px 0 0 0; text-align: left; }
 .evidence-table thead th:last-child { border-radius: 0 12px 0 0; }
 .evidence-table tbody th { text-align: left; color: var(--ink); font-size: calc(max(1.68cqw, 34.67px) * var(--table-fit-scale)); }
 .evidence-table tbody td { font-size: calc(max(1.9cqw, 34.67px) * var(--table-fit-scale)); font-variant-numeric: tabular-nums; }
@@ -308,6 +312,11 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .native-chart-panels { grid-column:2; display:grid; min-height:0; gap:28px; }
 .native-chart-column { display:flex; flex-direction:column; min-width:0; min-height:0; }
 .native-panel-heading { font-size:40px; text-align:center; margin:0 0 14px; }
+.native-panel-subheading { font-size:34.67px; text-align:center; margin:-8px 0 14px; color:var(--muted); }
+.native-endpoint-strip { display:flex; justify-content:space-evenly; gap:24px; padding:10px; }
+.native-endpoint { display:grid; grid-template-columns:auto auto; gap:3px 14px; font-size:35px; }
+.native-endpoint-horizon { grid-column:1 / -1; font-size:23px; text-align:center; color:var(--muted); }
+.native-shared-legend > .legend-label { font-size:36px; }
 .native-chart { flex:1; min-height:0; min-width:0; }
 .native-shared-x { grid-column:2; font-size:38px; text-align:center; }
 .native-shared-y { grid-column:1; grid-row:1; writing-mode:vertical-rl; transform:rotate(180deg); font-size:38px; text-align:center; }
@@ -338,3 +347,9 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .static-gallery .gallery-summary,.static-gallery .gallery-controls { display:none; }
 .static-gallery .hierarchical-gallery-view { height:100%; }
 .recipe-section-divider .recipe-header { top:30%; bottom:30%; display:flex; flex-direction:column; justify-content:center; }
+.hero-equation-body { display:grid; grid-template-rows:minmax(0,1fr) auto; gap:28px; text-align:center; }
+.hero-equation-body.with-question { grid-template-rows:auto minmax(0,1fr) auto; }
+.hero-equation-question { margin:0; padding:10px 5%; font-size:38px; color:var(--muted); }
+.hero-equation-frame { min-height:0; display:grid; place-items:center; padding:28px; }
+.hero-equation-value { font-size:150px; color:var(--accent); }
+.hero-equation-definitions { display:flex; justify-content:center; gap:70px; padding:25px; font-size:40px; }

@@ -19,6 +19,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SlideKitContractTests(unittest.TestCase):
+    def test_hero_equation_is_native_math_with_bounded_definition_count(self):
+        spec={'schema':'online-slide/slide@1','id':'equation-proof','recipe':'hero-equation',
+              'createdAt':'2026-09-06','headline':'headline','components':{
+                  'headline':{'kind':'text','text':'One relation'},
+                  'equation':{'kind':'text','text':'a+b=c','render':'latex'},
+                  'definition':{'kind':'text','text':'A local decoder'}},
+              'data':{'equation':'equation','definitions':['definition']}}
+        validate_slide_spec(spec)
+        spec['components']['equation'].pop('render')
+        with self.assertRaises(ContractError):validate_slide_spec(spec)
+
+    def test_hidden_component_is_retained_and_removal_fails_closed(self):
+        state=self.initial_state()
+        sid=next(iter(self.catalog));key=self.catalog[sid]['headline']
+        state['overlays']={sid:{key:{'hidden':True}}}
+        result,_=reconcile_state(state,self.catalog)
+        self.assertTrue(result['overlays'][sid][key]['hidden'])
+        state['overlays'][sid][key]['hidden']='yes'
+        with self.assertRaises(ContractError):reconcile_state(state,self.catalog)
+
+    def test_authored_table_widths_are_bounded_and_complete(self):
+        spec = copy.deepcopy(next(s for s in load_catalog(ROOT / 'slides').values() if s['recipe']=='evidence-table'))
+        spec['data']['columnWeights'] = [1]*len(spec['data']['columns'])
+        validate_slide_spec(spec)
+        for weights in ([1], [0]*len(spec['data']['columns']), [float('nan')]*len(spec['data']['columns'])):
+            spec['data']['columnWeights'] = weights
+            with self.assertRaises(ContractError):
+                validate_slide_spec(spec)
+
     def setUp(self):
         self.catalog = load_catalog(ROOT / "slides")
 
