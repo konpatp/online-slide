@@ -22,7 +22,7 @@ STATE_SCHEMA = "online-slide/state@4"
 LEGACY_STATE_SCHEMAS = {"online-slide/state@2", "online-slide/state@3"}
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
-    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels",
+    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider",
 }
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -180,7 +180,9 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     data = spec.get("data")
     _require(isinstance(data, dict), f"{source}: data must be an object")
     recipe = spec["recipe"]
-    if recipe == "chart-panels":
+    if recipe == "section-divider":
+        _require(not data, f"{source}: section dividers contain only headline and optional eyebrow/footer")
+    elif recipe == "chart-panels":
         def chart_composition(composition):
             panels = composition.get("panels")
             _require(isinstance(panels, list) and 1 <= len(panels) <= 3,
@@ -477,8 +479,17 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             seen_selections.add(key)
             ref(view.get("metric"), f"views[{view_index}].metric")
             ref(view.get("classLabel"), f"views[{view_index}].classLabel")
+            if "columns" in view:
+                _require(isinstance(view["columns"],list) and len(view["columns"]) == len(columns),
+                         f"{source}: gallery view columns must preserve matrix width")
+                for component_id in view["columns"]:
+                    ref(component_id, "view.columns")
             _require(view.get("pageSet") in page_sets,
                      f"{source}: view {view_index} references an unknown pageSet")
+        if "initialSelection" in data:
+            _require(isinstance(data["initialSelection"],dict) and
+                     tuple(sorted(data["initialSelection"].items())) in seen_selections,
+                     f"{source}: initial gallery selection must identify a view")
 
     known = _component_ids(spec)
     unknown = sorted(set(referenced) - known)

@@ -70,6 +70,7 @@ slide id plus stable semantic component ids.
 |---|---|---|
 | `hero-plot` | Multi-series line plot with an incomplete trace | Axes, ticks, grid, legend, line endpoints, protocol strip |
 | `chart-panels` | One to three source-native Plotly figures, including log axes and bars | Bounded panels, shared axes/legend, automatic axis margins, semantic annotation edits, hover and export |
+| `section-divider` | One change of question or method | A bounded, vertically centered title; optional eyebrow and protocol |
 | `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing, whole-table region fit |
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
 | `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors/arcs, explicit label regions, KaTeX equations |

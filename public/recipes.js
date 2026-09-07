@@ -4,6 +4,7 @@
 
   // Documentation lives beside the layout implementation, never per slide.
   global.scientificRecipeGuides = {
+    "section-divider": {use:"Mark a change of question or method.",owns:"One bounded, vertically centered headline region; optional eyebrow and protocol."},
     "chart-panels": {use: "Compare source-native scientific plots, singly or in aligned panels.", owns: "Bounded plot regions, shared axis regions, native log axes, hover, zoom, export, and semantic annotation editing."},
     "hero-plot": {use: "Compare measured trajectories on one pair of axes.", owns: "Plot region, axes, legend, series styling, and protocol placement."},
     "evidence-table": {use: "Compare aligned values and emphasize selected cells.", owns: "Column alignment, padded cells, bounded whole-table fitting, and native table editing."},
@@ -692,6 +693,7 @@
       var storageKey = "online-slide.gallery." + slide.id;
       var defaults = {};
       slide.data.selectors.forEach(function (selector) { defaults[selector.id] = selector.options[0].value; });
+      Object.assign(defaults, slide.data.initialSelection || {});
       var saved = {};
       try { saved = JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch (_) { saved = {}; }
       var galleryState = {selection: Object.assign(defaults, saved.selection || {}), page: Number(saved.page || 0)};
@@ -716,6 +718,7 @@
         });
 
         var view = activeView();
+        var columns = view.columns || slide.data.columns;
         var viewPages = slide.data.pageSets[view.pageSet];
         galleryState.page = Math.max(0, Math.min(viewPages.length - 1, galleryState.page));
         var page = viewPages[galleryState.page];
@@ -742,10 +745,12 @@
         viewHost.textContent = "";
         var grid = document.createElement("div");
         grid.className = "hierarchical-gallery-grid";
-        grid.style.setProperty("--gallery-columns", String(slide.data.columns.length));
+        if (columns.every(function (key) { return !componentText(key).trim(); })) grid.classList.add("without-column-labels");
+        if (page.rows.every(function (row) { return !componentText(row.label).trim() && !row.detail; })) grid.classList.add("without-identities");
+        grid.style.setProperty("--gallery-columns", String(columns.length));
         grid.style.setProperty("--gallery-rows", String(page.rows.length));
-        grid.appendChild(document.createElement("div"));
-        slide.data.columns.forEach(function (componentId) {
+        var corner = document.createElement("div"); corner.className="gallery-corner"; grid.appendChild(corner);
+        columns.forEach(function (componentId) {
           var frame = document.createElement("div"); frame.className = "gallery-heading-region";
           var heading = editableText(slide, componentId, "div", "gallery-heading");
           frame.appendChild(heading); grid.appendChild(frame);
@@ -770,6 +775,7 @@
     }
 
     return {
+      "section-divider": function () {},
       "chart-panels": function (canvas, slide) { return global.renderScientificChartPanels(canvas, slide, api); },
       "hero-plot": heroPlot,
       "evidence-table": evidenceTable,

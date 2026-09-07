@@ -393,6 +393,22 @@ class SlideKitContractTests(unittest.TestCase):
             row.pop("best", None)
         validate_slide_spec(spec)
 
+    def test_gallery_view_keeps_matching_column_labels_and_initial_selection(self):
+        spec = copy.deepcopy(self.catalog["mock-matched-gallery"])
+        view = spec["data"]["views"][-1]
+        view["columns"] = list(spec["data"]["columns"])
+        spec["data"]["initialSelection"] = dict(view["selection"])
+        validate_slide_spec(spec)
+        view["columns"].pop()
+        with self.assertRaisesRegex(ContractError, "matrix width"):
+            validate_slide_spec(spec)
+
+    def test_unknown_initial_gallery_selection_is_rejected(self):
+        spec = copy.deepcopy(self.catalog["mock-matched-gallery"])
+        spec["data"]["initialSelection"] = {"missing":"unavailable"}
+        with self.assertRaisesRegex(ContractError,"initial gallery selection"):
+            validate_slide_spec(spec)
+
     def test_initial_order_resolves_anchors_before_timestamps_and_rejects_cycles(self):
         catalog = copy.deepcopy(self.catalog)
         catalog["mock-matched-gallery"]["createdAt"] = "2026-01-01T00:00:00Z"

@@ -328,6 +328,13 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .hierarchical-gallery-grid { grid-template-columns: minmax(230px, 14%) repeat(var(--gallery-columns), minmax(0, 1fr)); }
 .gallery-row-detail { font-size:20px; text-align:center; color:#65758c; }
 .hierarchical-gallery-grid { grid-template-rows: minmax(92px,auto) repeat(var(--gallery-rows), minmax(0,1fr)); }
+.hierarchical-gallery-grid.without-column-labels { grid-template-rows:repeat(var(--gallery-rows),minmax(0,1fr)); }
+.hierarchical-gallery-grid.without-identities { grid-template-columns:repeat(var(--gallery-columns),minmax(0,1fr)); }
+.without-column-labels > .gallery-heading-region,
+.without-column-labels > .gallery-corner,
+.without-identities > .gallery-identity-region,
+.without-identities > .gallery-corner { display:none; }
 .static-gallery { display:block; }
 .static-gallery .gallery-summary,.static-gallery .gallery-controls { display:none; }
 .static-gallery .hierarchical-gallery-view { height:100%; }
+.recipe-section-divider .recipe-header { top:30%; bottom:30%; display:flex; flex-direction:column; justify-content:center; }
