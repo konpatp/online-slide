@@ -311,12 +311,23 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .native-charts { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-rows:minmax(0,1fr) auto; gap:18px; }
 .native-chart-panels { grid-column:2; display:grid; min-height:0; gap:28px; }
 .native-chart-column { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.native-chart-panels.main-with-diagnostics { grid-template-rows:repeat(2,minmax(0,1fr)); }
+.native-chart-panels.main-with-diagnostics > :first-child { grid-row:1 / 3; }
 .native-panel-heading { font-size:40px; text-align:center; margin:0 0 14px; }
 .native-panel-subheading { font-size:34.67px; text-align:center; margin:-8px 0 14px; color:var(--muted); }
 .native-endpoint-strip { display:flex; justify-content:space-evenly; gap:24px; padding:10px; }
 .native-endpoint { display:grid; grid-template-columns:auto auto; gap:3px 14px; font-size:35px; }
 .native-endpoint-horizon { grid-column:1 / -1; font-size:23px; text-align:center; color:var(--muted); }
 .native-shared-legend > .legend-label { font-size:36px; }
+.native-smoothing { display:flex; align-items:center; gap:10px; font-size:16px; color:var(--muted); }
+.native-smoothing input { width:160px; }
+.evidence-figure-body { display:grid; grid-template-rows:auto minmax(0,1fr) auto; gap:20px; }
+.evidence-figure-labels { display:flex; justify-content:space-around; gap:28px; }
+.evidence-figure-label { flex:1; text-align:center; font-size:38px; padding:12px; }
+.evidence-figure-body .evidence-figure-frame { min-height:0; width:100%; height:100%; aspect-ratio:auto; padding:0; border:0; background:transparent; box-shadow:none; border-radius:0; }
+.evidence-figure-frame img { width:100%; height:100%; object-fit:contain; border-radius:0; }
+.evidence-figure-caption { font-size:30px; color:var(--muted); text-align:center; padding:8px; }
+.hero-equation-value { white-space:nowrap; }
 .native-chart { flex:1; min-height:0; min-width:0; }
 .native-shared-x { grid-column:2; font-size:38px; text-align:center; }
 .native-shared-y { grid-column:1; grid-row:1; writing-mode:vertical-rl; transform:rotate(180deg); font-size:38px; text-align:center; }

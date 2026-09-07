@@ -1,6 +1,21 @@
 /* Native Plotly figures inside recipe-owned regions. Scientific data never changes. */
 (function (global) {
   "use strict";
+  // Centered x-distance window, matching the retained chart interaction.
+  // Sorting is stable; radius zero returns the exact authored observations.
+  function centeredMeanByX(xs,ys,radius) {
+    if(!Array.isArray(xs)||!Array.isArray(ys)||xs.length!==ys.length) throw new Error('Smoothing needs equal-length arrays');
+    if(!radius)return {x:xs.slice(),y:ys.slice()};
+    var points=xs.map(function(x,i){if(!Number.isFinite(Number(x)))throw new Error('Smoothing needs numeric x');return {x:Number(x),y:ys[i],i:i};});
+    points.sort(function(a,b){return a.x-b.x || a.i-b.i;});
+    var left=0,right=0,sum=0,count=0;
+    return {x:points.map(function(p){return p.x;}),y:points.map(function(p){
+      while(right<points.length && points[right].x<=p.x+radius){var v=Number(points[right++].y);if(Number.isFinite(v)){sum+=v;count++;}}
+      while(left<points.length && points[left].x<p.x-radius){var v=Number(points[left++].y);if(Number.isFinite(v)){sum-=v;count--;}}
+      return count?sum/count:p.y;
+    })};
+  }
+  global.scientificCenteredMeanByX=centeredMeanByX;
   global.renderScientificChartPanels = function (canvas, slide, api) {
     if (slide.data.views) {
       var storageKey = "online-slide.chart-views."+slide.id;
@@ -30,7 +45,13 @@
     }
     var body = document.createElement("div");
     body.className = "recipe-body native-charts";
-    if (slide.data.legend || slide.data.decoders) {
+    var smoothing=slide.data.smoothing, radius=smoothing?smoothing.radius:0;
+    var smoothingKey='online-slide.chart-smoothing.'+slide.id;
+    if(smoothing){
+      var saved=Number(localStorage.getItem(smoothingKey));
+      if(localStorage.getItem(smoothingKey)!==null && Number.isFinite(saved) && saved>=0 && saved<=smoothing.max)radius=saved;
+    }
+    if (slide.data.legend || slide.data.decoders || smoothing) {
       var legend = document.createElement("div"); legend.className = "plot-legend native-shared-legend";
       (slide.data.legend || []).forEach(function (item) {
         var entry = document.createElement("div"); entry.className = "legend-item";
@@ -42,6 +63,29 @@
       (slide.data.decoders || []).forEach(function (label) {
         legend.appendChild(api.editableText(slide,label,"span","legend-label"));
       });
+      if(smoothing){
+        var control=document.createElement('label');control.className='native-smoothing';
+        var input=document.createElement('input');input.type='range';input.min=0;input.max=smoothing.max;input.step=smoothing.step;input.value=radius;
+        input.setAttribute('aria-label','Centered smoothing radius');
+        var output=document.createElement('output');
+        function updateCaption(){output.textContent='centered ±'+radius+' '+smoothing.unit;}
+        updateCaption();control.append(input,output);legend.appendChild(control);
+        var timer;
+        input.addEventListener('input',function(){
+          radius=Number(input.value);localStorage.setItem(smoothingKey,String(radius));updateCaption();clearTimeout(timer);
+          timer=setTimeout(function(){
+            if(!body.isConnected)return;
+            body.querySelectorAll('.native-chart[data-chart-ready="true"]').forEach(function(chart){
+              var source=api.effectiveComponent(slide,chart.dataset.chartId).figure.data;
+              var indices=[],xs=[],ys=[];
+              source.forEach(function(trace,index){if(String(trace.mode||'').indexOf('lines')<0)return;
+                var values=centeredMeanByX(trace.x,trace.y,radius);indices.push(index);xs.push(values.x);ys.push(values.y);
+              });
+              if(indices.length)global.Plotly.restyle(chart,{x:xs,y:ys},indices);
+            });
+          },80);
+        });
+      }
       body.appendChild(legend);
       body.classList.add("with-shared-legend");
     }
@@ -49,7 +93,11 @@
     var panels = document.createElement("div");
     panels.className = "native-chart-panels";
     panels.style.gridTemplateColumns = "repeat(" + slide.data.panels.length + ",minmax(0,1fr))";
-    slide.data.panels.forEach(function (panel) {
+    if(slide.data.layout==='main-with-diagnostics'){
+      panels.classList.add('main-with-diagnostics');
+      panels.style.gridTemplateColumns='minmax(0,1.8fr) minmax(0,1fr)';
+    }
+    slide.data.panels.forEach(function (panel, panelIndex) {
       var column = document.createElement("section");
       column.className = "native-chart-column";
       if (panel.heading) column.appendChild(api.editableText(slide, panel.heading, "h2", "native-panel-heading"));
@@ -91,6 +139,17 @@
         layout.paper_bgcolor = "white";
         layout.plot_bgcolor = "white";
         layout.font = Object.assign({family:"Inter, sans-serif",size:36,color:"#14233b"}, layout.font);
+        if (slide.data.layout==='main-with-diagnostics') {
+          // One shared horizontal decoder and the authored metric headings
+          // reserve the compact diagnostic panels for measured data.
+          if(slide.data.xLabel && layout.xaxis) delete layout.xaxis.title;
+          if(panel.heading && layout.yaxis) delete layout.yaxis.title;
+          layout.margin=Object.assign({},layout.margin,{t:12,b:50,l:72,r:20});
+          if(panelIndex>0 && layout.yaxis && !layout.yaxis.tickvals) {
+            delete layout.yaxis.dtick;
+            layout.yaxis.tickmode='auto';layout.yaxis.nticks=3;
+          }
+        }
         ["xaxis", "yaxis"].forEach(function (key) {
           var axis = layout[key] || {};
           axis.automargin = true;
@@ -103,6 +162,9 @@
         });
         figure.data.forEach(function (trace) {
           if (trace.text) trace.textfont = Object.assign({}, trace.textfont, {size:38});
+          if(smoothing && String(trace.mode||'').indexOf('lines')>=0){
+            var values=centeredMeanByX(trace.x,trace.y,radius);trace.x=values.x;trace.y=values.y;
+          }
         });
         layout.uirevision = slide.id + ":" + panel.chart;
         var editable = api.isEditMode();

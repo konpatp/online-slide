@@ -12,6 +12,7 @@ import hashlib
 import copy
 import json
 import itertools
+import math
 import re
 from pathlib import Path
 from typing import Any, Iterable
@@ -22,7 +23,7 @@ STATE_SCHEMA = "online-slide/state@4"
 LEGACY_STATE_SCHEMAS = {"online-slide/state@2", "online-slide/state@3"}
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
-    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider", "hero-equation",
+    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider", "hero-equation", "evidence-figure",
 }
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -182,6 +183,16 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     recipe = spec["recipe"]
     if recipe == "section-divider":
         _require(not data, f"{source}: section dividers contain only headline and optional eyebrow/footer")
+    elif recipe == "evidence-figure":
+        image_id=data.get('image')
+        _require(isinstance(image_id,str) and components.get(image_id,{}).get('kind')=='image',
+                 f'{source}: evidence figure needs one image component')
+        labels=data.get('labels',[])
+        _require(isinstance(labels,list) and len(labels)<=4,f'{source}: at most four figure labels')
+        for label in labels:
+            ref(label,'figure label')
+        if data.get('caption'):
+            ref(data['caption'],'figure caption')
     elif recipe == "hero-equation":
         ref(data.get('equation'), 'equation')
         _require(components.get(data.get('equation'),{}).get('render')=='latex',
@@ -194,10 +205,19 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         if data.get('question'):
             ref(data['question'],'question')
     elif recipe == "chart-panels":
+        if 'smoothing' in data:
+            smoothing=data['smoothing']
+            _require(isinstance(smoothing,dict) and set(smoothing)=={'radius','max','step','unit'} and
+                     all(isinstance(smoothing[k],(int,float)) and not isinstance(smoothing[k],bool) and math.isfinite(smoothing[k]) for k in ('radius','max','step')) and
+                     0<=smoothing['radius']<=smoothing['max'] and 0<smoothing['step']<=smoothing['max'] and
+                     isinstance(smoothing['unit'],str),f'{source}: invalid centered smoothing control')
         def chart_composition(composition):
             panels = composition.get("panels")
             _require(isinstance(panels, list) and 1 <= len(panels) <= 3,
                      f"{source}: chart-panels needs one to three panels")
+            _require(composition.get('layout','row') in {'row','main-with-diagnostics'},f'{source}: unknown chart composition')
+            if composition.get('layout')=='main-with-diagnostics':
+                _require(len(panels)==3,f'{source}: main-with-diagnostics needs exactly three panels')
             for panel in panels:
                 _require(isinstance(panel, dict), f"{source}: panel must be an object")
                 ref(panel.get("chart"), "panel.chart")
@@ -541,6 +561,18 @@ def load_catalog(slides_dir: Path) -> dict[str, dict[str, Any]]:
         slide_id = spec["id"]
         _require(slide_id not in catalog, f"duplicate permanent slide id: {slide_id}")
         catalog[slide_id] = spec
+    route_ids=set(catalog)
+    for slide_id,spec in catalog.items():
+        routes=spec.get('routes',[])
+        _require(isinstance(routes,list),f'{slide_id}: routes must be a list')
+        for route in routes:
+            _require(isinstance(route,dict) and set(route)=={'id','selection'},f'{slide_id}: malformed view route')
+            route_id=route['id']
+            _require(isinstance(route_id,str) and re.fullmatch(r'[a-z0-9][a-z0-9:-]*',route_id) and route_id not in route_ids,
+                     f'{slide_id}: invalid or duplicate route {route_id}')
+            _require(spec['recipe']=='chart-panels' and any(view.get('selection')==route['selection'] for view in spec['data'].get('views',[])),
+                     f'{slide_id}: route selection does not resolve')
+            route_ids.add(route_id)
     for slide_id, spec in catalog.items():
         after = spec.get("placement", {}).get("after")
         _require(after is None or after in catalog,

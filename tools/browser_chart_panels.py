@@ -19,12 +19,13 @@ def main():
               "notes":"Synthetic source note: no research information.",
               "components":{"headline":{"kind":"text","text":"Native scientific chart editing"},
                 "evidence":{"kind":"chart","figure":{"data":[
-                  {"uid":"control","name":"Control","type":"scatter","x":[0,1,2],"y":[100,50,25]}],
+                  {"uid":"control","name":"Control","type":"scatter","mode":"lines","x":[0,1,2],"y":[100,50,25]}],
                   "layout":{"xaxis":{"title":{"text":"Training epoch"}},
                     "yaxis":{"type":"log","title":{"text":"Synthetic error"}},
                     "annotations":[{"name":"terminal-result","text":"Measured endpoint", "x":1,"y":1.9,"showarrow":False}],
                     "margin":{"t":40,"b":100,"l":130,"r":60}}}}},
-              "data":{"panels":[{"chart":"evidence"}]}}
+              "data":{"panels":[{"chart":"evidence"}],"smoothing":{"radius":1,"max":2,"step":1,"unit":"epochs"}}}
+    source.pop('theme',None)  # The schema's default theme must render too.
     with tempfile.TemporaryDirectory(prefix="native-chart-proof-") as temporary:
         root=Path(temporary);slides=root/'slides';slides.mkdir()
         path=slides/'mock-native-chart.json';path.write_text(json.dumps(source))
@@ -42,11 +43,17 @@ def main():
                 page.goto(base,wait_until='networkidle')
                 page.locator('[data-edit-toggle]').click()
                 page.wait_for_selector('[data-chart-ready="true"]')
+                assert page.locator('.native-chart').evaluate('c=>c.data[0].y[0]')==75
+                slider=page.get_by_role('slider',name='Centered smoothing radius')
+                slider.focus();page.keyboard.press('Home')
+                page.wait_for_function("document.querySelector('.native-chart').data[0].y[0]===100")
                 page.locator('[data-component-id="headline"]').click()
                 page.locator('[data-hide-component]').click()
                 page.wait_for_function("fetch('api/deck-state').then(r=>r.json()).then(s=>s.overlays['mock-native-chart']?.headline?.hidden === true)")
                 page.reload(wait_until='networkidle')
                 heading=page.locator('[data-component-id="headline"]')
+                page.wait_for_selector('[data-chart-ready="true"]')
+                assert page.locator('.native-chart').evaluate('c=>c.data[0].y[0]')==100
                 assert 'curator-hidden-component' in heading.get_attribute('class')
                 if page.locator('[data-edit-toggle]').get_attribute('aria-pressed')!='true':
                     page.locator('[data-edit-toggle]').click()
@@ -92,23 +99,30 @@ def main():
                 updated['data']['views']=[
                     {'selection':{'view':'first'},'panels':[{'chart':'evidence'}]},
                     {'selection':{'view':'second'},'panels':[{'chart':'other-evidence'}]}]
+                updated['routes']=[{'id':'mock-native-chart::stage::1','selection':{'view':'second'}}]
                 path.write_text(json.dumps(updated))
                 http,thread,base=start()
                 page.goto(base,wait_until='networkidle')
                 page.get_by_role('button',name='Second',exact=True).click()
                 page.wait_for_selector('[data-chart-id="other-evidence"][data-chart-ready="true"]')
-                assert page.locator('.native-chart').evaluate('c=>c.data[0].y[0]')==200
+                # This fresh server has a new origin: its smoothing default is
+                # restored, so the centered mean of 200 and 50 is 125.
+                assert page.locator('.native-chart').evaluate('c=>c.data[0].y[0]')==125
                 page.reload(wait_until='networkidle')
                 page.wait_for_selector('[data-chart-id="other-evidence"][data-chart-ready="true"]')
                 assert page.get_by_role('button',name='Second',exact=True).get_attribute('aria-pressed')=='true'
                 page.get_by_role('button',name='First',exact=True).click()
                 page.wait_for_selector('[data-chart-id="evidence"][data-chart-ready="true"]')
                 assert page.locator('.annotation-text').filter(has_text='Curator endpoint').count()==1
+                page.goto(base+'#mock-native-chart::stage::1',wait_until='networkidle')
+                page.wait_for_selector('[data-chart-id="other-evidence"][data-chart-ready="true"]')
+                assert page.get_by_role('button',name='Second',exact=True).get_attribute('aria-pressed')=='true'
                 assert not errors, errors
                 browser.close()
                 print(json.dumps({"ok":True,"physicalClickTypeSaveReload":True,
                                   "semanticInsertionPreserved":True,"facetSelectionPersists":True,
-                                  "notesAvailable":True,"componentHideShowPersists":True,"liveWrites":0}))
+                                  "notesAvailable":True,"componentHideShowPersists":True,
+                                  "smoothingSelectionPersists":True,"historicalViewRouteResolves":True,"liveWrites":0}))
         finally:
             http.shutdown();http.server_close();thread.join()
 

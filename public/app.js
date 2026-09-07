@@ -1002,7 +1002,7 @@
   function slideShell(slide) {
     var canvas = document.createElement("article");
     canvas.className = "slide-canvas recipe-" + slide.recipe;
-    canvas.style.setProperty("--accent", slide.theme.accent);
+    canvas.style.setProperty("--accent", (slide.theme||{}).accent||"#2f6fed");
     canvas.setAttribute("data-slide-id", slide.id);
     canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
     canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
@@ -1189,7 +1189,7 @@
       inner.className = "thumb-card";
       var art = document.createElement("div");
       art.className = "thumb-art";
-      art.style.setProperty("--thumb-accent", slide.theme.accent);
+      art.style.setProperty("--thumb-accent", (slide.theme||{}).accent||"#2f6fed");
       var kicker = document.createElement("div");
       kicker.className = "thumb-kicker";
       kicker.textContent = slide.recipe.replaceAll("-", " ");
@@ -1426,10 +1426,21 @@
       event.preventDefault(); undo();
     }
   });
+  function resolveRoute(requested) {
+    if(state.order.indexOf(requested)>=0)return requested;
+    for(var id of state.order) {
+      var route=(state.slides[id].routes||[]).find(function(item){return item.id===requested;});
+      if(route) {
+        localStorage.setItem('online-slide.chart-views.'+id,JSON.stringify(route.selection));
+        return id;
+      }
+    }
+    return null;
+  }
   window.addEventListener("hashchange", function () {
     if (!state) return;
-    var requested = location.hash.slice(1);
-    if (state.order.indexOf(requested) >= 0 && requested !== currentId) {
+    var requested = resolveRoute(location.hash.slice(1));
+    if (requested) {
       currentId = requested;
       selected = null;
       render();
@@ -1448,8 +1459,8 @@
   }).then(function (payload) {
     accepted = payload;
     state = copy(payload);
-    var requested = location.hash.slice(1);
-    currentId = state.order.indexOf(requested) >= 0 ? requested : state.order[0];
+    var requested = resolveRoute(location.hash.slice(1));
+    currentId = requested || state.order[0];
     render();
     try {
       var draft = JSON.parse(localStorage.getItem(draftKey));

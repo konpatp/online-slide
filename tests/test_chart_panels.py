@@ -1,7 +1,10 @@
 # test-tier: every-time
 import copy
 import unittest
-from slidekit import ContractError, validate_slide_spec, validate_overlays
+import json
+from pathlib import Path
+import tempfile
+from slidekit import ContractError, validate_slide_spec, validate_overlays, load_catalog
 
 
 def slide():
@@ -17,6 +20,31 @@ def slide():
 
 
 class ChartPanelsTests(unittest.TestCase):
+    def test_view_routes_are_unique_and_bind_real_selection(self):
+        spec=slide()
+        spec['components']['mode']={'kind':'text','text':'Mode'}
+        spec['data']['selectors']=[{'id':'mode','label':'mode','options':[{'value':'first','label':'mode'}]}]
+        spec['data']['views']=[{'selection':{'mode':'first'},'panels':[{'chart':'evidence'}]}]
+        spec['routes']=[{'id':'old-chart::stage::0','selection':{'mode':'first'}}]
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'slide.json'
+            path.write_text(json.dumps(spec));load_catalog(Path(root))
+            spec['routes'][0]['selection']['mode']='missing'
+            path.write_text(json.dumps(spec))
+            with self.assertRaisesRegex(ContractError,'does not resolve'):load_catalog(Path(root))
+            spec['routes'][0]['selection']['mode']='first'
+            spec['routes'].append(copy.deepcopy(spec['routes'][0]))
+            path.write_text(json.dumps(spec))
+            with self.assertRaisesRegex(ContractError,'duplicate route'):load_catalog(Path(root))
+
+    def test_retained_figure_requires_image_and_semantic_labels(self):
+        spec=slide();spec['recipe']='evidence-figure'
+        spec['components']['figure']={'kind':'image','src':'assets/synthetic.svg','alt':'Synthetic source figure'}
+        spec['data']={'image':'figure','labels':['headline'],'caption':'headline'}
+        validate_slide_spec(spec)
+        spec['data']['image']='headline'
+        with self.assertRaisesRegex(ContractError,'one image'):validate_slide_spec(spec)
+
     def test_source_native_values_and_log_axes_survive(self):
         spec = slide()
         before = copy.deepcopy(spec)

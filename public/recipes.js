@@ -4,6 +4,7 @@
 
   // Documentation lives beside the layout implementation, never per slide.
   global.scientificRecipeGuides = {
+    "evidence-figure": {use:"Show a retained scientific figure without changing its pixels.",owns:"A contained, uncropped image region, up to four aligned labels, and a bounded caption."},
     "hero-equation": {use:"Introduce one organizing relation.",owns:"A dominant fitted LaTeX region, aligned local definitions, and an optional question region."},
     "section-divider": {use:"Mark a change of question or method.",owns:"One bounded, vertically centered headline region; optional eyebrow and protocol."},
     "chart-panels": {use: "Compare source-native scientific plots, singly or in aligned panels.", owns: "Bounded plot regions, shared axis regions, native log axes, hover, zoom, export, and semantic annotation editing."},
@@ -776,6 +777,15 @@
     }
 
     return {
+      "evidence-figure": function(canvas,slide) {
+        var body=document.createElement('div');body.className='recipe-body evidence-figure-body';
+        var labels=document.createElement('div');labels.className='evidence-figure-labels';
+        (slide.data.labels||[]).forEach(function(key){labels.appendChild(editableText(slide,key,'div','evidence-figure-label'));});
+        body.appendChild(labels);
+        var frame=galleryImage(slide,slide.data.image);frame.classList.add('evidence-figure-frame');body.appendChild(frame);
+        if(slide.data.caption)body.appendChild(editableText(slide,slide.data.caption,'div','evidence-figure-caption'));
+        canvas.appendChild(body);
+      },
       "hero-equation": function (canvas,slide) {
         var body=document.createElement('div');body.className='recipe-body hero-equation-body';
         if(slide.data.question) {
