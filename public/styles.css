@@ -93,6 +93,20 @@ body.present-only .presentation-exit.visible, body.present-only .presentation-ex
 
 .semantic-component { outline: none; }
 .curator-hidden-component { display:none !important; }
+.table-panels-body { display:flex; flex-direction:column; gap:18px; min-height:0; }
+.table-panels-body > .table-body { position:relative; inset:auto; flex:1; min-height:0; width:100%; }
+.table-panel-heading { font-size:36px; font-weight:750; }
+.table-panel-control { display:none; font-size:20px; }
+.edit-mode .table-panel-control { display:block; }
+.slide-index-body { display:flex; flex-direction:column; justify-content:center; gap:30px; }
+.slide-index-body header { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.index-section-heading { font-size:34px; font-weight:750; }
+.index-links { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px 36px; margin-top:20px; }
+.index-link-row { display:flex; align-items:center; gap:14px; border-bottom:1px solid #e2e8f0; padding:14px 0; }
+.index-link-row a { flex:1; min-width:0; color:#263b58; text-decoration:none; }
+.index-link-label { font-size:40px; line-height:1.15; }
+.index-destination-hidden a { opacity:.4; }
+.index-visibility { flex:none; font-size:16px; padding:8px; }
 .edit-mode .curator-hidden-component { display:revert !important; opacity:.25; outline:2px dashed #d69a2d; }
 .semantic-component .katex { text-transform: none; letter-spacing: normal; }
 body.present-only .hidden-ribbon { right: 14%; }

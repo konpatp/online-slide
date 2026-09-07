@@ -4,6 +4,7 @@
 
   // Documentation lives beside the layout implementation, never per slide.
   global.scientificRecipeGuides = {
+    "slide-index": {use:"Navigate a deck without duplicating its mutable order or visibility.",owns:"Section labels, semantic route links, current-order sorting, and revision-safe per-slide/section visibility controls."},
     "evidence-figure": {use:"Show a retained scientific figure without changing its pixels.",owns:"A contained, uncropped image region, up to four aligned labels, and a bounded caption."},
     "hero-equation": {use:"Introduce one organizing relation.",owns:"A dominant fitted LaTeX region, aligned local definitions, and an optional question region."},
     "section-divider": {use:"Mark a change of question or method.",owns:"One bounded, vertically centered headline region; optional eyebrow and protocol."},
@@ -108,13 +109,55 @@
       canvas.appendChild(body);
     }
 
+    function slideIndex(canvas,slide) {
+      var body=document.createElement('div');body.className='recipe-body slide-index-body';
+      function visibilityButton(ids) {
+        var hidden=ids.every(api.isSlideHidden),button=document.createElement('button');
+        button.type='button';button.className='index-visibility';button.textContent=hidden?'Show':'Hide';
+        button.setAttribute('aria-label',(hidden?'Show ':'Hide ')+ids.join(', '));
+        button.disabled=!api.isEditMode();
+        button.addEventListener('click',function(event) {event.preventDefault();event.stopPropagation();api.setSlidesHidden(ids,!hidden);});
+        return button;
+      }
+      slide.data.sections.forEach(function(section) {
+        var group=document.createElement('section'),head=document.createElement('header');
+        head.appendChild(editableText(slide,section.heading,'div','index-section-heading'));
+        head.appendChild(visibilityButton(section.items.map(function(item) {return item.slide;})));
+        group.appendChild(head);
+        var links=document.createElement('div');links.className='index-links';
+        section.items.slice().sort(function(a,b) {return api.orderOfSlide(a.slide)-api.orderOfSlide(b.slide);}).forEach(function(item) {
+          var row=document.createElement('div');row.className='index-link-row';
+          if(api.isSlideHidden(item.slide)) row.classList.add('index-destination-hidden');
+          var link=document.createElement('a');link.href='#'+item.slide;
+          link.appendChild(editableText(slide,item.label,'div','index-link-label'));
+          link.addEventListener('click',function(event) {if(api.isEditMode())event.preventDefault();});
+          row.appendChild(link);row.appendChild(visibilityButton([item.slide]));links.appendChild(row);
+        });
+        group.appendChild(links);body.appendChild(group);
+      });
+      canvas.appendChild(body);
+    }
+
     function evidenceTable(canvas, slide) {
+      if(slide.data.tables) {
+        var collection=document.createElement('div');
+        collection.className='recipe-body table-panels-body';
+        slide.data.tables.forEach(function(data) {
+          if(data.heading) collection.appendChild(editableText(slide,data.heading,'div','table-panel-heading'));
+          if(data.visibility) collection.appendChild(editableText(slide,data.visibility,'div','table-panel-control'));
+          evidenceTable(collection,Object.assign({},slide,{data:data,_tableKey:slide.id+'::table::'+data.id}));
+        });
+        canvas.appendChild(collection);
+        return;
+      }
       var model = effectiveTable(slide);
       var body = document.createElement("div");
       body.className = "recipe-body table-body";
+      if(slide.data.visibility && effectiveComponent(slide,slide.data.visibility).hidden) body.classList.add('curator-hidden-component');
+      body.setAttribute('data-table-panel-id',slide.data.id || 'main');
       var table = document.createElement("table");
       table.className = "evidence-table";
-      table.setAttribute("data-native-table", slide.id);
+      table.setAttribute("data-native-table", slide._tableKey || slide.id);
       var colgroup = document.createElement("colgroup");
       var totalWidth = model.columns.reduce(function (sum, column) { return sum + column.width; }, 0);
       model.columns.forEach(function (column) {
@@ -823,6 +866,7 @@
       "chart-panels": function (canvas, slide) { return global.renderScientificChartPanels(canvas, slide, api); },
       "hero-plot": heroPlot,
       "evidence-table": evidenceTable,
+      "slide-index": slideIndex,
       "target-accessibility": targetAccessibility,
       "mechanism-pipeline": mechanismPipeline,
       "vector-geometry": vectorGeometry,

@@ -97,6 +97,24 @@ and image components support reversible Hide/Show overlays, retained across
 reloads; hidden content remains discoverable in edit mode. LaTeX is never
 capitalized by heading or table-label typography.
 
+For two or three independent tables on one slide, use `evidence-table` with
+`data.tables`: each item has a semantic `id` and its own `columns`, `rows`, and
+optional `columnWeights`. Optional `heading` and `visibility` reference separate
+text components. The visibility component is an editor-only table control;
+hiding a table retains all its editable cells and does not hide its heading.
+The layout owns their shared bounded region. Each table's structural edits
+persist under `slide-id::table::table-id`, so inserting or reordering another
+table cannot move an edit. Existing single-table state keys remain unchanged.
+Removing an edited table, sharing a cell between tables, or saving against a
+changed source fails closed. `tools/browser_table_panels.py` exercises real
+cell editing, row insertion, visibility, save/reload, and source reordering.
+
+`slide-index` supplies semantic links grouped into named sections. Its item
+order and visibility come from current curator state, not a copied order list;
+section visibility is one revision-checked update. Index source links must
+resolve to published slide IDs. Hidden destinations remain available as muted
+direct links. This is navigation, not another scientific slide authoring path.
+
 Mechanism nodes are content-sized by default: the browser measures their
 actual label, detail, and rendered math before JointJS lays out the graph, then
 reflows the graph after live text edits. Measurements use the slide's own

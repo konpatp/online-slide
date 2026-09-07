@@ -177,7 +177,7 @@ function renderVectorPlane(host, spec, options = {}) {
       withLabel: false,
       size: item.size || 3,
       face: "o",
-      fillColor: item.color || "#14233b",
+      fillColor: item.fillColor || item.color || "#14233b",
       strokeColor: item.color || "#14233b",
       fixed: true,
       highlight: false,

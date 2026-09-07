@@ -218,7 +218,7 @@
   }
 
   function effectiveComponent(slide, componentId) {
-    var table = (state.tables || {})[slide.id];
+    var table = insertedTableOwner(slide.id, componentId);
     var source = slide.components[componentId] || (table && table.components[componentId]);
     if (!source) throw new Error("Unknown semantic component " + slide.id + "@" + componentId);
     var overlay = overlayFor(slide.id, componentId, false);
@@ -252,7 +252,7 @@
 
   function updateOverlay(slideId, componentId, key, value) {
     var source = state.slides[slideId].components[componentId];
-    var table = (state.tables || {})[slideId];
+    var table = insertedTableOwner(slideId, componentId);
     if (!source && table && table.components[componentId]) {
       if (value === undefined || value === null) delete table.components[componentId][key];
       else table.components[componentId][key] = value;
@@ -264,7 +264,27 @@
     cleanOverlay(slideId, componentId);
   }
 
+  function insertedTableOwner(slideId, componentId) {
+    var matches=Object.keys(state.tables || {}).filter(function(key) {
+      return (key===slideId || key.indexOf(slideId+'::table::')===0) && state.tables[key].components[componentId];
+    });
+    if(matches.length>1) throw new Error('Ambiguous table-owned text '+componentId);
+    return matches.length ? state.tables[matches[0]] : null;
+  }
+
+  function tableContexts(slide) {
+    if(slide._tableKey || !slide.data.tables) return [slide];
+    return slide.data.tables.map(function(data) {
+      return Object.assign({},slide,{data:data,_tableKey:slide.id+'::table::'+data.id});
+    });
+  }
+
+  function selectedTableContext(slide, cell) {
+    return tableContexts(slide).find(function(item) {return (item._tableKey || item.id)===cell.tableKey;}) || slide;
+  }
+
   function sourceTableModel(slide) {
+    if(slide.data.tables) throw new Error('Select a semantic table before changing its structure');
     return {
       columns: slide.data.columns.map(function (componentId, index) {
         return {id: componentId, label: componentId,
@@ -284,13 +304,14 @@
   }
 
   function effectiveTable(slide) {
-    return (state.tables || {})[slide.id] || sourceTableModel(slide);
+    return (state.tables || {})[slide._tableKey || slide.id] || sourceTableModel(slide);
   }
 
   function ensureTable(slide) {
     if (!state.tables) state.tables = {};
-    if (!state.tables[slide.id]) state.tables[slide.id] = sourceTableModel(slide);
-    return state.tables[slide.id];
+    var key=slide._tableKey || slide.id;
+    if (!state.tables[key]) state.tables[key] = sourceTableModel(slide);
+    return state.tables[key];
   }
 
   function tableToken() {
@@ -310,22 +331,27 @@
 
   function tableCell(slide, componentId) {
     if (!slide || slide.recipe !== "evidence-table") return null;
+    if(slide.data.tables) {
+      var found=tableContexts(slide).map(function(context) {return tableCell(context,componentId);}).filter(Boolean);
+      if(found.length>1) throw new Error('Ambiguous table cell '+componentId);
+      return found[0] || null;
+    }
     var table = effectiveTable(slide);
     for (var columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
       if (table.columns[columnIndex].label === componentId) {
-        return {header: true, rowIndex: -1, columnIndex: columnIndex,
+        return {tableKey:slide._tableKey || slide.id,header: true, rowIndex: -1, columnIndex: columnIndex,
           rowId: "table-header", columnId: table.columns[columnIndex].id};
       }
     }
     for (var rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
       var row = table.rows[rowIndex];
       if (row.label === componentId) {
-        return {header: false, rowIndex: rowIndex, columnIndex: 0,
+        return {tableKey:slide._tableKey || slide.id,header: false, rowIndex: rowIndex, columnIndex: 0,
           rowId: row.id, columnId: table.columns[0].id};
       }
       var cellIndex = row.cells.indexOf(componentId);
       if (cellIndex >= 0) {
-        return {header: false, rowIndex: rowIndex, columnIndex: cellIndex + 1,
+        return {tableKey:slide._tableKey || slide.id,header: false, rowIndex: rowIndex, columnIndex: cellIndex + 1,
           rowId: row.id, columnId: table.columns[cellIndex + 1].id};
       }
     }
@@ -361,11 +387,12 @@
     if (!selected || !selected.tableCell) return;
     var slide = state.slides[selected.slideId];
     if (!slide || slide.recipe !== "evidence-table") return;
+    slide=selectedTableContext(slide,selected.tableCell);
     var table = ensureTable(slide);
     var cell = selected.tableCell;
     beginChange();
     if (action === "table-reset") {
-      delete state.tables[slide.id];
+      delete state.tables[slide._tableKey || slide.id];
       selected = null;
     } else if (action === "row-add") {
       var row = addTableRow(slide, cell.rowIndex < 0 ? table.rows.length - 1 : cell.rowIndex);
@@ -417,6 +444,7 @@
   function pasteTableGrid(slide, componentId, raw) {
     var start = tableCell(slide, componentId);
     if (!start) return false;
+    slide=selectedTableContext(slide,start);
     var values = raw.replace(/\r/g, "").split("\n").filter(function (line, index, rows) {
       return line.length || index < rows.length - 1;
     }).map(function (line) { return line.split("\t"); });
@@ -625,7 +653,7 @@
     element.addEventListener("keydown", function (event) {
       if (!editMode || event.key !== "Tab" || !element.closest("[data-table-cell]")) return;
       event.preventDefault();
-      var cells = Array.from(stage.querySelectorAll("[data-table-cell] .semantic-component"));
+      var cells = Array.from(element.closest('[data-native-table]').querySelectorAll("[data-table-cell] .semantic-component"));
       var index = cells.indexOf(element);
       var next = cells[index + (event.shiftKey ? -1 : 1)];
       if (!next) next = cells[event.shiftKey ? cells.length - 1 : 0];
@@ -1119,6 +1147,19 @@
     fitTextInRegion: registerTextFit,
     fitGroupInRegion: registerGroupFit,
     isEditMode: function () { return editMode; },
+    isSlideHidden: function(id) {return state.hidden.indexOf(id)>=0;},
+    orderOfSlide: function(id) {return state.order.indexOf(id);},
+    setSlidesHidden: function(ids,hidden) {
+      if(!editMode) return;
+      beginChange();
+      ids.forEach(function(id) {
+        if(!state.slides[id]) throw new Error('Unknown index destination '+id);
+        var index=state.hidden.indexOf(id);
+        if(hidden && index<0) state.hidden.push(id);
+        if(!hidden && index>=0) state.hidden.splice(index,1);
+      });
+      render();persist();
+    },
     objectsForSlide: objectsForSlide,
     selectedObjectId: function (slide) {
       return selected && selected.visualObject && selected.slideId === slide.id ? selected.objectId : null;
@@ -1283,6 +1324,7 @@
       var cell = element.closest("[data-table-cell]");
       if (cell) {
         selected.tableCell = {
+          tableKey:cell.closest('[data-native-table]').dataset.nativeTable,
           header: cell.dataset.tableRowId === "table-header",
           rowIndex: Number(cell.dataset.tableRowIndex),
           columnIndex: Number(cell.dataset.tableColumnIndex),

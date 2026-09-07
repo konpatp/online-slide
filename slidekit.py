@@ -23,7 +23,7 @@ STATE_SCHEMA = "online-slide/state@4"
 LEGACY_STATE_SCHEMAS = {"online-slide/state@2", "online-slide/state@3"}
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
-    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider", "hero-equation", "evidence-figure",
+    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider", "hero-equation", "evidence-figure", "slide-index",
 }
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
@@ -181,7 +181,19 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     data = spec.get("data")
     _require(isinstance(data, dict), f"{source}: data must be an object")
     recipe = spec["recipe"]
-    if recipe == "section-divider":
+    if recipe == 'slide-index':
+        sections=data.get('sections')
+        _require(isinstance(sections,list) and sections,f'{source}: index sections required')
+        destinations=set()
+        for section in sections:
+            ref(section.get('heading'),'index heading')
+            _require(isinstance(section.get('items'),list) and section['items'],f'{source}: index items required')
+            for item in section['items']:
+                ref(item.get('label'),'index label')
+                destination=item.get('slide')
+                _require(isinstance(destination,str) and SLIDE_ID.fullmatch(destination) and destination not in destinations,f'{source}: invalid or duplicate index destination')
+                destinations.add(destination)
+    elif recipe == "section-divider":
         _require(not data, f"{source}: section dividers contain only headline and optional eyebrow/footer")
     elif recipe == "evidence-figure":
         image_id=data.get('image')
@@ -295,6 +307,24 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                          all(isinstance(v, (int, float)) for v in point) for point in points),
                      f"{source}: series {index} points must be [x,y]")
     elif recipe == "evidence-table":
+        if 'tables' in data:
+            panels=data['tables']
+            _require(isinstance(panels,list) and 1<=len(panels)<=3,f'{source}: one to three independent tables required')
+            ids=set();leaves=set()
+            for panel in panels:
+                key=panel.get('id')
+                _require(isinstance(key,str) and COMPONENT_ID.fullmatch(key) and key not in ids,f'{source}: tables need unique semantic ids')
+                ids.add(key)
+                _require('tables' not in panel,f'{source}: nested tables are not supported')
+                validate_slide_spec({**spec,'data':panel},source=source+'::table::'+key)
+                used=set(panel['columns'])|{row['label'] for row in panel['rows']}|{cell for row in panel['rows'] for cell in row['cells']}
+                _require(not used & leaves,f'{source}: independent tables cannot share editable cells')
+                leaves.update(used)
+                for field in ('heading','visibility'):
+                    if panel.get(field):ref(panel[field],'table.'+field)
+            unknown=set(referenced)-set(components)
+            _require(not unknown,f'{source}: unknown table control components: {sorted(unknown)}')
+            return spec
         columns = data.get("columns")
         rows = data.get("rows")
         _require(isinstance(columns, list) and columns, f"{source}: table needs columns")
@@ -394,6 +424,11 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                              f"{source}: {collection_name}[{index}].{endpoint} must be [x,y]")
                 _require(HEX_COLOR.fullmatch(str(item.get("color", ""))) is not None,
                          f"{source}: {collection_name}[{index}] needs a hex color")
+        for point in data.get('points',[]):
+            _require(isinstance(point,dict) and isinstance(point.get('at'),list) and len(point['at'])==2 and
+                     all(_finite_number(v) for v in point['at']),f'{source}: point needs finite coordinates')
+            for field in ('color','fillColor'):
+                if field in point:_require(HEX_COLOR.fullmatch(str(point[field])) is not None,f'{source}: invalid point {field}')
         for index, arc in enumerate(data.get("arcs", [])):
             _require(isinstance(arc, dict) and
                      isinstance(arc.get("center"), list) and len(arc["center"]) == 2 and
@@ -569,6 +604,11 @@ def load_catalog(slides_dir: Path) -> dict[str, dict[str, Any]]:
         _require(slide_id not in catalog, f"duplicate permanent slide id: {slide_id}")
         catalog[slide_id] = spec
     route_ids=set(catalog)
+    for spec in catalog.values():
+        if spec['recipe']=='slide-index':
+            for section in spec['data']['sections']:
+                for item in section['items']:
+                    _require(item['slide'] in catalog,f"index destination disappeared: {item['slide']}")
     for slide_id,spec in catalog.items():
         routes=spec.get('routes',[])
         _require(isinstance(routes,list),f'{slide_id}: routes must be a list')
@@ -631,6 +671,7 @@ def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
             return remote
         if len(path) > 1 and path[0] in {"overlays", "objects", "tables"}:
             key = path[1]
+            if path[0]=='tables':key=key.partition('::table::')[0]
             if base_sources.get(key) != revisions[key]:
                 raise EditConflict("source changed for edited slide: " + key)
         if remote != old and remote != new:
@@ -722,17 +763,30 @@ def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
     """
 
     _require(isinstance(tables, dict), "tables must be an object")
-    for slide_id, table in tables.items():
+    owned_insertions={}
+    for table_key, table in tables.items():
+        slide_id, separator, table_id=table_key.partition('::table::')
         _require(slide_id in catalog, f"table targets unknown slide {slide_id}")
         slide = catalog[slide_id]
         _require(slide["recipe"] == "evidence-table",
                  f"table structure may only target an evidence-table: {slide_id}")
+        panels=slide['data'].get('tables')
+        if panels is not None:
+            _require(separator and table_id in {p['id'] for p in panels},f'table source disappeared: {table_key}')
+            panel=next(p for p in panels if p['id']==table_id)
+            permitted=set(panel['columns'])|{r['label'] for r in panel['rows']}|{c for r in panel['rows'] for c in r['cells']}
+        else:
+            _require(not separator,f'unknown independent table: {table_key}')
+            permitted=_component_ids(slide)
         _require(isinstance(table, dict) and set(table) == {"columns", "rows", "components"},
                  f"table override for {slide_id} has an invalid shape")
         inserted = table["components"]
         _require(isinstance(inserted, dict), f"table components for {slide_id} must be an object")
         source_ids = _component_ids(slide)
         for component_id, component in inserted.items():
+            owner=(slide_id,component_id)
+            _require(owner not in owned_insertions,f'ambiguous inserted table component: {slide_id}@{component_id}')
+            owned_insertions[owner]=table_key
             _require(COMPONENT_ID.fullmatch(component_id) is not None,
                      f"table component has invalid id: {slide_id}@{component_id}")
             _require(component_id not in source_ids,
@@ -763,7 +817,7 @@ def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
                     component["region"],
                     f"inserted table component region is invalid: {slide_id}@{component_id}",
                 )
-        known_components = source_ids | set(inserted)
+        known_components = permitted | set(inserted)
         referenced_inserted: set[str] = set()
         columns = table["columns"]
         rows = table["rows"]

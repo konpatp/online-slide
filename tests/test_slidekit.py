@@ -19,6 +19,34 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SlideKitContractTests(unittest.TestCase):
+    def test_index_routes_are_source_bound_and_unique(self):
+        target=copy.deepcopy(next(iter(self.catalog.values())))
+        index={'schema':'online-slide/slide@1','id':'contents-proof','recipe':'slide-index',
+               'createdAt':'2026-09-06','headline':'headline','components':{
+                   'headline':{'kind':'text','text':'Contents'},
+                   'section':{'kind':'text','text':'Results'},
+                   'entry':{'kind':'text','text':'One result'}},
+               'data':{'sections':[{'heading':'section','items':[{'slide':target['id'],'label':'entry'}]}]}}
+        validate_slide_spec(index)
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/'index.json').write_text(json.dumps(index))
+            with self.assertRaisesRegex(ContractError,'index destination disappeared'):load_catalog(root)
+            (root/'target.json').write_text(json.dumps(target))
+            self.assertEqual(len(load_catalog(root)),2)
+        index['data']['sections'][0]['items']*=2
+        with self.assertRaisesRegex(ContractError,'duplicate index destination'):validate_slide_spec(index)
+
+    def test_geometry_point_fill_and_coordinates_are_checked(self):
+        spec=copy.deepcopy(self.catalog['mock-guidance-vector-geometry'])
+        spec['data']['points']=[{'at':[0,0],'color':'#123456','fillColor':'#ffffff'}]
+        validate_slide_spec(spec)
+        spec['data']['points'][0]['fillColor']='invalid'
+        with self.assertRaisesRegex(ContractError,'point fillColor'):validate_slide_spec(spec)
+        spec['data']['points'][0]['fillColor']='#ffffff'
+        spec['data']['points'][0]['at'][0]=float('nan')
+        with self.assertRaisesRegex(ContractError,'finite coordinates'):validate_slide_spec(spec)
+
     def test_hero_equation_is_native_math_with_bounded_definition_count(self):
         spec={'schema':'online-slide/slide@1','id':'equation-proof','recipe':'hero-equation',
               'createdAt':'2026-09-06','headline':'headline','components':{
