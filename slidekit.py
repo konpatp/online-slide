@@ -403,12 +403,19 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                      f"{source}: arcs[{index}] is invalid")
         for index, label in enumerate(data.get("labels", [])):
             box = label.get("box") if isinstance(label, dict) else None
+            space=label.get('space','percent') if isinstance(label,dict) else None
+            _require(space in {'percent','world'},f'{source}: unknown geometry label coordinate space')
             _require(isinstance(box, dict) and
-                     all(isinstance(box.get(key), (int, float)) for key in ("x", "y", "width", "height")) and
-                     0 <= box["x"] < 100 and 0 <= box["y"] < 100 and
-                     box["width"] > 0 and box["height"] > 0 and
-                     box["x"] + box["width"] <= 100 and box["y"] + box["height"] <= 100,
-                     f"{source}: labels[{index}] needs a bounded percentage box")
+                     all(isinstance(box.get(key), (int, float)) and math.isfinite(box[key]) for key in ("x", "y", "width", "height")) and
+                     box["width"] > 0 and box["height"] > 0,
+                     f"{source}: labels[{index}] needs a finite bounded box")
+            if space=='world':
+                _require(bounds[0]<=box['x'] and box['x']+box['width']<=bounds[2] and
+                         box['y']<=bounds[1] and box['y']-box['height']>=bounds[3],
+                         f'{source}: world label outside geometry bounds')
+            else:
+                _require(0<=box['x'] and 0<=box['y'] and box['x']+box['width']<=100 and box['y']+box['height']<=100,
+                         f'{source}: percentage label outside geometry bounds')
             _require(box.get("align", "center") in {"flex-start", "center", "flex-end"} and
                      box.get("valign", "center") in {"flex-start", "center", "flex-end"},
                      f"{source}: labels[{index}] has invalid box alignment")

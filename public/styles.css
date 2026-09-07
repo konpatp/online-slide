@@ -248,6 +248,7 @@ body.moving-visual-object { cursor: move; user-select: none; }
 .vector-label.tone-result { color: #7652b5; font-weight: 850; }
 .vector-equations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; justify-items: center; gap: 1.2cqw 2.4cqw; min-height: 18%; }
 .vector-equations:has(> .vector-equation:only-child) { grid-template-columns: minmax(0, 1fr); }
+.vector-equations:empty { display:none; }
 .vector-equation { color: #344961; font-size: calc(max(1.28cqw, 34.67px) * var(--component-scale, 1)); text-align: center; white-space: nowrap; }
 .katex-display { margin: 0; }
 

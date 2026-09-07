@@ -37,14 +37,22 @@ owns containment and mathematical construction. KaTeX owns every displayed
 formula and symbol, so slide authors never fake mathematics with Unicode or
 HTML spacing.
 
-This replaces the earlier attempt to express the Exp81 vector construction as
+This replaces the earlier attempt to express a vector construction as
 a row of process boxes. A small native SVG layer could draw one such picture,
 but it would recreate coordinate transforms, aspect preservation, geometry
 primitives, and interaction already maintained upstream.
 
+Bounded text may declare `space: "world"` beside its `box`. Its top-left
+position, width, and height then use the geometry's units (height extends
+downward), not viewport percentages. JSXGraph's origin and unit transform
+positions the HTML text region after equal-aspect letterboxing. A curator's
+explicit region still wins. This keeps trajectory labels aligned with their
+arrows without a second, hand-maintained coordinate transform.
+
 Primary references:
 
 - [JSXGraph documentation](https://jsxgraph.org/docs/)
+- [JSXGraph board coordinate implementation](https://www.jsxgraph.org/docs/symbols/src/src_base_board.js.html)
 - [JSXGraph Arrow](https://jsxgraph.org/docs/symbols/Arrow.html)
 - [JSXGraph Point](https://jsxgraph.org/docs/symbols/Point.html)
 - [JSXGraph source](https://github.com/jsxgraph/jsxgraph)

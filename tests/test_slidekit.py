@@ -98,12 +98,22 @@ class SlideKitContractTests(unittest.TestCase):
             validate_slide_spec(geometry)
         geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
         geometry["data"]["labels"][0]["box"]["width"] = 101
-        with self.assertRaisesRegex(ContractError, "bounded percentage box"):
+        with self.assertRaisesRegex(ContractError, "percentage label outside"):
             validate_slide_spec(geometry)
         geometry = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])
         geometry["data"]["labels"][0].pop("box")
-        with self.assertRaisesRegex(ContractError, "bounded percentage box"):
+        with self.assertRaisesRegex(ContractError, "finite bounded box"):
             validate_slide_spec(geometry)
+
+    def test_world_text_regions_use_the_same_bounded_geometry_units(self):
+        geometry=copy.deepcopy(self.catalog['mock-guidance-vector-geometry'])
+        label=geometry['data']['labels'][0]
+        label.update(space='world',box={'x':-1,'y':5,'width':2,'height':1})
+        validate_slide_spec(geometry)
+        label['box']['height']=20
+        with self.assertRaisesRegex(ContractError,'world label outside'):validate_slide_spec(geometry)
+        label['box']['height']=float('nan')
+        with self.assertRaisesRegex(ContractError,'finite bounded box'):validate_slide_spec(geometry)
 
     def test_text_regions_are_explicit_bounded_semantic_geometry(self):
         slide = copy.deepcopy(self.catalog["mock-guidance-vector-geometry"])

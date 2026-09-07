@@ -54,6 +54,15 @@ def main() -> int:
         temp_root = Path(temp)
         slides_root = temp_root / "slides"
         shutil.copytree(ROOT / "slides", slides_root)
+        geometry_path=slides_root/'04-vector-geometry.json'
+        geometry_spec=json.loads(geometry_path.read_text())
+        left,top,right,bottom=geometry_spec['data']['bounds']
+        anchored=next(label for label in geometry_spec['data']['labels'] if label['component']=='remove-label')
+        box=anchored['box'];anchored['space']='world'
+        anchored['box']={**box,'x':left+box['x']/100*(right-left),
+                         'y':top-box['y']/100*(top-bottom),
+                         'width':box['width']/100*(right-left),'height':box['height']/100*(top-bottom)}
+        geometry_path.write_text(json.dumps(geometry_spec))
         http = server.make_server(
             ROOT / "public", slides_root, ROOT / "data" / "seed-state.json",
             temp_root / "state.json", temp_root / "uploads",
@@ -297,6 +306,15 @@ def main() -> int:
                 # Math must hydrate in the editor route too, not only in a
                 # presentation-only capture where stale assets are easier to miss.
                 page.goto(base + "/#mock-guidance-vector-geometry", wait_until="networkidle")
+                page.wait_for_function("document.querySelector('.jsxgraph-host')?.__scientificGeometry?.board")
+                world_alignment=page.evaluate("""() => {
+                  const host=document.querySelector('.jsxgraph-host'),board=host.__scientificGeometry.board;
+                  const region=document.querySelector('[data-component-id="remove-label"]').parentElement;
+                  const box={x:-1.006,y:2.562,width:2.716,height:.924};
+                  return Math.abs(parseFloat(region.style.left)-(board.origin.scrCoords[1]+box.x*board.unitX))<.01 &&
+                    Math.abs(parseFloat(region.style.top)-(board.origin.scrCoords[2]-box.y*board.unitY))<.01;
+                }""")
+                if not world_alignment:findings.append('world-space text box drifted away from the geometry transform')
                 math_sources = page.locator("[data-latex-source]").count()
                 if not math_sources or page.locator('[data-math-engine="katex"]').count() != math_sources:
                     findings.append("editor route left authored LaTeX unhydrated")

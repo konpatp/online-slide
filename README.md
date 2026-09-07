@@ -125,8 +125,10 @@ unbounded label. Diagram nodes reserve an optical inset around the fitted text,
 so "contained" cannot mean glyphs pressed against a border. Gallery captions
 have a fixed-height reading region: a short
 caption keeps the recipe's maximum size, while a wrapped caption shrinks only
-as far as needed to remain contained. Vector labels declare percentage `box`
-regions in source, which keeps text off construction lines and makes overflow a
+as far as needed to remain contained. Vector labels declare bounded `box`
+regions in source: percentages by default, or `space: "world"` to share the
+arrows' coordinate system, including equal-aspect letterboxing. This keeps text
+off construction lines and makes overflow a
 source-validation error instead of a visual surprise. Evidence tables choose
 the largest uniform type/padding scale that contains the complete table in the
 body region. If even the allowed minimum cannot fit, the browser receipt fails
