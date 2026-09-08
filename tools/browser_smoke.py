@@ -190,7 +190,9 @@ def main() -> int:
                 resizer = moved_header.locator(".table-column-resizer")
                 resizer.wait_for(state="visible")
                 before_width = moved_header.bounding_box()["width"]
+                columns_before = page.evaluate("fetch('api/deck-state').then(r=>r.json()).then(s=>s.tables['mock-angle-evidence'].columns)")
                 resize_box = resizer.bounding_box()
+                resize_hit = page.evaluate('p=>document.elementFromPoint(p.x+p.width/2,p.y+p.height/2)?.className', resize_box)
                 page.mouse.move(resize_box["x"] + resize_box["width"] / 2,
                                 resize_box["y"] + resize_box["height"] / 2)
                 page.mouse.down()
@@ -198,8 +200,15 @@ def main() -> int:
                                 resize_box["y"] + resize_box["height"] / 2, steps=7)
                 page.mouse.up()
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
-                if page.locator(".evidence-table thead th").nth(3).bounding_box()["width"] <= before_width + 30:
-                    findings.append("native column resize did not change the selected column width")
+                columns_after = page.evaluate("fetch('api/deck-state').then(r=>r.json()).then(s=>s.tables['mock-angle-evidence'].columns)")
+                # Column weights are normalized across the whole table: a
+                # 70px pointer delta is not a fixed 70px final-width delta.
+                if (page.locator(".evidence-table thead th").nth(3).bounding_box()["width"] <= before_width + 10 or
+                    columns_after[3]['width'] <= columns_before[3]['width'] or
+                    any(a != b for i,(a,b) in enumerate(zip(columns_before,columns_after)) if i != 3)):
+                    findings.append("native column resize did not change the selected column width: " +
+                                    str({'before':before_width,'after':page.locator('.evidence-table thead th').nth(3).bounding_box()['width'],
+                                         'hit':resize_hit}))
                 page.reload(wait_until="networkidle")
                 if page.locator(".evidence-table thead th").nth(3).locator(".semantic-component").text_content() != "Audit":
                     findings.append("native table structure did not survive save/reload")

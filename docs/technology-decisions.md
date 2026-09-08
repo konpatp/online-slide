@@ -133,6 +133,24 @@ Primary references:
 
 The catalog follows the useful pattern in [Storybook Autodocs](https://storybook.js.org/docs/writing-docs/autodocs): derive discovery from working examples rather than duplicate registrations. For this small framework-free engine, adding Storybook's build/runtime would be unnecessary. A read-only page groups the existing deck API by recipe, uses the actual slide renderer for on-demand previews, and downloads the authored JSON. Usage guidance lives beside each shared recipe. No new dependency, screenshot cache, database, or per-slide registry is introduced. Visual review remains the author's responsibility.
 
+The sidebar uses that same renderer in read-only preview frames. Native
+[IntersectionObserver](https://developer.mozilla.org/en-US/docs/Web/API/Intersection_Observer_API)
+limits work to visible/nearby cards, starts one frame at a time after the main
+slide paints, and retires offscreen frames. Title placeholders remain until the
+actual preview is ready. The parent supplies the current local semantic state
+through origin-and-source-checked
+[postMessage](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage),
+so previews neither fetch another full catalog nor write to the authoring store.
+Navigation/reload brings the focused card into view; saves and preview arrival
+do not disturb manual rail scrolling. No parallel screenshot renderer/cache is
+needed, and no separate layout can drift from the presentation.
+
+Table resize handles stay inside the measured table bounds. Editor-only chrome
+must never contribute overflow to the content fitter. Bold text is an explicit
+list of UTF-16 text ranges, not persisted browser HTML: the same safe renderer
+consumes it in editing, presenting, and previews. `browser_wysiwyg.py` checks
+physical selection/save/reload and exact table geometry across edit toggles.
+
 ## Source-native scientific charts
 
 Use pinned MIT-licensed [Plotly.js](https://github.com/plotly/plotly.js) for

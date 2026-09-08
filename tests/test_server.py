@@ -311,6 +311,21 @@ class ServerProtocolTests(unittest.TestCase):
         self.assertIn("headline/text", json.loads(error.exception.read())["error"])
         self.assertEqual(self.state_path.read_bytes(), before)
 
+    def test_bold_and_concurrent_wording_are_one_conflict_domain(self):
+        _, base = self.get('/api/deck-state')
+        sid, key = 'mock-angle-evidence', 'random-mid'
+        original = base['slides'][sid]['components'][key]['text']
+        wording = self.mutable_snapshot(base)
+        wording['overlays'] = {sid:{key:{'text':'changed'}}}
+        self.merge_save(base,wording)
+        before = self.state_path.read_bytes()
+        bold = self.mutable_snapshot(base)
+        bold['overlays'] = {sid:{key:{'text':original,'marks':[{'start':0,'end':2,'bold':True}]}}}
+        with self.assertRaises(HTTPError) as error:
+            self.merge_save(base,bold)
+        self.assertEqual(error.exception.code,409)
+        self.assertEqual(self.state_path.read_bytes(),before)
+
     def test_source_change_on_edited_slide_fails_closed(self):
         _, base = self.get("/api/deck-state")
         path = self.slides_path / "01-hero-plot.json"

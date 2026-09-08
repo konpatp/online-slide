@@ -4,9 +4,11 @@
 
   var SVG_NS = "http://www.w3.org/2000/svg";
   var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1";
-  if (enteredFromPresentationUrl) {
+  var previewMode = Boolean(window.slidekitPreview);
+  if (enteredFromPresentationUrl || previewMode) {
     document.body.classList.add("present-only");
   }
+  if (previewMode) document.body.classList.add('preview-only');
   var stage = document.querySelector("[data-stage]");
   var stageWrap = document.querySelector(".stage-wrap");
   var thumbList = document.querySelector("[data-thumb-list]");
@@ -42,6 +44,13 @@
   var libraries = new Map();
   var renderGeneration = 0;
   var prefetchTimer = null;
+  var focusedThumb = null;
+  var previews = previewMode ? null : new window.SlidePreviews(document.querySelector('.filmstrip'), function(id) {
+    return ensureSlide(id).then(function(slide) {
+      return Object.assign(snapshot(state), {revision:state.revision, sourceRevision:state.sourceRevision,
+        slideRevisions:{[id]:state.slideRevisions[id]}, slides:{[id]:slide}, loadedSlides:[id]});
+    });
+  });
 
   function loadLibrary(name) {
     if (!libraries.has(name)) {
@@ -120,7 +129,17 @@
     function changed(a, b) { return JSON.stringify(a) !== JSON.stringify(b); }
     function merge(a, b, c, depth) {
       var out = copy(c || {});
-      Object.keys(Object.assign({}, a || {}, b || {})).forEach(function (key) {
+      var keys = Object.keys(Object.assign({}, a || {}, b || {}));
+      if (depth === 1 && [a,b,c].some(function(value) {return value && value.marks !== undefined;})) {
+        function group(value) {var result={}; ['text','marks'].forEach(function(key) {
+          if (value && value[key] !== undefined) result[key]=value[key];
+        }); return result;}
+        if (changed(group(a),group(b))) {
+          delete out.text; delete out.marks; Object.assign(out,group(b));
+        }
+        keys=keys.filter(function(key) {return key!=='text' && key!=='marks';});
+      }
+      keys.forEach(function (key) {
         var old = (a || {})[key], next = (b || {})[key];
         if (!changed(old, next)) return;
         if (depth > 1) {
@@ -491,8 +510,10 @@
   }
 
   function setTableText(slide, table, componentId, value) {
-    if (table.components[componentId]) table.components[componentId].text = value;
-    else updateOverlay(slide.id, componentId, "text", value);
+    updateOverlay(slide.id, componentId, "text", value);
+    // TSV replacement must not retain ranges over unrelated characters.
+    if (effectiveComponent(state.slides[slide.id],componentId).marks)
+      updateOverlay(slide.id,componentId,'marks',[]);
   }
 
   function pasteTableGrid(slide, componentId, raw) {
@@ -587,6 +608,7 @@
   }
 
   function persist() {
+    if (previewMode) return;
     pending = snapshot(state);
     retainDraft('Changes saved on this device; awaiting server acknowledgement.');
     setStatus("Saving…", "saving");
@@ -673,6 +695,78 @@
     if (component.fontScale) element.style.setProperty("--component-scale", component.fontScale);
   }
 
+  function renderMarkedText(element, component) {
+    element.textContent = '';
+    var offset = 0;
+    (component.marks || []).forEach(function(mark) {
+      element.appendChild(document.createTextNode(component.text.slice(offset, mark.start)));
+      var span = document.createElement('span');
+      span.dataset.textBold = String(mark.bold);
+      span.style.fontWeight = mark.bold ? '700' : '400';
+      span.textContent = component.text.slice(mark.start, mark.end);
+      element.appendChild(span); offset = mark.end;
+    });
+    element.appendChild(document.createTextNode(component.text.slice(offset)));
+  }
+
+  function readMarkedText(element) {
+    var raw = element.textContent, text = raw.trim(), trim = raw.length - raw.trimStart().length;
+    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0, marks = [];
+    while ((node = walker.nextNode())) {
+      var owner = node.parentElement.closest('[data-text-bold],b,strong');
+      var start = Math.max(0, offset - trim), end = Math.min(text.length, offset + node.length - trim);
+      if (owner && element.contains(owner) && end > start) {
+        var bold = owner.dataset.textBold !== 'false', last = marks[marks.length-1];
+        if (last && last.end === start && last.bold === bold) last.end = end;
+        else marks.push({start:start, end:end, bold:bold});
+      }
+      offset += node.length;
+    }
+    return {text:text, marks:marks};
+  }
+
+  function toggleTextBold(slideId, componentId, element) {
+    if (!editMode || !element || element.dataset.latexSource !== undefined) return;
+    var value = readMarkedText(element), selection = window.getSelection();
+    var start = 0, end = value.text.length;
+    if (selection.rangeCount && !selection.isCollapsed) {
+      var range = selection.getRangeAt(0);
+      if (element.contains(range.startContainer) && element.contains(range.endContainer)) {
+        var prefix = document.createRange(); prefix.selectNodeContents(element); prefix.setEnd(range.startContainer, range.startOffset);
+        start = prefix.toString().length; end = start + range.toString().length;
+      }
+    }
+    if (end <= start) return;
+    var flags = Array(value.text.length).fill(null);
+    value.marks.forEach(function(mark) {flags.fill(mark.bold,mark.start,mark.end);});
+    var inherited = Number(getComputedStyle(element).fontWeight) >= 600;
+    var makeBold = !flags.slice(start,end).every(function(flag) {return flag === null ? inherited : flag;});
+    flags.fill(makeBold,start,end);
+    var marks = [];
+    flags.forEach(function(flag,index) {
+      if (flag === null) return;
+      var last = marks[marks.length-1];
+      if (last && last.end === index && last.bold === flag) last.end++;
+      else marks.push({start:index,end:index+1,bold:flag});
+    });
+    beginChange();
+    updateOverlay(slideId, componentId, 'text', value.text);
+    updateOverlay(slideId, componentId, 'marks', marks);
+    renderMarkedText(element, {text:value.text, marks:marks});
+    // Preserve the highlighted range so a second toggle or continued typing
+    // operates on the same text, rather than unexpectedly formatting the cell.
+    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0;
+    var restored = document.createRange(), started = false;
+    while ((node = walker.nextNode())) {
+      if (!started && start <= offset + node.length) {restored.setStart(node, start-offset); started = true;}
+      if (started && end <= offset + node.length) {restored.setEnd(node, end-offset); break;}
+      offset += node.length;
+    }
+    selection.removeAllRanges(); selection.addRange(restored);
+    element.dispatchEvent(new Event('input', {bubbles:true}));
+    renderTools();
+  }
+
   function editableText(slide, componentId, tag, className) {
     var component = effectiveComponent(slide, componentId);
     var element = document.createElement(tag || "div");
@@ -683,7 +777,7 @@
       window.ScientificMathRuntime.renderLatex(element, component.text, {displayMode: component.display === "block"});
       element.setAttribute("data-latex-source", component.text);
     } else {
-      element.textContent = component.text;
+      renderMarkedText(element, component);
     }
     element.setAttribute("data-component-id", componentId);
     element.setAttribute("data-component-kind", "text");
@@ -698,7 +792,10 @@
     });
     element.addEventListener("input", function () {
       if (!editMode || isLatex) return;
-      updateOverlay(slide.id, componentId, "text", element.textContent.trim());
+      var value = readMarkedText(element);
+      updateOverlay(slide.id, componentId, "text", value.text);
+      if (value.marks.length || effectiveComponent(slide,componentId).marks)
+        updateOverlay(slide.id, componentId, 'marks', value.marks);
       beginChange();
       clearTimeout(inputTimer);
       inputTimer = setTimeout(persist, 260);
@@ -710,6 +807,10 @@
       if (pasteTableGrid(slide, componentId, raw)) event.preventDefault();
     });
     element.addEventListener("keydown", function (event) {
+      if (editMode && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
+        event.preventDefault(); event.stopPropagation();
+        toggleTextBold(slide.id,componentId,element); return;
+      }
       if (!editMode || event.key !== "Tab" || !element.closest("[data-table-cell]")) return;
       event.preventDefault();
       var cells = Array.from(element.closest('[data-native-table]').querySelectorAll("[data-table-cell] .semantic-component"));
@@ -718,6 +819,11 @@
       if (!next) next = cells[event.shiftKey ? cells.length - 1 : 0];
       next.focus();
       next.click();
+    });
+    element.addEventListener('beforeinput', function(event) {
+      if (event.inputType === 'formatBold') {
+        event.preventDefault(); toggleTextBold(slide.id,componentId,element);
+      }
     });
     element.addEventListener("dblclick", function (event) {
       if (!editMode || !isLatex) return;
@@ -1297,11 +1403,24 @@
   }
 
   function renderThumbs() {
-    thumbList.textContent = "";
+    if (previewMode) return;
+    var existing = new Map(Array.from(thumbList.children).map(function(card) {return [card.dataset.id,card];}));
     count.textContent = String(state.order.length);
     state.order.forEach(function (id, index) {
       var slide = slideById(id);
+      var key = JSON.stringify([state.slideRevisions[id],state.overlays[id],(state.tables||{})[id],
+        (state.objects||{})[id],state.hidden.includes(id)]);
+      var retained = existing.get(id);
+      if (retained && retained.dataset.previewKey === key) {
+        retained.classList.toggle('current', id === currentId);
+        retained.querySelector('.thumb-index').textContent = String(index + 1).padStart(2,'0');
+        if (thumbList.children[index] !== retained) thumbList.insertBefore(retained,thumbList.children[index] || null);
+        existing.delete(id);
+        return;
+      }
+      if (retained) {retained.remove(); existing.delete(id);}
       var card = document.createElement("article");
+      card.dataset.previewKey = key;
       card.className = "thumb" + (id === currentId ? " current" : "") +
         (state.hidden.indexOf(id) >= 0 ? " hidden" : "");
       card.setAttribute("data-id", id);
@@ -1339,8 +1458,17 @@
       });
       inner.appendChild(actions);
       card.appendChild(inner);
-      thumbList.appendChild(card);
+      thumbList.insertBefore(card,thumbList.children[index] || null);
     });
+    existing.forEach(function(card) {card.remove();});
+    // Follow navigation/reload, never reset the curator's manual rail browsing
+    // during saves, text edits, or thumbnail arrival.
+    if (focusedThumb !== currentId) {
+      focusedThumb = currentId;
+      var focused = Array.from(thumbList.children).find(function(card) {return card.dataset.id === currentId;});
+      if (focused) focused.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
+    }
+    previews.sync();
   }
 
   function selectedComponent() {
@@ -1352,6 +1480,9 @@
     var component = selectedComponent();
     var textSelected = editMode && component && component.kind === "text";
     var imageSelected = editMode && component && component.kind === "image";
+    var boldButton = document.querySelector('[data-bold]');
+    boldButton.disabled = !textSelected || component.render === 'latex';
+    boldButton.setAttribute('aria-pressed', String(Boolean(textSelected && (component.marks || []).some(function(mark) {return mark.bold;}))));
     document.querySelectorAll("[data-font-delta], [data-color]").forEach(function (button) { button.disabled = !textSelected; });
     document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
     var objectSelected = Boolean(editMode && selected && selected.visualObject);
@@ -1378,6 +1509,7 @@
 
   function render() {
     var generation = ++renderGeneration;
+    if (previews) previews.pause();
     clearTimeout(prefetchTimer);
     // Never leave an old slide editable while a new route is loading.
     var canvas = stage.querySelector('.slide-canvas');
@@ -1387,7 +1519,20 @@
     ensureSlide(currentId).then(prepareSlide).then(function() {
       if (generation !== renderGeneration) return;
       renderStage(); renderTools();
+      // Give the main slide its first useful paint before background previews.
+      var readyDeadline = performance.now() + 18000;
+      function afterUsefulPaint() {
+        if (generation !== renderGeneration) return;
+        var ready = document.fonts.status === 'loaded' &&
+          Array.from(stage.querySelectorAll('img')).every(function(img) {return img.complete && img.naturalWidth;}) &&
+          Array.from(stage.querySelectorAll('.native-chart')).every(function(chart) {return chart.dataset.chartReady === 'true';});
+        if (!ready) {if(performance.now() < readyDeadline) setTimeout(afterUsefulPaint,100); return;}
+        if (previewMode) parent.postMessage({type:'slidekit-preview-ready'},location.origin);
+        else previews.start();
+      }
+      requestAnimationFrame(function() {requestAnimationFrame(afterUsefulPaint);});
       // Only the next source, only after paint, and never large image pages.
+      if (previewMode) return;
       prefetchTimer = setTimeout(function() {
         var next = state.order[currentIndex() + 1];
         if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {});
@@ -1504,6 +1649,12 @@
         !enteredFromPresentationUrl) setPresentationMode(false);
   });
   undoButton.addEventListener("click", undo);
+  document.querySelector('[data-bold]').addEventListener('pointerdown', function(event) {event.preventDefault();});
+  document.querySelector('[data-bold]').addEventListener('click', function() {
+    if (!selected) return;
+    toggleTextBold(selected.slideId, selected.componentId,
+      stage.querySelector('[data-component-id="' + selected.componentId + '"]'));
+  });
 
   document.querySelectorAll("[data-font-delta]").forEach(function (button) {
     button.addEventListener("click", function () {
@@ -1604,6 +1755,7 @@
     var requested = resolveRoute(location.hash.slice(1));
     currentId = requested || state.order[0];
     render();
+    if (previewMode) return;
     try {
       var draft = JSON.parse(localStorage.getItem(draftKey));
       if (draft) retainDraft(draft.message, draft);

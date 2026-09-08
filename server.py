@@ -134,7 +134,7 @@ def make_server(
     lock = threading.RLock()
     uploads_dir = uploads_dir or state_path.parent / "uploads"
     runtime_assets = [
-        "styles.css", "app.js", "recipes.js", "joint-diagram.js",
+        "styles.css", "app.js", "slide-previews.js", "recipes.js", "joint-diagram.js",
         "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
         "math-runtime.js", "math-runtime.css",
     ]

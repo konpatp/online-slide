@@ -29,7 +29,7 @@ COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 ALLOWED_OVERLAY_KEYS = {
-    "text", "color", "fontScale", "src", "imageScale", "region", "chartLayout", "hidden",
+    "text", "color", "fontScale", "src", "imageScale", "region", "chartLayout", "hidden", "marks",
 }
 
 
@@ -133,6 +133,8 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         if kind == "text":
             _require(isinstance(component.get("text"), str),
                      f"{source}: text component {component_id!r} needs text")
+            if 'marks' in component:
+                validate_text_marks(component['marks'], component)
             render = component.get("render", "plain")
             _require(render in {"plain", "latex"},
                      f"{source}: text component {component_id!r} has invalid renderer")
@@ -711,7 +713,17 @@ def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
     def merge_map(old: dict, new: dict, remote: dict, depth: int,
                   path: tuple[str, ...]) -> dict:
         merged = copy.deepcopy(remote)
-        for key in old.keys() | new.keys():
+        keys = old.keys() | new.keys()
+        if depth == 1 and path[0] == 'overlays' and any('marks' in value for value in (old,new,remote)):
+            # Ranges and the text they index form one conflict domain. A
+            # concurrent wording edit must not move bold onto other words.
+            group = lambda value: {key:value[key] for key in ('text','marks') if key in value}
+            chosen = choose(group(old),group(new),group(remote),(*path,'text'))
+            for key in ('text','marks'):
+                merged.pop(key,None)
+            merged.update(copy.deepcopy(chosen))
+            keys -= {'text','marks'}
+        for key in keys:
             before, after = old.get(key, missing), new.get(key, missing)
             actual = remote.get(key, missing)
             if before == after:
@@ -825,8 +837,10 @@ def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
                      isinstance(component.get("text"), str) and len(component["text"]) <= 800,
                      f"inserted table component must be text: {slide_id}@{component_id}")
             _require(set(component) <= {
-                "kind", "text", "role", "render", "display", "color", "fontScale", "region", "hidden",
+                "kind", "text", "role", "render", "display", "color", "fontScale", "region", "hidden", "marks",
             }, f"unsupported inserted table component fields: {slide_id}@{component_id}")
+            if 'marks' in component:
+                validate_text_marks(component['marks'], component)
             if 'hidden' in component:
                 _require(isinstance(component['hidden'],bool), 'inserted component hidden state must be boolean')
             _require(isinstance(component.get("role", "table-value"), str),
@@ -1040,6 +1054,11 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
             _require(set(overlay) <= ALLOWED_OVERLAY_KEYS,
                      f"unsupported overlay fields on {slide_id}@{component_id}")
             component = catalog[slide_id]["components"][component_id]
+            if 'marks' in overlay:
+                _require('text' in overlay, 'text marks must bind their exact text')
+                validate_text_marks(overlay['marks'], {**component, **overlay})
+            elif 'text' in overlay and 'marks' in component:
+                _require(False, 'replacement text must explicitly replace its authored marks')
             if 'hidden' in overlay:
                 _require(isinstance(overlay['hidden'],bool), 'component hidden state must be boolean')
             if "chartLayout" in overlay:
@@ -1073,6 +1092,23 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
                     overlay["region"],
                     f"region overlay is invalid on {slide_id}@{component_id}",
                 )
+
+
+def validate_text_marks(marks: Any, component: dict) -> None:
+    """Plain-text formatting ranges, never executable HTML; offsets use DOM UTF-16."""
+    _require(component.get('kind') == 'text' and component.get('render', 'plain') == 'plain',
+             'text marks require plain text (use LaTeX commands for math)')
+    _require(isinstance(marks, list) and len(marks) <= 200, 'invalid text marks')
+    _require(isinstance(component.get('text'), str), 'marked text must be a string')
+    length = len(component['text'].encode('utf-16-le')) // 2
+    previous = 0
+    for mark in marks:
+        _require(isinstance(mark, dict) and set(mark) == {'start', 'end', 'bold'}, 'invalid text mark fields')
+        start, end = mark['start'], mark['end']
+        _require(type(start) is int and type(end) is int and previous <= start < end <= length,
+                 'text marks overlap or exceed the text')
+        _require(type(mark['bold']) is bool, 'bold mark must be boolean')
+        previous = end
 
 
 def validate_chart_layout(value: Any, component: dict) -> None:

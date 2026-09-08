@@ -11,7 +11,15 @@
         ? location.pathname : location.pathname + "/";
       window.slidekitAssetRevision = "__ASSET_REVISION__";
       // Start useful data while the small editor shell downloads, not afterward.
-      window.slidekitBoot = fetch("api/bootstrap?slide=" + encodeURIComponent(location.hash.slice(1)), {cache:"no-store"})
+      window.slidekitPreview = new URLSearchParams(location.search).get('preview') === '1' && parent !== window;
+      window.slidekitBoot = window.slidekitPreview ? new Promise(function(resolve) {
+        window.addEventListener('message', function receive(event) {
+          if (event.origin !== location.origin || event.source !== parent || !event.data || event.data.type !== 'slidekit-preview-data') return;
+          window.removeEventListener('message', receive);
+          resolve(event.data.payload);
+        });
+        parent.postMessage({type:'slidekit-preview-request'}, location.origin);
+      }) : fetch("api/bootstrap?slide=" + encodeURIComponent(location.hash.slice(1)), {cache:"no-store"})
         .then(function(r) { if(!r.ok) throw new Error("Could not load the deck"); return r.json(); });
       window.slidekitBoot.catch(function() {});
     </script>
@@ -62,6 +70,7 @@
           <div class="component-tools" data-component-tools aria-label="Selected component controls">
             <button class="tool-button" type="button" data-font-delta="-0.1" disabled aria-label="Decrease text size">A−</button>
             <button class="tool-button" type="button" data-font-delta="0.1" disabled aria-label="Increase text size">A+</button>
+            <button class="tool-button" type="button" data-bold disabled aria-label="Bold selected text" aria-pressed="false">B</button>
             <span class="palette" aria-label="Theme colors">
               <button type="button" data-color="#14233b" style="--swatch:#14233b" disabled aria-label="Ink"></button>
               <button type="button" data-color="#2f6fed" style="--swatch:#2f6fed" disabled aria-label="Blue"></button>
@@ -103,6 +112,7 @@
     </dialog>
     <script src="recipes.js?v=__ASSET_REVISION__"></script>
     <script src="chart-panels.js?v=__ASSET_REVISION__"></script>
+    <script src="slide-previews.js?v=__ASSET_REVISION__"></script>
     <script src="app.js?v=__ASSET_REVISION__"></script>
   </body>
 </html>

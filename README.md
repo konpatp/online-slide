@@ -30,8 +30,11 @@ and editing do not require Node. To change them, run
 Open <http://127.0.0.1:8000/>. Enable edit mode to:
 
 - edit any semantic text leaf directly;
+- bold highlighted text with **B** or Command/Ctrl+B (no selection formats the
+  entire selected cell); formatting is saved as checked plain-text ranges;
 - edit evidence tables structurally: add, remove, and reorder rows/columns,
-  resize columns, move cell-to-cell with Tab, and paste TSV blocks;
+  resize columns without changing presentation geometry, move cell-to-cell
+  with Tab, and paste TSV blocks;
 - move and resize process-diagram nodes; node text wraps and fits inside the
   chosen box;
 - select a connector and add, move, or remove native bend points;
