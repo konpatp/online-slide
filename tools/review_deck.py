@@ -13,7 +13,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from server import make_server
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 
 @contextmanager
@@ -53,7 +53,7 @@ def main():
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1920, "height": 1080})
         page.on("pageerror", lambda error: findings.append(str(error)))
-        page.goto(base + "/", wait_until="networkidle")
+        page.goto(base + "/?present=1", wait_until="networkidle")
         state = page.evaluate("fetch('api/deck-state').then(r => r.json())")
         order = state["order"]
         requested = order if args.all else args.slide
@@ -66,12 +66,22 @@ def main():
             sequence = visible if key in visible else order
             index = sequence.index(key)
             selected.update(sequence[max(0, index-1):index+2])
-        for key in (key for key in order if key in selected):
-            page.goto(base + "/?present=1#" + key, wait_until="networkidle")
-            page.wait_for_function("""id => document.fonts.status === 'loaded' &&
+        sequence=[key for key in order if key in selected]
+        # One live document: fresh page.goto per slide never tests destruction
+        # of the preceding chart, nor late work from an abandoned renderer.
+        transitions=[]
+        for key in sequence + sequence[:1]:
+            page.evaluate("id => {location.hash=id}",key)
+            try:
+                page.wait_for_function("""id => document.fonts.status === 'loaded' &&
               document.querySelector('.slide-canvas')?.dataset.slideId === id &&
               [...document.images].every(i => i.complete) &&
-              [...document.querySelectorAll('.native-chart')].every(c => c.dataset.chartReady === 'true' || c.dataset.chartError)""", arg=key)
+              [...document.querySelectorAll('.native-chart')].every(c => c.dataset.chartReady === 'true' || c.dataset.chartError)""", arg=key, timeout=20000)
+            except PlaywrightTimeout:
+                findings.append(key+': navigation did not produce a complete slide')
+                page.screenshot(path=str(args.output/(key+'.failed.png')))
+                break
+            transitions.append(key)
             page.wait_for_timeout(180)
             audit = page.evaluate("""() => {
               const canvas=document.querySelector('.slide-canvas');
@@ -114,6 +124,8 @@ def main():
                "sourceRevision": state["sourceRevision"], "stateRevision": state["revision"],
                "order": order, "hidden": state["hidden"], "requested": requested,
                "captures": captures, "findings": findings,
+               "navigation": {"mode":"same-document", "visited":transitions,
+                              "complete":transitions==sequence+sequence[:1]},
                "elapsedSeconds": round(time.perf_counter()-started, 2)}
     (args.output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print(json.dumps(receipt, indent=2))

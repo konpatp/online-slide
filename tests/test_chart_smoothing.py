@@ -5,6 +5,23 @@ from pathlib import Path
 import subprocess
 
 
+def test_runtime_ids_are_injective_css_safe_and_repeatable():
+    source=Path(__file__).resolve().parents[1]/'public/chart-panels.js'
+    values=['Control · before/after [α]', 'a b', 'a/b', 'a_b', '', '💡', '\\', '"', 'a:b']
+    script="""
+const fs=require('fs'),vm=require('vm');const sandbox={window:{}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),sandbox);
+const values=JSON.parse(fs.readFileSync(0,'utf8'));
+process.stdout.write(JSON.stringify(values.map(sandbox.window.scientificRuntimeTraceId)));
+"""
+    def encode():
+        return json.loads(subprocess.run(['node','-e',script,str(source)],input=json.dumps(values),text=True,capture_output=True,check=True).stdout)
+    ids=encode()
+    import re
+    assert ids==encode() and len(set(ids))==len(values)
+    assert all(re.fullmatch(r'trace(?:_[0-9a-f]{4})*',key) for key in ids)
+
+
 def test_centered_windows_match_brute_force_and_raw_keeps_order():
     source=Path(__file__).resolve().parents[1]/'public/chart-panels.js'
     cases=[{'x':[3,0,1,1],'y':[9,0,3,6],'radius':r} for r in (0,0.5,1,4)]

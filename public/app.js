@@ -1316,6 +1316,7 @@
     selectBoundedComponent: selectComponent,
     galleryImage: galleryImage,
     effectiveComponent: effectiveComponent,
+    sourceRevision: function(slideId) { return state.slideRevisions[slideId]; },
     effectiveTable: effectiveTable,
     startTableColumnResize: startTableColumnResize,
     fitTextInRegion: registerTextFit,
@@ -1359,7 +1360,7 @@
     removeTextRegionFrame();
     textRegionBindings.clear();
     stage.querySelectorAll(".native-chart").forEach(function (chart) {
-      if (window.Plotly) window.Plotly.purge(chart);
+      window.disposeScientificChart(chart);
     });
     stage.textContent = message;
   }
@@ -1598,6 +1599,8 @@
 
   function selectSlide(id) {
     if (state.order.indexOf(id) < 0) return;
+    // Selection is navigation, not a command to destroy/recreate the chart.
+    if (id === currentId) return;
     currentId = id;
     selected = null;
     history.replaceState(null, "", "#" + id);

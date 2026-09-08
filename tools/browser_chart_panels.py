@@ -19,7 +19,7 @@ def main():
               "notes":"Synthetic source note: no research information.",
               "components":{"headline":{"kind":"text","text":"Native scientific chart editing"},
                 "evidence":{"kind":"chart","figure":{"data":[
-                  {"uid":"control","name":"Control","type":"scatter","mode":"lines","x":[0,1,2],"y":[100,50,25]}],
+                  {"uid":"Control · before/after [α]","name":"Control","type":"scatter","mode":"lines","x":[0,1,2],"y":[100,50,25]}],
                   "layout":{"xaxis":{"title":{"text":"Training epoch"}},
                     "yaxis":{"type":"log","title":{"text":"Synthetic error"}},
                     "annotations":[{"name":"terminal-result","text":"Measured endpoint", "x":1,"y":1.9,"showarrow":False},
@@ -30,6 +30,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="native-chart-proof-") as temporary:
         root=Path(temporary);slides=root/'slides';slides.mkdir()
         path=slides/'mock-native-chart.json';path.write_text(json.dumps(source))
+        sibling=copy.deepcopy(source);sibling['id']='mock-next-chart'
+        (slides/'mock-next-chart.json').write_text(json.dumps(sibling))
         state_path=root/'state.json'
         def start():
             http=make_server(ROOT/'public',slides,root/'absent-seed.json',state_path)
@@ -42,8 +44,23 @@ def main():
                 page=browser.new_page(viewport={"width":1920,"height":1080})
                 errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
                 page.goto(base,wait_until='networkidle')
+                page.wait_for_selector('[data-chart-ready="true"]')
+                chart=page.locator('.native-chart')
+                chart.evaluate("c=>{c.navigationSentinel=true;return Plotly.relayout(c,{'xaxis.range':[.3,1.7],'xaxis.autorange':false})}")
+                card=page.locator('.thumb[data-id="mock-native-chart"] .thumb-card')
+                card.click();card.click()
+                assert chart.evaluate('c=>c.navigationSentinel') is True
+                for _ in range(3):
+                    page.locator('.thumb[data-id="mock-next-chart"] .thumb-card').click()
+                    page.wait_for_selector('.slide-canvas[data-slide-id="mock-next-chart"] [data-chart-ready="true"]')
+                    card.click()
+                    page.wait_for_selector('.slide-canvas[data-slide-id="mock-native-chart"] [data-chart-ready="true"]')
+                    assert chart.evaluate('c=>c.layout.xaxis.range')==[.3,1.7]
+                assert not errors,errors
                 page.locator('[data-edit-toggle]').click()
                 page.wait_for_selector('[data-chart-ready="true"]')
+                assert chart.evaluate('c=>c.layout.xaxis.range')==[.3,1.7]
+                chart.evaluate("c=>Plotly.relayout(c,{'xaxis.autorange':true})")
                 endpoint=page.locator('.annotation-text').filter(has_text='B12').bounding_box()
                 bounds=page.locator('.native-chart').bounding_box()
                 assert endpoint['x']+endpoint['width']<=bounds['x']+bounds['width']+1

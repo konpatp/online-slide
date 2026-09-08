@@ -60,7 +60,15 @@ def main():
                 assert not frame.locator('iframe').count()
                 assert not frame.locator('.presentation-exit').is_visible()
                 assert not any('/api/' in url for url in frame.evaluate('performance.getEntriesByType("resource").map(r=>r.name)'))
-                assert page.locator('iframe').count() < 6
+                # Bound by the actual viewport + declared prefetch margin,
+                # not by an assumed fixture count (all six can fit at 1080p).
+                assert page.evaluate('''() => {
+                    const rail=document.querySelector('.filmstrip').getBoundingClientRect();
+                    return [...document.querySelectorAll('.thumb-art iframe')].every(frame=>{
+                        const r=frame.parentElement.getBoundingClientRect();
+                        return r.bottom>=rail.top-80 && r.top<=rail.bottom+80;
+                    }) && document.querySelectorAll('.thumb-art:not(.preview-ready) iframe').length<=1;
+                }''')
                 writes = len(posts)
                 page.wait_for_timeout(500); assert len(posts)==writes
                 page.locator('[data-edit-toggle]').click()

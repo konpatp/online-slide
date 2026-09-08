@@ -1,6 +1,20 @@
 /* Native Plotly figures inside recipe-owned regions. Scientific data never changes. */
 (function (global) {
   "use strict";
+  // Plotly uses uid in unescaped cleanup selectors. Encode, never slugify:
+  // distinct authored identities must remain distinct (including Unicode).
+  function runtimeTraceId(value) {
+    var text=String(value), result='trace';
+    for(var i=0;i<text.length;i++)result+='_'+text.charCodeAt(i).toString(16).padStart(4,'0');
+    return result;
+  }
+  global.scientificRuntimeTraceId=runtimeTraceId;
+  // Keep only lightweight presenter view state, not detached plots or data.
+  var chartViews=new Map();
+  global.disposeScientificChart=function(chart) {
+    if(chart.dataset.chartReady==='true' && chart.rememberView)chart.rememberView();
+    if(global.Plotly && chart._fullLayout)global.Plotly.purge(chart);
+  };
   // Centered x-distance window, matching the retained chart interaction.
   // Sorting is stable; radius zero returns the exact authored observations.
   function centeredMeanByX(xs,ys,radius) {
@@ -28,7 +42,7 @@
           return slide.data.selectors.every(function (selector) { return candidate.selection[selector.id] === selection[selector.id]; });
         }) || slide.data.views[0];
         selection = Object.assign({}, view.selection);
-        canvas.querySelectorAll('.native-chart').forEach(function (chart) { if (chart._fullLayout) global.Plotly.purge(chart); });
+        canvas.querySelectorAll('.native-chart').forEach(global.disposeScientificChart);
         var old = canvas.querySelector('.native-charts'); if (old) old.remove();
         global.renderScientificFacetControls(controls,slide,slide.data.selectors,selection,function (key,value) {
           selection[key]=value;
@@ -133,6 +147,10 @@
         var component = api.effectiveComponent(slide, panel.chart);
         if(component.hidden && !api.isEditMode()) return;
         var figure = JSON.parse(JSON.stringify(component.figure));
+        var viewKey=JSON.stringify([slide.id,panel.chart]);
+        var sourceSignature=api.sourceRevision(slide.id);
+        var savedView=chartViews.get(viewKey);
+        if(savedView && savedView.source!==sourceSignature)savedView=null;
         var layout = figure.layout;
         var edits = component.chartLayout || {};
         layout.legend = Object.assign({}, layout.legend, edits.legend || {});
@@ -178,12 +196,18 @@
           layout[key] = axis;
         });
         figure.data.forEach(function (trace) {
+          if(trace.uid!==undefined)trace.uid=runtimeTraceId(trace.uid);
+          if(savedView && Object.prototype.hasOwnProperty.call(savedView.visible,trace.uid))
+            trace.visible=savedView.visible[trace.uid];
           if (trace.text) trace.textfont = Object.assign({}, trace.textfont, {size:38});
           if(smoothing && String(trace.mode||'').indexOf('lines')>=0){
             var values=centeredMeanByX(trace.x,trace.y,radius);trace.x=values.x;trace.y=values.y;
           }
         });
         layout.uirevision = slide.id + ":" + panel.chart;
+        if(savedView)Object.keys(savedView.axes).forEach(function(key){
+          layout[key]=Object.assign({},layout[key],savedView.axes[key]);
+        });
         var editable = api.isEditMode();
         global.Plotly.newPlot(chart, figure.data, layout, {
           responsive:false, displaylogo:false, scrollZoom:false,
@@ -193,6 +217,19 @@
         }).then(function () {
           if (!chart.isConnected) { global.Plotly.purge(chart); return; }
           chart.dataset.chartReady = "true";
+          chart.rememberView=function() {
+            var axes={},visible={};
+            Object.keys(chart.layout).forEach(function(key){
+              if(!/^[xy]axis\d*$/.test(key))return;
+              var axis=chart.layout[key];
+              axes[key]={autorange:axis.autorange};
+              if(Array.isArray(axis.range))axes[key].range=axis.range.slice();
+            });
+            chart.data.forEach(function(trace){if(trace.uid!==undefined)visible[trace.uid]=trace.visible===undefined?true:trace.visible;});
+            chartViews.delete(viewKey);
+            chartViews.set(viewKey,{source:sourceSignature,axes:axes,visible:visible});
+            if(chartViews.size>64)chartViews.delete(chartViews.keys().next().value);
+          };
           chart.on("plotly_relayout", function (changes) {
             if (!api.isEditMode()) return;
             var next = JSON.parse(JSON.stringify(api.effectiveComponent(slide, panel.chart).chartLayout || {}));
