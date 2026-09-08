@@ -60,6 +60,12 @@ def main():
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
                 page.locator('[data-stage] .slide-title').dblclick()
                 assert box.count()==2,'double-clicking authored text must not insert'
+                title=page.locator('[data-stage] .slide-title')
+                title.fill('First title line');page.keyboard.press('Enter');page.keyboard.type('Second title line')
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                page.reload();title.wait_for()
+                assert title.text_content()=='First title line\nSecond title line'
+                assert title.evaluate('e=>getComputedStyle(e).whiteSpace')=='pre-wrap'
                 assert not errors,errors
                 page.screenshot(path='/tmp/text-box-editor-proof.png')
                 browser.close()

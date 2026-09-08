@@ -394,6 +394,7 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .edit-mode .slide-annotation-shape { pointer-events:auto; cursor:move; }
 .slide-annotation-text { position:absolute; left:0; top:0; z-index:9; font-size:40px; }
 .slide-annotation-text[data-component-id^="text-box-"] { padding:12px 16px; box-sizing:border-box; white-space:pre-wrap; overflow-wrap:anywhere; font-size:calc(40px * var(--component-scale, 1)); }
+.semantic-component[data-component-kind="text"]:not([data-latex-source]) { white-space:pre-wrap; }
 .recipe-frame-select { display:none; position:absolute; z-index:21; font:16px Inter,sans-serif; cursor:move; }
 .edit-mode .recipe-frame-select { display:block; }
 .create-slide-dialog {width:min(1100px,94vw);max-height:92vh;border:0;border-radius:18px;padding:28px;color:#14233b;box-shadow:0 24px 90px #14233b33;}
