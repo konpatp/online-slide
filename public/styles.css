@@ -60,7 +60,8 @@ body.present-only.preview-only .presentation-exit { display: none; }
 .thumb-actions { display: flex; align-items: center; gap: 3px; margin-top: 6px; }
 .thumb-action { width: 24px; height: 23px; padding: 0; border: 1px solid #e2e8f0; border-radius: 6px; color: #6f7f94; background: #fbfcfe; cursor: pointer; font-size: 12px; }
 .thumb-action:hover { border-color: #a9b8cc; color: var(--blue); }
-.thumb-action.visibility { margin-left: auto; }
+.thumb-action.visibility { margin-left: auto; width: auto; min-width: 40px; padding: 0 6px; }
+.thumb-action:disabled { opacity: .4; cursor: default; }
 .rail-help { margin: 18px 8px 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 .workspace { min-width: 0; display: grid; grid-template-rows: 55px 1fr 41px; }

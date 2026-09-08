@@ -31,6 +31,27 @@ def main():
                 resources = page.evaluate('performance.getEntriesByType("resource").map(r=>r.name)')
                 assert not any(name in url for url in resources for name in
                                ('plotly.min.js', 'joint-diagram.js', 'geometry-runtime.js', 'api/deck-state'))
+                # Explicit sidebar actions work without enabling text editing.
+                card = page.locator('.thumb[data-id="%s"]' % first)
+                assert page.locator('[data-edit-toggle]').text_content() == 'Enable edit'
+                with page.expect_response(lambda r: r.request.method == 'POST'):
+                    card.get_by_role('button', name='Hide slide', exact=True).click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert first in json.loads(state_path.read_text())['hidden']
+                page.reload(); card.get_by_role('button', name='Show slide', exact=True).wait_for()
+                with page.expect_response(lambda r: r.request.method == 'POST'):
+                    card.get_by_role('button', name='Show slide', exact=True).click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                before_order = json.loads(state_path.read_text())['order']
+                with page.expect_response(lambda r: r.request.method == 'POST'):
+                    card.get_by_role('button', name='Move later', exact=True).click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert json.loads(state_path.read_text())['order'].index(first) == before_order.index(first)+1
+                with page.expect_response(lambda r: r.request.method == 'POST'):
+                    card.get_by_role('button', name='Move earlier', exact=True).click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert json.loads(state_path.read_text())['order'] == before_order
+                assert first not in json.loads(state_path.read_text())['hidden']
                 # A real edit must receive a durable small ACK, not an optimistic no-op.
                 page.locator('[data-edit-toggle]').click()
                 headline = page.locator('.slide-title')

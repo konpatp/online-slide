@@ -44,7 +44,6 @@ Open <http://127.0.0.1:8000/>. Enable edit mode to:
   its endpoints or center handle;
 - drag the selected text region by its top edge and resize it from its corner;
 - change the selected leaf's font size or theme color;
-- reorder or hide slides without changing their source;
 - drop an external image onto a gallery cell;
 - resize the selected image inside its non-cropping slot; and
 - undo an optimistic edit burst.
@@ -54,6 +53,10 @@ editable placeholders after the current slide. **Section break** creates just
 a centered title. Table, image/plot, process, gallery and equation starters
 reuse the existing recipes. Quantitative interactive plots remain agent-authored
 SlideSpecs: this picker does not pretend to provide a chart-data editor.
+Sidebar move arrows and the labelled Hide/Show button work directly, even with
+text editing off; they save through the same revision-checked state. Impossible
+boundary moves are visibly disabled rather than silently ignored.
+
 Image slots accept dropped images in edit mode.
 
 Browser-created SlideSpecs live in `createdSlides` in the external live-state

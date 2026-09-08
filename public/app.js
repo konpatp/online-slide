@@ -1445,6 +1445,10 @@
       if (retained && retained.dataset.previewKey === key) {
         retained.classList.toggle('current', id === currentId);
         retained.querySelector('.thumb-index').textContent = String(index + 1).padStart(2,'0');
+        retained.querySelectorAll('[data-action="move"]').forEach(function(button) {
+          var target = index + Number(button.dataset.delta);
+          button.disabled = target < 0 || target >= state.order.length;
+        });
         if (thumbList.children[index] !== retained) thumbList.insertBefore(retained,thumbList.children[index] || null);
         existing.delete(id);
         return;
@@ -1476,13 +1480,15 @@
       var actions = document.createElement("div");
       actions.className = "thumb-actions";
       [["↑", "move", -1, "Move earlier"], ["↓", "move", 1, "Move later"],
-       [state.hidden.indexOf(id) >= 0 ? "◉" : "◌", "visibility", null,
+       [state.hidden.indexOf(id) >= 0 ? "Show" : "Hide", "visibility", null,
         state.hidden.indexOf(id) >= 0 ? "Show slide" : "Hide slide"]].forEach(function (item) {
         var button = document.createElement("button");
         button.className = "thumb-action " + item[1];
         button.type = "button";
         button.textContent = item[0];
         button.setAttribute("aria-label", item[3]);
+        button.title = item[3];
+        if (item[1] === 'move') button.disabled = index + item[2] < 0 || index + item[2] >= state.order.length;
         button.setAttribute("data-action", item[1]);
         if (item[2] !== null) button.setAttribute("data-delta", item[2]);
         actions.appendChild(button);
@@ -1606,7 +1612,6 @@
   }
 
   function mutateOrder(id, delta) {
-    if (!editMode) return;
     var index = state.order.indexOf(id);
     var target = index + delta;
     if (index < 0 || target < 0 || target >= state.order.length) return;
@@ -1618,13 +1623,14 @@
   }
 
   function toggleHidden(id) {
-    if (!editMode) return;
+    if (state.order.indexOf(id) < 0) return;
     beginChange();
     var index = state.hidden.indexOf(id);
     if (index >= 0) state.hidden.splice(index, 1);
     else state.hidden.push(id);
     render();
     persist();
+    showToast(index < 0 ? 'Slide hidden.' : 'Slide shown.');
   }
 
   function selectSlide(id) {
