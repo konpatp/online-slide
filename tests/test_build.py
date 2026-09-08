@@ -34,6 +34,8 @@ class BuildTests(unittest.TestCase):
             self.assertTrue((output / "public" / display_map["assets/test.png"]).exists())
             self.assertFalse((output / "public/assets/test.png").exists())
             self.assertEqual(raster.read_bytes(), original)
+            from tools.validate_deck import validate
+            self.assertTrue(validate(output)["ok"])
             self.assertFalse((output / "data/live-state.json").exists())
             # Adding one file alone is sufficient. Existing source bytes stay unchanged.
             spec = json.loads((source / "slides/01-hero-plot.json").read_text())

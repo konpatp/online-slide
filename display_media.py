@@ -45,7 +45,9 @@ def display_bytes(raw: bytes, suffix: str) -> tuple[bytes, str]:
 def publish_image(source: Path, destination: Path) -> Path:
     """Content-keyed derivative cache: repeated builds do not re-encode."""
     raw = source.read_bytes()
-    key = hashlib.sha256(POLICY.encode() + raw).hexdigest()
+    from PIL import __version__, features
+    encoder = f"{POLICY}/{__version__}/{features.version('webp')}"
+    key = hashlib.sha256(encoder.encode() + raw).hexdigest()
     suffix = ".webp" if source.suffix.lower() in RASTERS else source.suffix.lower()
     target = destination / (key + suffix)
     if not target.is_file():

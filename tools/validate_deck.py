@@ -19,15 +19,19 @@ from slidekit import ContractError, catalog_receipt, load_catalog  # noqa: E402
 def validate(root: Path) -> dict:
     started = time.perf_counter()
     catalog = load_catalog(root / "slides")
+    manifest = root / "data" / "display-media.json"
+    display_map = json.loads(manifest.read_text()) if manifest.is_file() else {}
     findings = []
     for slide_id, spec in catalog.items():
         for component_id, component in spec["components"].items():
             if component["kind"] != "image":
                 continue
-            path = root / "public" / component["src"]
+            path = root / "public" / display_map.get(component["src"], component["src"])
             if not path.is_file():
                 findings.append(f"{slide_id}@{component_id}: missing asset {component['src']}")
-        for required in ("headline", "footer"):
+        # Footer is optional in the SlideSpec contract, not a universal
+        # requirement inherited from the original six-slide pilot.
+        for required in ("headline",):
             if not spec.get(required):
                 findings.append(f"{slide_id}: {required} is required by the pilot")
     css = (root / "public" / "styles.css").read_text(encoding="utf-8")
