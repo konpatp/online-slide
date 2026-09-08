@@ -16,4 +16,5 @@ node --check public/chart-panels.js
 if [[ "${ONLINE_SLIDE_BROWSER_CHECK:-0}" == "1" ]]; then
   python3 tools/browser_smoke.py
   python3 tools/browser_concurrency.py
+  python3 tools/browser_transport.py
 fi

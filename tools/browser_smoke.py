@@ -124,7 +124,10 @@ def main() -> int:
                     text=r'\boxed{A}', render='latex')
                 table_fixture.write_text(json.dumps(math_fixture))
                 page.goto(base + "/#mock-angle-evidence", wait_until="networkidle")
-                page.wait_for_function("document.querySelector('.evidence-table').dataset.fitScale")
+                # Source specs are revision-bound. Start a new catalog session
+                # after changing the source, rather than requesting stale bytes.
+                page.reload(wait_until="networkidle")
+                page.wait_for_function("document.querySelector('.evidence-table')?.dataset.fitScale")
                 fit = page.locator('.evidence-table').evaluate("e => ({scale:+e.dataset.fitScale, overflow:e.dataset.fitOverflow})")
                 if fit['scale'] < .95 or fit['overflow'] != 'false':
                     findings.append("a contained boxed formula unnecessarily shrank the complete table")
@@ -133,7 +136,7 @@ def main() -> int:
                 math_fixture['components']['random-best']['text'] = r'\text{' + 'W' * 100 + '}'
                 table_fixture.write_text(json.dumps(math_fixture))
                 page.reload(wait_until="networkidle")
-                page.wait_for_function("document.querySelector('.evidence-table').dataset.fitScale")
+                page.wait_for_function("document.querySelector('.evidence-table')?.dataset.fitScale")
                 if page.locator('.evidence-table').get_attribute('data-fit-overflow') != 'true':
                     findings.append("an oversized formula escaped table containment review")
                 table_fixture.write_text(original_fixture)
@@ -621,7 +624,7 @@ def main() -> int:
                 page.goto(base + "/#mock-guidance-vector-geometry", wait_until="networkidle")
                 if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                     page.locator("[data-edit-toggle]").click()
-                page.wait_for_function("document.querySelector('.jsxgraph-host').__scientificGeometry.controls.size >= 5")
+                page.wait_for_function("document.querySelector('.jsxgraph-host')?.__scientificGeometry?.controls.size >= 5")
                 raw_midpoint = page.evaluate("""() => {
                   const host=document.querySelector('.jsxgraph-host');
                   const control=host.__scientificGeometry.controls.get('raw');
@@ -658,7 +661,7 @@ def main() -> int:
                 page.reload(wait_until="networkidle")
                 if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                     page.locator("[data-edit-toggle]").click()
-                page.wait_for_function("document.querySelector('.jsxgraph-host').__scientificGeometry.controls.size >= 5")
+                page.wait_for_function("document.querySelector('.jsxgraph-host')?.__scientificGeometry?.controls.size >= 5")
                 persisted_vector = page.evaluate("""() => {
                   const c=document.querySelector('.jsxgraph-host').__scientificGeometry.controls.get('raw');
                   return {from:[Number(c.start.X().toFixed(4)),Number(c.start.Y().toFixed(4))],
@@ -670,7 +673,7 @@ def main() -> int:
                 page.reload(wait_until="networkidle")
                 if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                     page.locator("[data-edit-toggle]").click()
-                page.wait_for_function("document.querySelector('.jsxgraph-host').__scientificGeometry.controls.size >= 5")
+                page.wait_for_function("document.querySelector('.jsxgraph-host')?.__scientificGeometry?.controls.size >= 5")
                 page.evaluate("""() => document.querySelector('.jsxgraph-host')
                   .__scientificGeometry.select('raw','vector')""")
                 translated_before = page.evaluate("""() => {
@@ -704,6 +707,7 @@ def main() -> int:
                 # shape; reach endpoints change length and rotation, while the
                 # center handle translates the whole line.
                 page.goto(base + "/#mock-target-accessibility", wait_until="networkidle")
+                page.locator('.slide-canvas[data-slide-id="mock-target-accessibility"]').wait_for()
                 editor_layout = page.evaluate("""() => {
                   const panels=document.querySelector('.accessibility-panels').getBoundingClientRect();
                   const key=document.querySelector('.accessibility-key').getBoundingClientRect();

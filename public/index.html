@@ -9,8 +9,14 @@
     <script>
       document.querySelector("base").href = location.pathname.endsWith("/")
         ? location.pathname : location.pathname + "/";
+      window.slidekitAssetRevision = "__ASSET_REVISION__";
+      // Start useful data while the small editor shell downloads, not afterward.
+      window.slidekitBoot = fetch("api/bootstrap?slide=" + encodeURIComponent(location.hash.slice(1)), {cache:"no-store"})
+        .then(function(r) { if(!r.ok) throw new Error("Could not load the deck"); return r.json(); });
+      window.slidekitBoot.catch(function() {});
     </script>
     <link rel="stylesheet" href="geometry-runtime.css?v=__ASSET_REVISION__">
+    <link rel="stylesheet" href="math-runtime.css?v=__ASSET_REVISION__">
     <link rel="stylesheet" href="styles.css?v=__ASSET_REVISION__">
   </head>
   <body>
@@ -95,10 +101,7 @@
       <form method="dialog"><button class="button" autofocus>Close</button></form>
       <div data-notes-content></div>
     </dialog>
-    <script src="joint-diagram.js?v=__ASSET_REVISION__"></script>
-    <script src="geometry-runtime.js?v=__ASSET_REVISION__"></script>
     <script src="recipes.js?v=__ASSET_REVISION__"></script>
-    <script src="plotly.min.js?v=__ASSET_REVISION__"></script>
     <script src="chart-panels.js?v=__ASSET_REVISION__"></script>
     <script src="app.js?v=__ASSET_REVISION__"></script>
   </body>

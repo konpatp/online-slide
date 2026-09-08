@@ -68,10 +68,10 @@ def main():
             selected.update(sequence[max(0, index-1):index+2])
         for key in (key for key in order if key in selected):
             page.goto(base + "/?present=1#" + key, wait_until="networkidle")
-            page.wait_for_function("""() => document.fonts.status === 'loaded' &&
-              document.querySelector('.slide-canvas') &&
+            page.wait_for_function("""id => document.fonts.status === 'loaded' &&
+              document.querySelector('.slide-canvas')?.dataset.slideId === id &&
               [...document.images].every(i => i.complete) &&
-              [...document.querySelectorAll('.native-chart')].every(c => c.dataset.chartReady === 'true' || c.dataset.chartError)""")
+              [...document.querySelectorAll('.native-chart')].every(c => c.dataset.chartReady === 'true' || c.dataset.chartError)""", arg=key)
             page.wait_for_timeout(180)
             audit = page.evaluate("""() => {
               const canvas=document.querySelector('.slide-canvas');

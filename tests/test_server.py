@@ -1,5 +1,7 @@
 # test-tier: every-time
 import json
+import gzip
+import re
 import tempfile
 import threading
 import shutil
@@ -74,11 +76,68 @@ class ServerProtocolTests(unittest.TestCase):
             self.assertIn(b"ScientificSlideKit", page)
             self.assertNotIn(b"__ASSET_REVISION__", page)
             self.assertEqual(response.headers["Cache-Control"], "no-cache, must-revalidate")
-            self.assertRegex(page.decode(), r"geometry-runtime\.js\?v=[0-9a-f]{16}")
+            revision = re.search(r'app\.js\?v=([0-9a-f]{16})', page.decode()).group(1)
+            self.assertNotIn('<script src="plotly', page.decode())
         with self.get_response("/geometry-runtime.js?v=1234") as response:
+            self.assertEqual(response.headers["Cache-Control"], "no-cache, must-revalidate")
+        with self.get_response("/geometry-runtime.js?v=" + revision) as response:
             self.assertEqual(response.headers["Cache-Control"], "public, max-age=31536000, immutable")
         with self.get_response("/geometry-runtime.js") as response:
             self.assertEqual(response.headers["Cache-Control"], "no-cache, must-revalidate")
+
+    def test_first_slide_bootstrap_and_revision_bound_sources(self):
+        _, full = self.get('/api/deck-state')
+        sid = full['order'][1]
+        _, boot = self.get('/api/bootstrap?slide=' + sid)
+        self.assertEqual(boot['loadedSlides'], [sid])
+        self.assertEqual(boot['slides'][sid], full['slides'][sid])
+        self.assertEqual(boot['order'], full['order'])
+        self.assertNotIn('data', boot['slides'][full['order'][0]])
+        self.assertEqual(boot['overlays'], full['overlays'])
+        path = '/api/slides/' + sid + '?revision=' + full['slideRevisions'][sid]
+        self.assertEqual(self.get(path)[1], full['slides'][sid])
+        with self.get_response(path) as response:
+            self.assertIn('private', response.headers['Cache-Control'])
+        with self.assertRaises(HTTPError) as error:
+            self.get('/api/slides/' + sid + '?revision=stale')
+        self.assertEqual(error.exception.code, 409)
+
+    def test_compact_save_retains_exact_mutable_state_without_catalog(self):
+        _, state = self.get('/api/deck-state')
+        _, saved = self.post('/api/deck-state', {
+            'baseRevision': state['revision'], 'baseSourceRevision': state['sourceRevision'],
+            'snapshot': self.mutable_snapshot(state), 'compact': True,
+        })
+        self.assertNotIn('slides', saved)
+        self.assertEqual(saved['slideRevisions'], state['slideRevisions'])
+        self.assertEqual(self.mutable_snapshot(saved), self.mutable_snapshot(state))
+        self.assertEqual(self.state_path.read_text().count('"revision"'), 1)
+
+    def test_gzip_negotiation_and_conditional_cache_preserve_exact_bytes(self):
+        path = '/app.js'
+        with self.get_response(path) as response:
+            original = response.read()
+            plain_etag = response.headers['ETag']
+        request = Request(self.base + path, headers={'Accept-Encoding': 'gzip'})
+        with urlopen(request) as response:
+            raw = response.read()
+            etag = response.headers['ETag']
+            self.assertEqual(gzip.decompress(raw), original)
+            self.assertLess(len(raw), len(original) / 2)
+            self.assertEqual(response.headers['Vary'], 'Accept-Encoding')
+            self.assertNotEqual(plain_etag, etag)
+        request = Request(self.base + path, headers={'Accept-Encoding': 'gzip', 'If-None-Match': etag})
+        with self.assertRaises(HTTPError) as error:
+            urlopen(request)
+        self.assertEqual(error.exception.code, 304)
+        request = Request(self.base + path, headers={'Accept-Encoding': 'gzip;q=0, *;q=1'})
+        with urlopen(request) as response:
+            self.assertIsNone(response.headers.get('Content-Encoding'))
+            self.assertEqual(response.read(), original)
+        request = Request(self.base + '/api/bootstrap', headers={'Accept-Encoding': 'gzip'})
+        with urlopen(request) as response:
+            self.assertEqual(response.headers['Cache-Control'], 'no-store')
+            self.assertIn('loadedSlides', json.loads(gzip.decompress(response.read())))
 
     def test_revision_checked_semantic_overlay_save(self):
         _, state = self.get("/api/deck-state")

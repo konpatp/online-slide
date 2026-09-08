@@ -18,12 +18,13 @@ await build({
 });
 await normalizeBundle("public/joint-diagram.js");
 
+for (const runtime of ["geometry-runtime", "math-runtime"]) {
 await build({
-  entryPoints: ["src/geometry-runtime.js"],
+  entryPoints: [`src/${runtime}.js`],
   bundle: true,
   minify: true,
   format: "iife",
-  outfile: "public/geometry-runtime.js",
+  outfile: `public/${runtime}.js`,
   legalComments: "linked",
   sourcemap: false,
   target: ["es2020"],
@@ -34,6 +35,7 @@ await build({
   },
   assetNames: "assets/[name]-[hash]",
 });
-await normalizeBundle("public/geometry-runtime.js");
+await normalizeBundle(`public/${runtime}.js`);
+}
 await copyFile("node_modules/plotly.js-dist-min/plotly.min.js", "public/plotly.min.js");
 await copyFile("node_modules/plotly.js-dist-min/LICENSE", "public/plotly.LICENSE");

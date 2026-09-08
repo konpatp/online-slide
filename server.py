@@ -11,6 +11,8 @@ never silently retarget a live edit.
 from __future__ import annotations
 
 import argparse
+import gzip
+from functools import lru_cache
 import hashlib
 import json
 import mimetypes
@@ -21,7 +23,7 @@ import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qs, unquote
 
 from slidekit import (
     ContractError,
@@ -40,6 +42,29 @@ from slidekit import (
 
 MAX_BODY_BYTES = 2 * 1024 * 1024
 MAX_ASSET_BYTES = 8 * 1024 * 1024
+
+
+@lru_cache(maxsize=16)
+def compressed(raw: bytes) -> bytes:
+    """Bounded, content-keyed cache; no timestamp or stale-path identities."""
+    return gzip.compress(raw, compresslevel=6, mtime=0)
+
+
+def accepts_gzip(header: str) -> bool:
+    encodings = {}
+    for entry in header.lower().split(','):
+        name, *params = entry.strip().split(';')
+        quality = 1.0
+        for param in params:
+            if param.strip().startswith('q='):
+                try:
+                    quality = float(param.strip()[2:])
+                except ValueError:
+                    quality = 0.0
+        encodings[name] = quality
+    return encodings.get('gzip', encodings.get('*', 0)) > 0
+
+
 UPLOAD_NAME = re.compile(r"^[0-9a-f]{64}\.(?:png|jpe?g|webp|gif|svg)$")
 ALLOWED_ASSETS = {
     "image/png": "png",
@@ -111,6 +136,7 @@ def make_server(
     runtime_assets = [
         "styles.css", "app.js", "recipes.js", "joint-diagram.js",
         "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
+        "math-runtime.js", "math-runtime.css",
     ]
     asset_revision = hashlib.sha256(b"".join(
         (public_dir / name).read_bytes() for name in runtime_assets
@@ -121,26 +147,38 @@ def make_server(
     if changed:
         atomic_write_json(state_path, state)
 
-    def response(handler: SimpleHTTPRequestHandler, status: int, payload: Any) -> None:
-        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        handler.send_response(status)
-        handler.send_header("Content-Type", "application/json; charset=utf-8")
-        handler.send_header("Cache-Control", "no-store")
-        handler.send_header("Content-Length", str(len(raw)))
-        handler.end_headers()
-        handler.wfile.write(raw)
-
-    def static_response(handler: SimpleHTTPRequestHandler, path: Path, cache_control: str) -> None:
-        raw = path.read_bytes()
-        handler.send_response(200)
-        handler.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+    def send_bytes(handler, status, raw, content_type, cache_control="no-store"):
+        text = content_type.startswith('text/') or any(
+            kind in content_type for kind in ('json', 'javascript', 'svg'))
+        encoded = text and len(raw) >= 1024 and accepts_gzip(handler.headers.get('Accept-Encoding', ''))
+        if encoded:
+            raw = compressed(raw)
+        etag = '"' + hashlib.sha256(raw).hexdigest() + '"'
+        not_modified = status == 200 and cache_control != 'no-store' and handler.headers.get('If-None-Match') == etag
+        handler.send_response(304 if not_modified else status)
+        handler.send_header("Content-Type", content_type)
         handler.send_header("Cache-Control", cache_control)
+        handler.send_header("Vary", "Accept-Encoding")
+        handler.send_header("ETag", etag)
+        if encoded:
+            handler.send_header("Content-Encoding", "gzip")
+        if not_modified:
+            handler.end_headers()
+            return
         handler.send_header("Content-Length", str(len(raw)))
         handler.end_headers()
         try:
             handler.wfile.write(raw)
         except (BrokenPipeError, ConnectionResetError):
             return
+
+    def response(handler: SimpleHTTPRequestHandler, status: int, payload: Any, cache_control="no-store") -> None:
+        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        send_bytes(handler, status, raw, "application/json; charset=utf-8", cache_control)
+
+    def static_response(handler: SimpleHTTPRequestHandler, path: Path, cache_control: str) -> None:
+        send_bytes(handler, 200, path.read_bytes(),
+                   mimetypes.guess_type(path.name)[0] or "application/octet-stream", cache_control)
 
     def refresh_sources() -> None:
         nonlocal catalog, source_revision, state
@@ -155,7 +193,7 @@ def make_server(
         source_revision = candidate_revision
         state = reconciled
 
-    def deck_payload() -> dict[str, Any]:
+    def deck_payload(compact=False) -> dict[str, Any]:
         payload = dict(state)
         payload["order"] = list(state["order"])
         payload["hidden"] = list(state["hidden"])
@@ -164,7 +202,22 @@ def make_server(
         payload["objects"] = json.loads(json.dumps(state.get("objects", {})))
         payload["sourceRevision"] = source_revision
         payload["slideRevisions"] = source_revisions(catalog)
-        payload["slides"] = catalog
+        if not compact:
+            payload["slides"] = catalog
+        return payload
+
+    def bootstrap(requested):
+        payload = deck_payload(compact=True)
+        # Enough for navigation and curator order/visibility, not unrelated evidence.
+        payload['slides'] = {key: {field: slide[field] for field in
+            ('id', 'recipe', 'headline', 'theme', 'routes') if field in slide}
+            for key, slide in catalog.items()}
+        for key, slide in catalog.items():
+            payload['slides'][key]['components'] = {slide['headline']: slide['components'][slide['headline']]}
+        sid = requested if requested in catalog else next((key for key, slide in catalog.items()
+            if any(route['id'] == requested for route in slide.get('routes', []))), state['order'][0])
+        payload['slides'][sid] = catalog[sid]
+        payload['loadedSlides'] = [sid]
         return payload
 
     class Handler(SimpleHTTPRequestHandler):
@@ -186,10 +239,24 @@ def make_server(
 
         def do_GET(self) -> None:  # noqa: N802
             route = urlsplit(self.path).path
+            query = parse_qs(urlsplit(self.path).query)
             try:
                 with lock:
-                    if route in {"/api/health", "/api/deck-state"}:
+                    if route.startswith('/api/'):
                         refresh_sources()
+                    if route == '/api/bootstrap':
+                        payload = bootstrap(query.get('slide', [''])[0])
+                    elif route.startswith('/api/slides/'):
+                        sid = unquote(route.removeprefix('/api/slides/'))
+                        if sid not in catalog:
+                            response(self, 404, {'error': 'slide not found'})
+                            return
+                        if query.get('revision', [''])[0] != source_revisions(catalog)[sid]:
+                            response(self, 409, {'error': 'source revision changed; reload the deck'})
+                            return
+                        payload = catalog[sid]
+                    else:
+                        payload = None
                     if route == "/api/health":
                         response(self, 200, {
                             "ok": True,
@@ -199,8 +266,12 @@ def make_server(
                         })
                         return
                     if route == "/api/deck-state":
-                        response(self, 200, deck_payload())
-                        return
+                        payload = deck_payload()
+                # Do not hold the curator lock while a distant client downloads evidence.
+                if payload is not None:
+                    response(self, 200, payload, 'private, max-age=31536000, immutable'
+                             if route.startswith('/api/slides/') else 'no-store')
+                    return
             except (ContractError, OSError, json.JSONDecodeError) as exc:
                 response(self, 503, {"error": f"source contract failed: {exc}"})
                 return
@@ -224,12 +295,7 @@ def make_server(
             if route in {"/", "/index.html"}:
                 raw = (public_dir / "index.html").read_text(encoding="utf-8")
                 raw = raw.replace("__ASSET_REVISION__", asset_revision).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Cache-Control", "no-cache, must-revalidate")
-                self.send_header("Content-Length", str(len(raw)))
-                self.end_headers()
-                self.wfile.write(raw)
+                send_bytes(self, 200, raw, 'text/html; charset=utf-8', 'no-cache, must-revalidate')
                 return
             candidate = (public_dir / route.lstrip("/")).resolve()
             if not candidate.is_relative_to(public_dir.resolve()) or not candidate.is_file():
@@ -239,7 +305,7 @@ def make_server(
                 self,
                 candidate,
                 "public, max-age=31536000, immutable"
-                if urlsplit(self.path).query else "no-cache, must-revalidate",
+                if query.get('v') == [asset_revision] else "no-cache, must-revalidate",
             )
 
         def do_POST(self) -> None:  # noqa: N802
@@ -292,7 +358,10 @@ def make_server(
                 except (ContractError, OSError) as exc:
                     response(self, 400, {"error": str(exc)})
                     return
-                response(self, 200, deck_payload())
+                # Old API clients retain their full response; the native editor opts
+                # into an ACK with no source data when its catalog is still current.
+                payload = deck_payload(compact=body.get('compact') is True and base_source_revision == source_revision)
+            response(self, 200, payload)
 
         def _upload_asset(self) -> None:
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()

@@ -56,6 +56,44 @@ Use `?present=1#slide-id` for an exact 16:9 presentation surface, for example:
 
 <http://127.0.0.1:8000/?present=1#mock-growth-trajectories>
 
+## Long-distance viewing and saving
+
+The browser requests the current slide first, alongside a small navigation
+index and current human state. Other slide specs are fetched by content
+revision; only the next spec is prefetched after the current slide paints.
+Plotly, JointJS, JSXGraph and KaTeX load only when the recipe needs them.
+No gallery images or unrelated plots block the first slide.
+
+Text responses negotiate gzip (`Vary: Accept-Encoding`). Matching runtime
+versions and revision-bound slide sources cache immutably; source data uses
+private browser caching. Mutable state is never cached. Conditional ETags
+avoid retransmitting unchanged unversioned assets. The compression cache is
+bounded and content-keyed, and slow downloads do not hold the authoring lock.
+
+The editor opts into small save acknowledgements, retaining its source cache
+only when revisions agree. CAS and semantic three-way merging still protect
+concurrent edits. Unsaved changes are retained locally before transmission;
+on a failed save or reload they remain downloadable rather than silently
+overwriting newer server state. “Saved” means the server acknowledged its
+atomic write, not merely that the UI updated. A changed source revision is
+never served under an old immutable URL; reload to adopt changed sources.
+
+Measure the actual first rendered slide and a real scratch-state save with:
+
+```bash
+python3 tools/benchmark_latency.py --slide mock-growth-trajectories \
+  --runs 3 --output /tmp/slide-latency
+python3 tools/browser_transport.py
+```
+
+The benchmark uses 200 ms simulated latency, 5 Mbps download / 2 Mbps upload,
+fresh cold browser contexts and warm reloads. It waits for the requested
+canvas, fonts, images and native plots, and records decoded save-response
+bytes separately from resource transfer bytes. `--site`, `--engine` and
+`--state` allow before/after deployment measurements; all writes go to a
+disposable state copy. These are controlled comparisons, not measurements of
+someone else's physical network.
+
 ## Canonical recipes
 
 Open `catalog.html` (the **Layouts** link) to browse available recipes and

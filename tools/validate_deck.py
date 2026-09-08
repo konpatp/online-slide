@@ -35,7 +35,7 @@ def validate(root: Path) -> dict:
         findings.append("gallery renderer must enforce object-fit: contain")
     if not (root / "public" / "joint-diagram.js").is_file():
         findings.append("mechanism pipeline requires the pinned JointJS browser bundle")
-    for artifact in ("geometry-runtime.js", "geometry-runtime.css"):
+    for artifact in ("geometry-runtime.js", "geometry-runtime.css", "math-runtime.js", "math-runtime.css"):
         if not (root / "public" / artifact).is_file():
             findings.append(f"vector geometry requires the pinned {artifact} bundle")
     if ".slide-canvas::before" in css:

@@ -1,17 +1,5 @@
 import JXG from "jsxgraph";
-import katex from "katex";
 import "../node_modules/jsxgraph/distrib/jsxgraph.css";
-import "katex/dist/katex.min.css";
-
-function renderLatex(host, source, options = {}) {
-  katex.render(source, host, {
-    displayMode: Boolean(options.displayMode),
-    throwOnError: false,
-    strict: "warn",
-    trust: false,
-  });
-  host.dataset.mathEngine = "katex";
-}
 
 function vectorAttributes(item, arrow) {
   const attributes = {
@@ -196,5 +184,4 @@ function renderVectorPlane(host, spec, options = {}) {
   return board;
 }
 
-window.ScientificMathRuntime = { renderLatex };
 window.ScientificGeometryRuntime = { renderVectorPlane };

@@ -37,6 +37,60 @@
   var textRegionFrame = null;
   var regionGesture = null;
   var tableColumnGesture = null;
+  var loadedSlides = new Map();
+  var slideRequests = new Map();
+  var libraries = new Map();
+  var renderGeneration = 0;
+  var prefetchTimer = null;
+
+  function loadLibrary(name) {
+    if (!libraries.has(name)) {
+      libraries.set(name, new Promise(function(resolve, reject) {
+        var script = document.createElement('script');
+        script.src = name + '?v=' + window.slidekitAssetRevision;
+        script.onload = resolve;
+        script.onerror = function() {libraries.delete(name); script.remove(); reject(new Error('Could not load ' + name));};
+        document.head.appendChild(script);
+      }));
+    }
+    return libraries.get(name);
+  }
+
+  function acceptPayload(payload) {
+    // Compact ACKs contain mutable state only. Never reuse stale source specs.
+    if (!payload.slides) payload.slides = state.slides;
+    (payload.loadedSlides || (payload.sourceRevision !== (accepted || {}).sourceRevision ? Object.keys(payload.slides) : []))
+      .forEach(function(id) { loadedSlides.set(id, payload.slideRevisions[id]); });
+    return payload;
+  }
+
+  function ensureSlide(id) {
+    var revision = state.slideRevisions[id];
+    if (loadedSlides.get(id) === revision) return Promise.resolve(slideById(id));
+    var key = id + ':' + revision;
+    if (!slideRequests.has(key)) {
+      slideRequests.set(key, fetch('api/slides/' + encodeURIComponent(id) + '?revision=' + revision)
+        .then(function(r) {if(!r.ok) throw new Error('Slide source changed or unavailable. Reload to continue.'); return r.json();})
+        .then(function(slide) {
+          if (state.slideRevisions[id] === revision) {
+            state.slides[id] = slide; accepted.slides[id] = slide;
+            loadedSlides.set(id, revision);
+          }
+          return slide;
+        }).finally(function() {slideRequests.delete(key);}));
+    }
+    return slideRequests.get(key);
+  }
+
+  function prepareSlide(slide) {
+    var needed = [];
+    if (slide.recipe === 'chart-panels') needed.push(loadLibrary('plotly.min.js'));
+    if (slide.recipe === 'mechanism-pipeline') needed.push(loadLibrary('joint-diagram.js'));
+    if (slide.recipe === 'vector-geometry') needed.push(loadLibrary('geometry-runtime.js'));
+    if (Object.values(slide.components || {}).some(function(c) {return c.render === 'latex';}))
+      needed.push(loadLibrary('math-runtime.js'));
+    return Promise.all(needed);
+  }
 
   var CANONICAL_SLIDE_WIDTH = 1920;
   var CANONICAL_SLIDE_HEIGHT = 1080;
@@ -534,6 +588,7 @@
 
   function persist() {
     pending = snapshot(state);
+    retainDraft('Changes saved on this device; awaiting server acknowledgement.');
     setStatus("Saving…", "saving");
     flush();
   }
@@ -551,7 +606,8 @@
         baseSourceRevision: accepted.sourceRevision,
         baseSlideRevisions: accepted.slideRevisions,
         baseSnapshot: snapshot(accepted),
-        snapshot: job
+        snapshot: job,
+        compact: true
       })
     }).then(function (response) {
       return response.json().then(function (payload) {
@@ -562,7 +618,7 @@
       if (!result.ok) {
         if (result.status === 409 && result.payload.state) {
           retainDraft(result.payload.error);
-          accepted = result.payload.state;
+          accepted = acceptPayload(result.payload.state);
           state = copy(accepted);
           pending = null;
           undoBase = null;
@@ -582,14 +638,17 @@
         }
         return;
       }
-      state = carryForward(job, state, result.payload);
-      accepted = result.payload;
+      var remote = acceptPayload(result.payload);
+      state = carryForward(job, state, remote);
+      accepted = remote;
       pending = sameSnapshot(state, accepted) ? null : snapshot(state);
       if (!pending) {
         state = copy(accepted);
         undoBase = null;
         render();
         setStatus("Saved", "saved");
+        try {localStorage.removeItem(draftKey);} catch (_) {}
+        draftButton.hidden = true;
       } else {
         setStatus("Saving…", "saving");
         flush();
@@ -1189,17 +1248,21 @@
     }
   });
 
-  function renderStage() {
-    var index = currentIndex();
-    currentId = state.order[index];
-    var slide = currentSlide();
+  function clearStage(message) {
     clearFitObservers();
     removeTextRegionFrame();
     textRegionBindings.clear();
     stage.querySelectorAll(".native-chart").forEach(function (chart) {
       if (window.Plotly) window.Plotly.purge(chart);
     });
-    stage.textContent = "";
+    stage.textContent = message;
+  }
+
+  function renderStage() {
+    var index = currentIndex();
+    currentId = state.order[index];
+    var slide = currentSlide();
+    clearStage('');
     var canvas = slideShell(slide);
     renderRecipe[slide.recipe](canvas, slide);
     addFooter(canvas, slide);
@@ -1314,9 +1377,26 @@
   }
 
   function render() {
-    renderStage();
+    var generation = ++renderGeneration;
+    clearTimeout(prefetchTimer);
+    // Never leave an old slide editable while a new route is loading.
+    var canvas = stage.querySelector('.slide-canvas');
+    if (!canvas || canvas.dataset.slideId !== currentId || loadedSlides.get(currentId) !== state.slideRevisions[currentId])
+      clearStage('Loading slide…');
     renderThumbs();
-    renderTools();
+    ensureSlide(currentId).then(prepareSlide).then(function() {
+      if (generation !== renderGeneration) return;
+      renderStage(); renderTools();
+      // Only the next source, only after paint, and never large image pages.
+      prefetchTimer = setTimeout(function() {
+        var next = state.order[currentIndex() + 1];
+        if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {});
+      }, 1200);
+    }).catch(function(error) {
+      if (generation !== renderGeneration) return;
+      stage.textContent = error.message;
+      setStatus('Slide unavailable · reload', 'error');
+    });
     undoButton.disabled = !undoBase;
     editToggle.textContent = editMode ? "Done editing" : "Enable edit";
     editToggle.classList.toggle("active", editMode);
@@ -1515,11 +1595,11 @@
     window.addEventListener("resize", fitStage);
   }
 
-  fetch("api/deck-state", {cache: "no-store"}).then(function (response) {
-    if (!response.ok) throw new Error("Could not load the deck");
-    return response.json();
-  }).then(function (payload) {
-    accepted = payload;
+  window.addEventListener('beforeunload', function() {
+    if (state && accepted && !sameSnapshot(state, accepted)) retainDraft('Unsaved local changes retained.');
+  });
+  window.slidekitBoot.then(function (payload) {
+    accepted = acceptPayload(payload);
     state = copy(payload);
     var requested = resolveRoute(location.hash.slice(1));
     currentId = requested || state.order[0];
