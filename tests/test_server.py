@@ -96,6 +96,25 @@ class ServerProtocolTests(unittest.TestCase):
         with self.assertRaises(server.ContractError):
             server.make_server(ROOT/'public', self.slides_path, ROOT/'data/seed-state.json', self.state_path)
 
+    def test_runtime_fence_rejects_stale_source_reads_and_edits(self):
+        _, before = self.get('/api/deck-state')
+        with self.get_response('/api/runtime') as reply:
+            revision = reply.headers['X-Slidekit-Runtime']
+            self.assertEqual(json.load(reply)['runtimeRevision'], revision)
+        self.assertEqual(before['runtimeRevision'], revision)
+        for method, path in [('GET', '/api/bootstrap'), ('POST', '/api/deck-state')]:
+            request = Request(self.base + path, method=method,
+                              data=b'{}' if method == 'POST' else None,
+                              headers={'X-Slidekit-Runtime': 'previous-renderer'})
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request)
+            self.assertEqual(caught.exception.code, 409)
+            self.assertEqual(caught.exception.headers['X-Slidekit-Runtime'], revision)
+        self.assertEqual(self.get('/api/deck-state')[1], before)
+        with urlopen(Request(self.base + '/api/bootstrap',
+                             headers={'X-Slidekit-Runtime': revision})) as reply:
+            self.assertEqual(reply.status, 200)
+
     def test_concurrent_creation_preserves_existing_edits_and_stale_saves(self):
         _, base = self.get('/api/deck-state')
         sid = base['order'][0]

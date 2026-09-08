@@ -41,6 +41,7 @@
       event.source.postMessage({type: 'slidekit-preview-data', payload: {
         schema: 'online-slide/state@4', revision: 0, order: ['layout-preview'], hidden: [],
         overlays: {}, tables: {}, objects: {}, sourceRevision: chosen.id,
+        runtimeRevision: window.slidekitAssetRevision,
         slideRevisions: {'layout-preview': chosen.id}, slides: {'layout-preview': chosen.slide},
         loadedSlides: ['layout-preview']
       }}, location.origin);
@@ -53,7 +54,7 @@
         'Inserted after the current slide. Edit the placeholders, then reorder or hide it in the sidebar.';
       try {
         if (!layouts) {
-          const response = await fetch('api/layouts');
+          const response = await window.slidekitRequest('api/layouts');
           if (!response.ok) throw new Error('Could not load layouts. Close and try again.');
           layouts = await response.json();
           list.replaceChildren();
@@ -81,7 +82,7 @@
         // Retain before sending: even a reload after a lost ACK can retry once.
         localStorage.setItem(storageKey, JSON.stringify(intent));
         message.textContent = 'Creating and saving…';
-        const response = await fetch('api/slides', {method: 'POST', signal: controller.signal,
+        const response = await window.slidekitRequest('api/slides', {method: 'POST', signal: controller.signal,
           headers: {'Content-Type': 'application/json'}, body: JSON.stringify(intent)});
         const payload = await response.json();
         if (!response.ok) {

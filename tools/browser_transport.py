@@ -66,7 +66,7 @@ def main():
                 def block_post(route):
                     if route.request.method == 'POST': route.abort()
                     else: route.continue_()
-                page.route('**/api/deck-state', block_post)
+                page.route('**/api/deck-state*', block_post)
                 headline.click(); headline.fill('Offline edit retained on this device')
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent.includes('Offline')")
                 assert json.loads(state_path.read_text()) == saved
