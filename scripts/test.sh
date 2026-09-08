@@ -8,6 +8,7 @@ python3 tools/validate_deck.py
 python3 -m unittest discover -s tests -v
 python3 -m py_compile server.py slidekit.py slide_templates.py build_deck.py tools/validate_deck.py tools/generate_demo_assets.py
 node --check public/app.js
+node --check public/runtime-version.js
 node --check public/slide-previews.js
 node --check public/new-slide.js
 node --check public/recipes.js

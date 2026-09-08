@@ -18,6 +18,7 @@ from functools import lru_cache
 import hashlib
 import json
 import mimetypes
+mimetypes.add_type("image/webp", ".webp")
 import os
 import re
 import tempfile
@@ -148,7 +149,7 @@ def make_server(
             display_map[f"uploads/{source.name}"] = f"uploads/{target.name}"
     display_revision = hashlib.sha256(json.dumps(display_map, sort_keys=True).encode()).hexdigest()
     runtime_assets = [
-        "index.html",
+        "index.html", "runtime-version.js",
         "styles.css", "app.js", "slide-previews.js", "new-slide.js", "recipes.js", "joint-diagram.js",
         "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
         "math-runtime.js", "math-runtime.css",
@@ -219,6 +220,7 @@ def make_server(
         payload["tables"] = json.loads(json.dumps(state.get("tables", {})))
         payload["objects"] = json.loads(json.dumps(state.get("objects", {})))
         payload["sourceRevision"] = source_revision
+        payload["runtimeRevision"] = asset_revision
         payload["displayRevision"] = display_revision
         payload["slideRevisions"] = source_revisions(catalog)
         if not compact:
@@ -242,6 +244,18 @@ def make_server(
     class Handler(SimpleHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
+        def end_headers(self):
+            self.send_header('X-Slidekit-Runtime', asset_revision)
+            super().end_headers()
+
+        def runtime_matches(self):
+            revision = self.headers.get('X-Slidekit-Runtime')
+            if revision and revision != asset_revision:
+                self.close_connection = True  # A refused POST body must not become another request.
+                response(self, 409, {'error': 'Slide renderer updated; reload before continuing.'})
+                return False
+            return True
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, directory=str(public_dir), **kwargs)
 
@@ -257,6 +271,11 @@ def make_server(
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
+            if not self.runtime_matches():
+                return
+            if urlsplit(self.path).path == '/api/runtime':
+                response(self, 200, {'runtimeRevision': asset_revision}, 'no-store')
+                return
             route = urlsplit(self.path).path
             query = parse_qs(urlsplit(self.path).query)
             try:
@@ -333,6 +352,8 @@ def make_server(
             )
 
         def do_POST(self) -> None:  # noqa: N802
+            if not self.runtime_matches():
+                return
             nonlocal state
             route = urlsplit(self.path).path
             if route == "/api/assets":

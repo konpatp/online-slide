@@ -26,6 +26,7 @@
     function payload() {
       return {schema: 'online-slide/state@4', revision: 0, order: ['layout-preview'], hidden: [],
         overlays: {}, tables: {}, objects: {}, sourceRevision: chosen.id,
+        runtimeRevision: window.slidekitAssetRevision,
         slideRevisions: {'layout-preview': chosen.id}, slides: {'layout-preview': chosen.slide},
         loadedSlides: ['layout-preview']};
     }
@@ -85,7 +86,7 @@
     });
 
     function loadLayouts() {
-      if (!layoutsPromise) layoutsPromise = fetch('api/layouts').then(response => {
+      if (!layoutsPromise) layoutsPromise = window.slidekitRequest('api/layouts').then(response => {
         if (!response.ok) throw new Error('Could not load layouts. Close and try again.');
         return response.json();
       }).then(items => {
@@ -131,7 +132,7 @@
         // Retain before sending: even a reload after a lost ACK can retry once.
         localStorage.setItem(storageKey, JSON.stringify(intent));
         message.textContent = 'Creating and saving…';
-        const response = await fetch('api/slides', {method: 'POST', signal: controller.signal,
+        const response = await window.slidekitRequest('api/slides', {method: 'POST', signal: controller.signal,
           headers: {'Content-Type': 'application/json'}, body: JSON.stringify(intent)});
         const payload = await response.json();
         if (!response.ok) {

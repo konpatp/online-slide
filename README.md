@@ -15,6 +15,11 @@ The pilot answers four practical questions with working code:
 4. Can the common validation path remain nearly instantaneous while a real
    1920×1080 browser check is reserved for acceptance?
 
+Renderer releases are checked before source reads and edit acknowledgements.
+A clean open tab refreshes on a changed renderer; unsaved edits instead remain
+in the local recovery draft with a reload notice. Runtime checks use a tiny
+endpoint on focus and every 30 seconds, not repeated full-deck downloads.
+
 ## Run it
 
 ```bash

@@ -62,6 +62,7 @@
   var previews = previewMode ? null : new window.SlidePreviews(document.querySelector('.filmstrip'), function(id) {
     return ensureSlide(id).then(function(slide) {
       return Object.assign(snapshot(state), {revision:state.revision, sourceRevision:state.sourceRevision,
+        runtimeRevision:window.slidekitAssetRevision,
         slideRevisions:{[id]:state.slideRevisions[id]}, slides:{[id]:slide}, loadedSlides:[id]});
     });
   });
@@ -80,6 +81,8 @@
   }
 
   function acceptPayload(payload) {
+    if (payload.runtimeRevision && payload.runtimeRevision !== window.slidekitAssetRevision)
+      throw new Error('Renderer changed. Reload the parent deck before showing this preview.');
     // Compact ACKs contain mutable state only. Never reuse stale source specs.
     if (!payload.slides) payload.slides = state.slides;
     if (payload.loadedSlides && state) Object.keys(payload.slides).forEach(function(id) {
@@ -97,7 +100,7 @@
     var displayRevision = state.displayRevision || 'source';
     var key = id + ':' + revision + ':' + displayRevision;
     if (!slideRequests.has(key)) {
-      slideRequests.set(key, fetch('api/slides/' + encodeURIComponent(id) + '?revision=' + revision + '&display=' + displayRevision)
+      slideRequests.set(key, window.slidekitRequest('api/slides/' + encodeURIComponent(id) + '?revision=' + revision + '&display=' + displayRevision)
         .then(function(r) {if(!r.ok) throw new Error('Slide source changed or unavailable. Reload to continue.'); return r.json();})
         .then(function(slide) {
           if (state.slideRevisions[id] === revision) {
@@ -636,11 +639,12 @@
   }
 
   function flush() {
+    if (window.slidekitRuntimeStale()) return;
     if (inFlight || !pending) return;
     var job = pending;
     pending = null;
     inFlight = job;
-    fetch("api/deck-state", {
+    window.slidekitRequest("api/deck-state", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -696,6 +700,11 @@
         flush();
       }
     }).catch(function (error) {
+      if (window.slidekitRuntimeStale()) {
+        inFlight = null; pending = pending || job;
+        retainDraft(error.message); setStatus('Renderer updated · reload; draft retained', 'error');
+        return;
+      }
       console.error("deck-state save failed", error);
       inFlight = null;
       pending = pending || job;
@@ -1270,7 +1279,7 @@
       return;
     }
     setStatus("Uploading…", "saving");
-    fetch("api/assets", {method: "POST", headers: {"Content-Type": file.type, "X-File-Name": file.name}, body: file})
+    window.slidekitRequest("api/assets", {method: "POST", headers: {"Content-Type": file.type, "X-File-Name": file.name}, body: file})
       .then(function (response) { return response.json().then(function (payload) { return {ok: response.ok, payload: payload}; }); })
       .then(function (result) {
         if (!result.ok) throw new Error(result.payload.error || "upload failed");
@@ -1789,6 +1798,19 @@
   window.addEventListener('beforeunload', function() {
     if (state && accepted && !sameSnapshot(state, accepted)) retainDraft('Unsaved local changes retained.');
   });
+  window.addEventListener('slidekit-runtime-changed', function() {
+    if (state && accepted && (pending || inFlight || !sameSnapshot(state, accepted))) {
+      retainDraft('Renderer updated. Reload after downloading unsaved edits.');
+      setStatus('Renderer updated · reload; draft retained', 'error');
+      showToast('Renderer updated. Your unsaved edits are retained on this device; download them before reloading.');
+    } else if (!previewMode) location.reload();
+  });
+  function checkRuntime() {
+    if (!previewMode && !document.hidden)
+      window.slidekitRequest('api/runtime', {cache:'no-store'}).catch(function() {});
+  }
+  window.addEventListener('focus', checkRuntime);
+  if (!previewMode) setInterval(checkRuntime, 30000);
   window.slidekitBoot.then(function (payload) {
     accepted = acceptPayload(payload);
     state = copy(payload);
@@ -1818,6 +1840,7 @@
       if (draft) retainDraft(draft.message, draft);
     } catch (_) {}
   }).catch(function (error) {
+    if (window.slidekitRuntimeStale() && !previewMode && !state) {location.reload(); return;}
     setStatus("Load failed", "error");
     stage.textContent = error.message;
   });
