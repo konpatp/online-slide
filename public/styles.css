@@ -273,16 +273,18 @@ body.moving-visual-object { cursor: move; user-select: none; }
 .katex-display { margin: 0; }
 
 /* Hierarchical gallery: compact presenter controls, large uncropped evidence. */
-.hierarchical-gallery-body { top: 20.8%; bottom: 11.7%; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr); gap: 1.4% 2.2%; }
+/* Reserve geometry independently of the selected label or score: toggling a
+   scientific condition must not redistribute controls or resize matched images. */
+.hierarchical-gallery-body { top: 20.8%; bottom: 11.7%; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: 6.7cqw minmax(0, 1fr); gap: 1.4% 2.2%; }
 .gallery-controls { display: flex; align-items: end; gap: 1.8%; min-width: 0; }
 .gallery-selector { display: grid; gap: .32cqw; }
 .gallery-selector-label { color: #7c899a; font-size: .72cqw; font-weight: 830; letter-spacing: .08em; text-transform: uppercase; }
 .gallery-option-row, .gallery-pages { display: flex; gap: .35cqw; }
 .gallery-option-row button, .gallery-pages button { min-height: 2.1cqw; padding: .34cqw .66cqw; border: 1px solid #dce3ec; border-radius: 99px; color: #53657d; background: #f7f9fc; font-size: .78cqw; font-weight: 780; cursor: pointer; }
 .gallery-option-row button[aria-pressed="true"], .gallery-pages button[aria-pressed="true"] { color: white; border-color: var(--accent); background: var(--accent); }
-.gallery-summary { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center; justify-items: end; gap: .08cqw 1.1cqw; }
-.gallery-class-name { grid-column: 1; grid-row: 1; color: #334b68; font-size: max(1.52cqw, 34.67px); font-weight: 820; white-space: nowrap; }
-.gallery-metric { grid-column: 2; grid-row: 1 / span 2; color: var(--accent); font-size: 2.15cqw; font-weight: 880; letter-spacing: -.04em; white-space: nowrap; }
+.gallery-summary { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 14.8cqw; grid-template-rows: minmax(0, 1fr) 2.6cqw; align-items: center; justify-items: end; gap: .08cqw 1.1cqw; }
+.gallery-class-name { grid-column: 1 / -1; grid-row: 1; width: 100%; min-width: 0; align-self: stretch; display: flex; align-items: center; justify-content: flex-end; color: #334b68; font-size: max(1.52cqw, 34.67px); font-weight: 820; line-height: 1.05; white-space: normal; text-align: right; }
+.gallery-metric { grid-column: 2; grid-row: 2; width: 100%; text-align: right; color: var(--accent); font-size: 2.15cqw; font-weight: 880; letter-spacing: -.04em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .gallery-pages { grid-column: 1; grid-row: 2; justify-self: end; }
 .gallery-pages button { min-height: 1.65cqw; padding: .18cqw .52cqw; font-size: .68cqw; }
 .hierarchical-gallery-view { grid-column: 1 / -1; min-height: 0; }
