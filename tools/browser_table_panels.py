@@ -68,10 +68,27 @@ def main():
                 hidden=page.evaluate("fetch('api/deck-state').then(r=>r.json()).then(s=>s.hidden)")
                 assert 'two-tables' in hidden and 'mock-growth-trajectories' in hidden
                 page.screenshot(path=str(args.output/'semantic-slide-index.png'))
+                spec['components']['checkpoint-label']={'kind':'text','text':'Checkpoint'}
+                spec['data']['tableSelector']={'label':'checkpoint-label','options':[
+                    {'value':p['id'],'label':p['heading']} for p in spec['data']['tables']]}
+                spec['data']['initialTable']='primary'
+                path.write_text(json.dumps(spec))
+                page.goto('http://%s:%s/?present=1#two-tables'%http.server_address,wait_until='networkidle')
+                assert page.locator('[data-native-table]').count()==1
+                assert page.locator('[data-table-panel-id="primary"]').is_visible()
+                page.locator('.gallery-option-row button',has_text='secondary').click()
+                assert page.locator('[data-native-table]').count()==1
+                assert page.locator('[data-component-id="secondary-cell"]').text_content()=='17'
+                page.reload(wait_until='networkidle')
+                assert page.locator('[data-table-panel-id="secondary"]').is_visible()
+                page.locator('.gallery-option-row button',has_text='primary').click()
+                assert page.locator('[data-component-id="primary-cell"]').text_content()=='12'
+                page.screenshot(path=str(args.output/'table-checkpoint-selector.png'))
                 (args.output/'receipt.json').write_text(json.dumps({'ok':True,'findings':[],
                     'proofs':['real secondary-cell edit; primary unchanged','secondary row insertion remains table-local',
                               'source panel reorder preserves cell and structure','hidden table remains editable and show survives reload',
-                              'index route clicks navigate; section visibility saves and survives reload'],
+                              'index route clicks navigate; section visibility saves and survives reload',
+                              'checkpoint buttons display exactly one table; selection and independent edits survive reload'],
                     'tableKeys':list(state['tables'])},indent=2)+'\n')
                 browser.close()
         finally:http.shutdown();http.server_close()

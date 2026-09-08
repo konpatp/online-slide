@@ -6,6 +6,9 @@ import tempfile
 import threading
 import shutil
 import unittest
+import uuid
+from unittest.mock import patch
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -60,6 +63,80 @@ class ServerProtocolTests(unittest.TestCase):
     def mutable_snapshot(state):
         return {key: json.loads(json.dumps(state[key]))
                 for key in ("schema", "order", "hidden", "overlays", "tables", "objects")}
+
+    def test_create_is_atomic_retry_safe_and_survives_redeployment(self):
+        _, before = self.get('/api/deck-state')
+        intent = {'requestId': str(uuid.uuid4()), 'template': 'section-divider', 'after': before['order'][1]}
+        original_bytes = self.state_path.read_bytes()
+        with patch('server.atomic_write_json', side_effect=OSError('disk unavailable')):
+            with self.assertRaises(HTTPError) as error:
+                self.post('/api/slides', intent)
+            self.assertEqual(error.exception.code, 503)
+        self.assertEqual(self.state_path.read_bytes(), original_bytes)
+        self.assertEqual(self.get('/api/deck-state')[1]['order'], before['order'])
+        status, created = self.post('/api/slides', intent)
+        self.assertEqual(status, 201)
+        sid = created['loadedSlides'][0]
+        self.assertEqual(created['order'][2], sid)
+        self.assertEqual([key for key in created['order'] if key != sid], before['order'])
+        self.assertEqual(created['slides'][sid]['data'], {'centered': True})
+        persisted = self.state_path.read_bytes()
+        self.assertEqual(self.post('/api/slides', intent)[0], 200)
+        self.assertEqual(self.state_path.read_bytes(), persisted)
+        with self.assertRaises(HTTPError) as error:
+            self.post('/api/slides', {**intent, 'template': 'evidence-table'})
+        self.assertEqual(error.exception.code, 409)
+        # A new server generation reads human source from the external store,
+        # not the source package or first-boot seed.
+        fresh = server.make_server(ROOT/'public', self.slides_path, ROOT/'data/seed-state.json', self.state_path)
+        fresh.server_close()
+        self.assertEqual(self.state_path.read_bytes(), persisted)
+        # Moving a user source into the authored directory is never a silent takeover.
+        (self.slides_path/'collision.json').write_text(json.dumps(created['slides'][sid]))
+        with self.assertRaises(server.ContractError):
+            server.make_server(ROOT/'public', self.slides_path, ROOT/'data/seed-state.json', self.state_path)
+
+    def test_concurrent_creation_preserves_existing_edits_and_stale_saves(self):
+        _, base = self.get('/api/deck-state')
+        sid = base['order'][0]
+        snapshot = self.mutable_snapshot(base)
+        snapshot['hidden'] = [sid]
+        headline = base['slides'][sid]['headline']
+        snapshot['overlays'][sid] = {headline: {'text': 'Retained human title'}}
+        intents = [{'requestId': str(uuid.uuid4()), 'template': template, 'after': sid}
+                   for template in ('evidence-table', 'mechanism-pipeline')]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda value: self.post('/api/slides', value), intents))
+        ids = {payload['loadedSlides'][0] for _, payload in results}
+        _, saved = self.post('/api/deck-state', {
+            'baseRevision': base['revision'], 'baseSourceRevision': base['sourceRevision'],
+            'baseSlideRevisions': base['slideRevisions'], 'baseSnapshot': self.mutable_snapshot(base),
+            'snapshot': snapshot})
+        self.assertTrue(ids <= set(saved['order']))
+        self.assertEqual(saved['overlays'], snapshot['overlays'])
+        self.assertEqual(saved['hidden'], [sid])
+        self.assertEqual([key for key in saved['order'] if key not in ids], base['order'])
+        source_bytes = json.loads(self.state_path.read_text())['createdSlides']
+        forged = self.mutable_snapshot(saved)
+        forged['createdSlides'] = {}
+        self.post('/api/deck-state', {'baseRevision': saved['revision'], 'baseSourceRevision': saved['sourceRevision'], 'snapshot': forged})
+        self.assertEqual(json.loads(self.state_path.read_text())['createdSlides'], source_bytes)
+
+    def test_layout_catalog_is_valid_read_only_and_rejects_unknown_creation(self):
+        before = self.state_path.read_bytes()
+        _, layouts = self.get('/api/layouts')
+        self.assertEqual(layouts[0]['id'], 'section-divider')
+        self.assertEqual(len(layouts), 6)
+        for item in layouts:
+            server.make_starter(item['id'], 'new-slide', '2026-01-01T00:00:00Z')
+        for intent in (
+            {'requestId': str(uuid.uuid4()), 'template': 'unknown', 'after': self.get('/api/deck-state')[1]['order'][0]},
+            {'requestId': 'not-a-uuid', 'template': 'section-divider', 'after': 'unknown'},
+            {'requestId': str(uuid.uuid4()), 'template': 'section-divider', 'after': 'unknown'},
+        ):
+            with self.assertRaises(HTTPError):
+                self.post('/api/slides', intent)
+        self.assertEqual(self.state_path.read_bytes(), before)
 
     def test_static_page_catalog_and_state_are_available(self):
         status, state = self.get("/api/deck-state")

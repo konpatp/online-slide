@@ -3,6 +3,8 @@
   "use strict";
   const root = document.getElementById("catalog");
   const urls = [];
+  const focus = location.hash;
+  document.querySelector('header a').href = './' + focus;
   function node(tag, text, parent) {
     const element = document.createElement(tag);
     if (text) element.textContent = text;
@@ -13,6 +15,7 @@
     const response = await fetch("api/deck-state");
     if (!response.ok) throw new Error("Deck unavailable: " + response.status);
     const deck = await response.json();
+    const starters = await fetch('api/layouts').then(r => {if(!r.ok) throw new Error('Layouts unavailable'); return r.json();});
     root.replaceChildren();
     const grouped = {};
     Object.values(deck.slides).forEach(slide => (grouped[slide.recipe] ||= []).push(slide));
@@ -22,6 +25,10 @@
       node("h2", id.replaceAll("-", " "), section);
       node("p", guide.use, section);
       node("p", "Layout owns: " + guide.owns, section);
+      if (starters.some(item => item.id === id)) {
+        const use = node('a', 'Create a slide with this layout →', section);
+        use.href = './?new=' + encodeURIComponent(id) + focus;
+      }
       const examples = node("div", "", section); examples.className = "examples";
       if (!grouped[id]) node("p", "No example in this deck yet.", examples);
       (grouped[id] || []).forEach(slide => {

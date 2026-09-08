@@ -142,12 +142,33 @@
       if(slide.data.tables) {
         var collection=document.createElement('div');
         collection.className='recipe-body table-panels-body';
-        slide.data.tables.forEach(function(data) {
+        var selector=slide.data.tableSelector;
+        if(selector) collection.classList.add('selectable-tables');
+        var storageKey='online-slide.table-view.'+slide.id;
+        var active=slide.data.initialTable || slide.data.tables[0].id;
+        if(selector) {
+          try { active=localStorage.getItem(storageKey) || active; } catch (_) {}
+          if(!slide.data.tables.some(function(table){return table.id===active;})) active=slide.data.tables[0].id;
+        }
+        function renderTables() {
+          collection.textContent='';
+          if(selector) {
+            var controls=document.createElement('div');
+            global.renderScientificFacetControls(controls,slide,[Object.assign({id:'table'},selector)],{table:active},function(_,value){
+              active=value;
+              try {localStorage.setItem(storageKey,value);} catch (_) {}
+              renderTables();
+            });
+            collection.appendChild(controls);
+          }
+          slide.data.tables.filter(function(table){return !selector || table.id===active;}).forEach(function(data) {
           if(data.heading) collection.appendChild(editableText(slide,data.heading,'div','table-panel-heading'));
           if(data.visibility) collection.appendChild(editableText(slide,data.visibility,'div','table-panel-control'));
           evidenceTable(collection,Object.assign({},slide,{data:data,_tableKey:slide.id+'::table::'+data.id}));
-        });
+          });
+        }
         canvas.appendChild(collection);
+        renderTables();
         return;
       }
       var model = effectiveTable(slide);

@@ -49,6 +49,28 @@ Open <http://127.0.0.1:8000/>. Enable edit mode to:
 - resize the selected image inside its non-cropping slot; and
 - undo an optimistic edit burst.
 
+Use **+ New slide** to choose a layout, inspect its real preview, and insert
+editable placeholders after the current slide. **Section break** creates just
+a centered title. Table, image/plot, process, gallery and equation starters
+reuse the existing recipes. Quantitative interactive plots remain agent-authored
+SlideSpecs: this picker does not pretend to provide a chart-data editor.
+Image slots accept dropped images in edit mode.
+
+Browser-created SlideSpecs live in `createdSlides` in the external live-state
+file, not inside a deployment directory. `POST /api/slides` atomically saves the
+source and insertion under a client UUID; retrying an uncertain response does
+not duplicate or reposition it. Existing editing saves cannot replace those
+sources. Back up the complete live-state file **and** uploads. The catalog
+exposes these slides like file-authored slides, including source download;
+ordinary text/table/geometry changes remain semantic overlays.
+
+Source rebuilds retain created slides, order and edits. A file-authored ID
+colliding with a browser-created ID fails closed—do not copy an exported source
+back into `slides/` under the same ID. Rollback must retain an engine supporting
+created sources once users have created them; older engines refuse the unknown
+published IDs instead of erasing human state. Hiding uses the existing sidebar;
+this feature intentionally adds no destructive slide-delete operation.
+
 Choose **Present fullscreen** (or press `F`) to enter a chrome-free browser
 presentation. Use the briefly revealed **Exit presentation** control, `F`, or
 Escape to return—even from a shared `?present=1` URL. The server normalizes mounted URLs with
@@ -103,6 +125,12 @@ Open `catalog.html` (the **Layouts** link) to browse available recipes and
 automatically discovered source examples. Previews load only when requested;
 downloads contain source without human overrides. No per-slide catalog entry
 is needed. Recipes save layout work, but authors still inspect every new slide.
+Available starters also have a **Create a slide with this layout** link. The
+picker uses the same preview renderer and `slide_templates.py` factory as
+creation, with one preview mounted at a time. The interaction follows the
+[PowerPoint layout/placeholder pattern](https://support.microsoft.com/en-gb/office/apply-a-slide-layout-158e6dba-e53e-479b-a6fc-caab72609689);
+[Slidev's small section layout](https://github.com/slidevjs/slidev/blob/main/packages/client/layouts/section.vue)
+is a reference for keeping layout ownership small, not a new runtime dependency.
 
 Each file in [`slides/`](slides/) is independently authored and has a permanent
 slide id plus stable semantic component ids.
@@ -149,6 +177,12 @@ table cannot move an edit. Existing single-table state keys remain unchanged.
 Removing an edited table, sharing a cell between tables, or saving against a
 changed source fails closed. `tools/browser_table_panels.py` exercises real
 cell editing, row insertion, visibility, save/reload, and source reordering.
+
+To compare checkpoints in the same space, add `data.tableSelector` with a
+component `label` and `options: [{value: TABLE_ID, label: COMPONENT_ID}]` covering
+every table exactly once. `initialTable` sets the initial view. The shared facet
+buttons switch one native table in place and remember the presenter selection;
+each checkpoint retains independent semantic cells and structural edits.
 
 `slide-index` supplies semantic links grouped into named sections. Its item
 order and visibility come from current curator state, not a copied order list;

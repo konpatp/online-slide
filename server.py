@@ -11,6 +11,8 @@ never silently retarget a live edit.
 from __future__ import annotations
 
 import argparse
+import copy
+from datetime import datetime, timezone
 import gzip
 from functools import lru_cache
 import hashlib
@@ -20,6 +22,7 @@ import os
 import re
 import tempfile
 import threading
+import uuid
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -39,6 +42,7 @@ from slidekit import (
     source_revisions,
     validate_state_snapshot,
 )
+from slide_templates import make_starter, starter_catalog
 
 
 MAX_BODY_BYTES = 2 * 1024 * 1024
@@ -144,16 +148,17 @@ def make_server(
             display_map[f"uploads/{source.name}"] = f"uploads/{target.name}"
     display_revision = hashlib.sha256(json.dumps(display_map, sort_keys=True).encode()).hexdigest()
     runtime_assets = [
-        "styles.css", "app.js", "slide-previews.js", "recipes.js", "joint-diagram.js",
+        "styles.css", "app.js", "slide-previews.js", "new-slide.js", "recipes.js", "joint-diagram.js",
         "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
         "math-runtime.js", "math-runtime.css",
     ]
     asset_revision = hashlib.sha256(b"".join(
         (public_dir / name).read_bytes() for name in runtime_assets
     )).hexdigest()[:16]
-    catalog = load_catalog(slides_dir)
+    stored = load_state(seed_path, state_path)
+    catalog = load_catalog(slides_dir, stored.get("createdSlides"))
     source_revision = catalog_revision(catalog)
-    state, changed = reconcile_state(load_state(seed_path, state_path), catalog)
+    state, changed = reconcile_state(stored, catalog)
     if changed:
         atomic_write_json(state_path, state)
 
@@ -193,7 +198,7 @@ def make_server(
 
     def refresh_sources() -> None:
         nonlocal catalog, source_revision, state
-        candidate = load_catalog(slides_dir)
+        candidate = load_catalog(slides_dir, state.get("createdSlides"))
         candidate_revision = catalog_revision(candidate)
         if candidate_revision == source_revision:
             return
@@ -206,6 +211,7 @@ def make_server(
 
     def deck_payload(compact=False) -> dict[str, Any]:
         payload = dict(state)
+        payload.pop("createdSlides", None)  # Sources travel once, through the catalog.
         payload["order"] = list(state["order"])
         payload["hidden"] = list(state["hidden"])
         payload["overlays"] = json.loads(json.dumps(state["overlays"]))
@@ -258,6 +264,8 @@ def make_server(
                         refresh_sources()
                     if route == '/api/bootstrap':
                         payload = bootstrap(query.get('slide', [''])[0])
+                    elif route == '/api/layouts':
+                        payload = starter_catalog()
                     elif route.startswith('/api/slides/'):
                         sid = unquote(route.removeprefix('/api/slides/'))
                         if sid not in catalog:
@@ -326,6 +334,9 @@ def make_server(
             if route == "/api/assets":
                 self._upload_asset()
                 return
+            if route == "/api/slides":
+                self._create_slide()
+                return
             if route != "/api/deck-state":
                 response(self, 404, {"error": "not found"})
                 return
@@ -374,6 +385,51 @@ def make_server(
                 # into an ACK with no source data when its catalog is still current.
                 payload = deck_payload(compact=body.get('compact') is True and base_source_revision == source_revision)
             response(self, 200, payload)
+
+        def _create_slide(self) -> None:
+            """Commit source + placement once, before acknowledging creation.
+
+            Requests express insertion intent, not a replacement order. Retry
+            identity is retained with the source so uncertain ACKs are safe.
+            """
+            nonlocal state, catalog, source_revision
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 4096:
+                    raise ContractError("creation request must be 1–4096 bytes")
+                body = json.loads(self.rfile.read(length))
+                if not isinstance(body, dict) or set(body) != {"requestId", "template", "after"}:
+                    raise ContractError("creation needs requestId, template and after")
+                request_id = str(uuid.UUID(body["requestId"]))
+                sid = "user-" + uuid.UUID(request_id).hex
+                with lock:
+                    refresh_sources()
+                    intent = {"requestId": request_id, "template": body["template"], "after": body["after"]}
+                    existing = catalog.get(sid)
+                    if existing:
+                        if existing.get("creation") != intent:
+                            raise EditConflict("creation identity already belongs to a different request")
+                    else:
+                        if body["after"] not in catalog:
+                            raise EditConflict("insertion anchor is no longer available; reload the deck")
+                        spec = make_starter(body["template"], sid, datetime.now(timezone.utc).isoformat(), body["after"])
+                        spec["creation"] = intent
+                        candidate = copy.deepcopy(state)
+                        candidate.setdefault("createdSlides", {})[sid] = spec
+                        merged = load_catalog(slides_dir, candidate["createdSlides"])
+                        candidate["order"].insert(candidate["order"].index(body["after"])+1, sid)
+                        candidate = validate_state_snapshot(candidate, candidate, merged)
+                        atomic_write_json(state_path, candidate)
+                        state, catalog = candidate, merged
+                        source_revision = catalog_revision(catalog)
+                    payload = bootstrap(sid)
+                response(self, 200 if existing else 201, payload)
+            except EditConflict as exc:
+                response(self, 409, {"error": str(exc)})
+            except (ContractError, ValueError, TypeError, AttributeError, KeyError) as exc:
+                response(self, 400, {"error": str(exc)})
+            except OSError as exc:
+                response(self, 503, {"error": str(exc)})
 
         def _upload_asset(self) -> None:
             content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()

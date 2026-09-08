@@ -60,7 +60,7 @@ def build(source: Path, output: Path) -> dict:
             shutil.copy2(target, staging / "public" / relative)
             display_map[image.relative_to(source).as_posix()] = relative.as_posix()
         shutil.copytree(source / "slides", staging / "slides")
-        for name in ("server.py", "slidekit.py", "display_media.py"):
+        for name in ("server.py", "slidekit.py", "slide_templates.py", "display_media.py"):
             shutil.copy2(TOOLKIT / name, staging / name)
         (staging / "data").mkdir()
         (staging / "data" / "display-media.json").write_text(

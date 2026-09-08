@@ -45,6 +45,20 @@
   var renderGeneration = 0;
   var prefetchTimer = null;
   var focusedThumb = null;
+  var focusCreatedTitle = null;
+  var creator = previewMode ? null : new window.SlideCreator({
+    ready: function() {return Boolean(state && accepted && !pending && !inFlight &&
+      sameSnapshot(state, accepted) && status.textContent === 'Saved');},
+    currentId: function() {return currentId;},
+    created: function(payload) {
+      accepted = acceptPayload(payload); state = copy(accepted);
+      currentId = payload.loadedSlides[0]; selected = null; undoBase = null;
+      editMode = true; focusCreatedTitle = currentId;
+      history.replaceState(null, '', '#' + currentId);
+      render(); setStatus('Saved', 'saved');
+      showToast('Slide created. Type your title; changes save automatically.');
+    }
+  });
   var previews = previewMode ? null : new window.SlidePreviews(document.querySelector('.filmstrip'), function(id) {
     return ensureSlide(id).then(function(slide) {
       return Object.assign(snapshot(state), {revision:state.revision, sourceRevision:state.sourceRevision,
@@ -68,6 +82,10 @@
   function acceptPayload(payload) {
     // Compact ACKs contain mutable state only. Never reuse stale source specs.
     if (!payload.slides) payload.slides = state.slides;
+    if (payload.loadedSlides && state) Object.keys(payload.slides).forEach(function(id) {
+      if (!payload.loadedSlides.includes(id) && loadedSlides.get(id) === payload.slideRevisions[id])
+        payload.slides[id] = state.slides[id];
+    });
     (payload.loadedSlides || (payload.sourceRevision !== (accepted || {}).sourceRevision ? Object.keys(payload.slides) : []))
       .forEach(function(id) { loadedSlides.set(id, payload.slideRevisions[id]); });
     return payload;
@@ -187,6 +205,7 @@
   function setStatus(label, kind) {
     status.textContent = label;
     status.className = "save-state " + (kind || "saved");
+    if (creator) creator.refresh();
   }
 
   function showToast(message) {
@@ -1214,6 +1233,7 @@
   function slideShell(slide) {
     var canvas = document.createElement("article");
     canvas.className = "slide-canvas recipe-" + slide.recipe;
+    if (slide.recipe === 'section-divider' && slide.data.centered) canvas.classList.add('centered-section');
     canvas.style.setProperty("--accent", (slide.theme||{}).accent||"#2f6fed");
     canvas.setAttribute("data-slide-id", slide.id);
     canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
@@ -1237,6 +1257,7 @@
 
   function addFooter(canvas, slide) {
     if (slide.footer) canvas.appendChild(editableText(slide, slide.footer, "div", "protocol-strip"));
+    if (slide.recipe === 'section-divider' && slide.data.centered) return;
     var meta = document.createElement("div");
     meta.className = "slide-meta";
     meta.textContent = slide.recipe + " · " + slide.id;
@@ -1391,6 +1412,7 @@
       fitObservers.push(canvasObserver);
     }
     position.textContent = (index + 1) + " / " + state.order.length;
+    document.querySelector('[data-layouts-link]').href = 'catalog.html#' + currentId;
     document.querySelector("[data-prev]").disabled = index === 0;
     document.querySelector("[data-next]").disabled = index === state.order.length - 1;
     if (selected && !selected.visualObject && selected.slideId === currentId) {
@@ -1402,6 +1424,13 @@
       }
     }
     requestAnimationFrame(syncTextRegionFrame);
+    if (focusCreatedTitle === currentId) {
+      focusCreatedTitle = null;
+      var title = canvas.querySelector('[data-component-id="' + slide.headline + '"]');
+      title.focus(); selectComponent(slide.id, slide.headline, title);
+      var range = document.createRange(); range.selectNodeContents(title);
+      var selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    }
   }
 
   function renderThumbs() {
@@ -1712,6 +1741,7 @@
   });
 
   document.addEventListener("keydown", function (event) {
+    if (document.querySelector('dialog[open]')) return;
     if (event.target && event.target.isContentEditable) return;
     if (event.key === "ArrowLeft") step(-1);
     if (event.key === "ArrowRight") step(1);
@@ -1760,6 +1790,13 @@
     currentId = requested || state.order[0];
     render();
     if (previewMode) return;
+    creator.refresh();
+    var starter = new URLSearchParams(location.search).get('new');
+    if (starter) {
+      var cleanUrl = new URL(location.href); cleanUrl.searchParams.delete('new');
+      history.replaceState(null, '', cleanUrl);
+      creator.show(starter);
+    }
     try {
       var draft = JSON.parse(localStorage.getItem(draftKey));
       if (draft) retainDraft(draft.message, draft);
