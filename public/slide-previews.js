@@ -35,7 +35,7 @@
       record.frame = frame;
       frame.className = 'slide-preview'; frame.tabIndex = -1;
       frame.setAttribute('aria-hidden', 'true'); frame.title = 'Slide preview';
-      frame.src = '?preview=1#' + encodeURIComponent(record.id);
+      frame.src = '?preview=1&v=' + window.slidekitAssetRevision + '#' + encodeURIComponent(record.id);
       record.art.appendChild(frame); scale(record);
       record.timer = setTimeout(function() {
         record.failed = true; retire(record); pump();

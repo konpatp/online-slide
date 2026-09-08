@@ -132,7 +132,13 @@ downloads contain source without human overrides. No per-slide catalog entry
 is needed. Recipes save layout work, but authors still inspect every new slide.
 Available starters also have a **Create a slide with this layout** link. The
 picker uses the same preview renderer and `slide_templates.py` factory as
-creation, with one preview mounted at a time. The interaction follows the
+creation. After the main slide paints, one renderer is prepared and retained
+for the page lifetime. Switching layouts sends new data to that renderer, not
+another page request; generation fencing rejects late optional-library work.
+Its state-free shell is cached by runtime revision, also benefiting sidebar
+previews. A loading/retry surface replaces unexplained blank previews.
+`python3 tools/browser_picker_latency.py` measures a 350 ms / 5 Mbps connection
+and asserts zero network requests for simple layout switches. The interaction follows the
 [PowerPoint layout/placeholder pattern](https://support.microsoft.com/en-gb/office/apply-a-slide-layout-158e6dba-e53e-479b-a6fc-caab72609689);
 [Slidev's small section layout](https://github.com/slidevjs/slidev/blob/main/packages/client/layouts/section.vue)
 is a reference for keeping layout ownership small, not a new runtime dependency.

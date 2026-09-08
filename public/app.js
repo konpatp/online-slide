@@ -1567,8 +1567,8 @@
           Array.from(stage.querySelectorAll('img')).every(function(img) {return img.complete && img.naturalWidth;}) &&
           Array.from(stage.querySelectorAll('.native-chart')).every(function(chart) {return chart.dataset.chartReady === 'true';});
         if (!ready) {if(performance.now() < readyDeadline) setTimeout(afterUsefulPaint,100); return;}
-        if (previewMode) parent.postMessage({type:'slidekit-preview-ready'},location.origin);
-        else previews.start();
+        if (previewMode) parent.postMessage({type:'slidekit-preview-ready', revision:state.sourceRevision},location.origin);
+        else {creator.warm(); previews.start();}
       }
       requestAnimationFrame(function() {requestAnimationFrame(afterUsefulPaint);});
       // Only the next source, only after paint, and never large image pages.
@@ -1811,7 +1811,17 @@
     var requested = resolveRoute(location.hash.slice(1));
     currentId = requested || state.order[0];
     render();
-    if (previewMode) return;
+    if (previewMode) {
+      // A bounded preview host can render many payloads without another page
+      // load. Generation fencing in render() rejects late library work.
+      window.addEventListener('message', function(event) {
+        if (event.origin !== location.origin || event.source !== parent || event.data?.type !== 'slidekit-preview-update') return;
+        accepted = acceptPayload(event.data.payload); state = copy(accepted);
+        currentId = state.order[0]; selected = null; render();
+      });
+      parent.postMessage({type:'slidekit-preview-initialized', revision:state.sourceRevision}, location.origin);
+      return;
+    }
     creator.refresh();
     var starter = new URLSearchParams(location.search).get('new');
     if (starter) {
