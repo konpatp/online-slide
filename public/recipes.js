@@ -681,6 +681,7 @@
       }
 
       requestAnimationFrame(function () {
+        if (!plane.isConnected) return;
         var initialSizes = measureNodes();
         var runtimeData = Object.assign({}, slide.data, {
           nodes: slide.data.nodes.map(function (node) {
@@ -782,6 +783,7 @@
       canvas.appendChild(body);
       if (!window.ScientificGeometryRuntime) throw new Error("JSXGraph geometry runtime is missing");
       requestAnimationFrame(function () {
+        if (!board.isConnected) return;
         var geometry=window.ScientificGeometryRuntime.renderVectorPlane(board, slide.data, {
           interactive: api.isEditMode(),
           objects: objectsForSlide(slide),
