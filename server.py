@@ -149,6 +149,7 @@ def make_server(
             display_map[f"uploads/{source.name}"] = f"uploads/{target.name}"
     display_revision = hashlib.sha256(json.dumps(display_map, sort_keys=True).encode()).hexdigest()
     runtime_assets = [
+        "index.html", "runtime-version.js",
         "styles.css", "app.js", "slide-previews.js", "new-slide.js", "recipes.js", "joint-diagram.js",
         "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
         "math-runtime.js", "math-runtime.css",
@@ -219,6 +220,7 @@ def make_server(
         payload["tables"] = json.loads(json.dumps(state.get("tables", {})))
         payload["objects"] = json.loads(json.dumps(state.get("objects", {})))
         payload["sourceRevision"] = source_revision
+        payload["runtimeRevision"] = asset_revision
         payload["displayRevision"] = display_revision
         payload["slideRevisions"] = source_revisions(catalog)
         if not compact:
@@ -242,6 +244,18 @@ def make_server(
     class Handler(SimpleHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
+        def end_headers(self):
+            self.send_header('X-Slidekit-Runtime', asset_revision)
+            super().end_headers()
+
+        def runtime_matches(self):
+            revision = self.headers.get('X-Slidekit-Runtime')
+            if revision and revision != asset_revision:
+                self.close_connection = True  # A refused POST body must not become another request.
+                response(self, 409, {'error': 'Slide renderer updated; reload before continuing.'})
+                return False
+            return True
+
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, directory=str(public_dir), **kwargs)
 
@@ -257,11 +271,16 @@ def make_server(
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
+            if not self.runtime_matches():
+                return
+            if urlsplit(self.path).path == '/api/runtime':
+                response(self, 200, {'runtimeRevision': asset_revision}, 'no-store')
+                return
             route = urlsplit(self.path).path
             query = parse_qs(urlsplit(self.path).query)
             try:
                 with lock:
-                    if route.startswith('/api/'):
+                    if route.startswith('/api/') and route != '/api/layouts':
                         refresh_sources()
                     if route == '/api/bootstrap':
                         payload = bootstrap(query.get('slide', [''])[0])
@@ -316,7 +335,10 @@ def make_server(
             if route in {"/", "/index.html"}:
                 raw = (public_dir / "index.html").read_text(encoding="utf-8")
                 raw = raw.replace("__ASSET_REVISION__", asset_revision).encode("utf-8")
-                send_bytes(self, 200, raw, 'text/html; charset=utf-8', 'no-cache, must-revalidate')
+                # Preview shell contains no curator/evidence state. Cache only
+                # the exact runtime generation; payloads still arrive separately.
+                cache = 'private, max-age=31536000, immutable' if query.get('preview') == ['1'] and query.get('v') == [asset_revision] else 'no-cache, must-revalidate'
+                send_bytes(self, 200, raw, 'text/html; charset=utf-8', cache)
                 return
             candidate = (public_dir / route.lstrip("/")).resolve()
             if not candidate.is_relative_to(public_dir.resolve()) or not candidate.is_file():
@@ -330,6 +352,8 @@ def make_server(
             )
 
         def do_POST(self) -> None:  # noqa: N802
+            if not self.runtime_matches():
+                return
             nonlocal state
             route = urlsplit(self.path).path
             if route == "/api/assets":

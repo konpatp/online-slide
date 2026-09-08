@@ -96,6 +96,25 @@ class ServerProtocolTests(unittest.TestCase):
         with self.assertRaises(server.ContractError):
             server.make_server(ROOT/'public', self.slides_path, ROOT/'data/seed-state.json', self.state_path)
 
+    def test_runtime_fence_rejects_stale_source_reads_and_edits(self):
+        _, before = self.get('/api/deck-state')
+        with self.get_response('/api/runtime') as reply:
+            revision = reply.headers['X-Slidekit-Runtime']
+            self.assertEqual(json.load(reply)['runtimeRevision'], revision)
+        self.assertEqual(before['runtimeRevision'], revision)
+        for method, path in [('GET', '/api/bootstrap'), ('POST', '/api/deck-state')]:
+            request = Request(self.base + path, method=method,
+                              data=b'{}' if method == 'POST' else None,
+                              headers={'X-Slidekit-Runtime': 'previous-renderer'})
+            with self.assertRaises(HTTPError) as caught:
+                urlopen(request)
+            self.assertEqual(caught.exception.code, 409)
+            self.assertEqual(caught.exception.headers['X-Slidekit-Runtime'], revision)
+        self.assertEqual(self.get('/api/deck-state')[1], before)
+        with urlopen(Request(self.base + '/api/bootstrap',
+                             headers={'X-Slidekit-Runtime': revision})) as reply:
+            self.assertEqual(reply.status, 200)
+
     def test_concurrent_creation_preserves_existing_edits_and_stale_saves(self):
         _, base = self.get('/api/deck-state')
         sid = base['order'][0]
@@ -137,6 +156,17 @@ class ServerProtocolTests(unittest.TestCase):
             with self.assertRaises(HTTPError):
                 self.post('/api/slides', intent)
         self.assertEqual(self.state_path.read_bytes(), before)
+
+    def test_preview_shell_is_generation_cached_and_layouts_skip_deck_scan(self):
+        page = self.get('/')[1].decode()
+        revision = re.search(r'app\.js\?v=([0-9a-f]{16})', page).group(1)
+        with self.get_response('/?preview=1&v='+revision) as response:
+            self.assertIn('immutable', response.headers['Cache-Control'])
+            self.assertNotIn('createdSlides', response.read().decode())
+        with self.get_response('/?preview=1&v=stale') as response:
+            self.assertNotIn('immutable', response.headers['Cache-Control'])
+        with patch('server.load_catalog', side_effect=AssertionError('layouts must not scan research sources')):
+            self.assertEqual(len(self.get('/api/layouts')[1]), 6)
 
     def test_static_page_catalog_and_state_are_available(self):
         status, state = self.get("/api/deck-state")
