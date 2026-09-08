@@ -42,7 +42,7 @@ def build(source: Path, output: Path) -> dict:
         if assets.is_dir():
             shutil.copytree(assets, staging / "public" / "assets", dirs_exist_ok=True)
         shutil.copytree(source / "slides", staging / "slides")
-        for name in ("server.py", "slidekit.py"):
+        for name in ("server.py", "slidekit.py", "slide_templates.py"):
             shutil.copy2(TOOLKIT / name, staging / name)
         (staging / "data").mkdir()
         (staging / "data" / "seed-state.json").write_text(

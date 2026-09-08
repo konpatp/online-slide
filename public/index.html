@@ -38,6 +38,7 @@
         <small>ScientificSlideKit pilot</small>
       </a>
       <div class="top-actions">
+        <button class="button primary" type="button" data-new-slide disabled>+ New slide</button>
         <a class="button quiet" href="catalog.html">Layouts</a>
         <button class="button quiet" type="button" data-notes-toggle>Facts / notes</button>
         <span class="save-state saved" data-save-state role="status">Saved</span>
@@ -106,6 +107,12 @@
     </main>
 
     <div class="toast" data-toast role="status" aria-live="polite"></div>
+    <dialog class="create-slide-dialog" data-create-dialog aria-labelledby="create-slide-title">
+      <header><h2 id="create-slide-title">Choose a layout</h2><button class="button quiet" type="button" data-create-cancel>Cancel</button></header>
+      <div class="create-slide-body"><nav data-layout-list aria-label="Layout starters"></nav>
+        <div><div class="create-slide-preview" data-layout-preview></div><p data-layout-description></p></div></div>
+      <footer><p data-create-message role="status"></p><button class="button primary" type="button" data-create-confirm disabled>Create slide</button></footer>
+    </dialog>
     <dialog class="scientific-notes" data-notes-dialog>
       <form method="dialog"><button class="button" autofocus>Close</button></form>
       <div data-notes-content></div>
@@ -113,6 +120,7 @@
     <script src="recipes.js?v=__ASSET_REVISION__"></script>
     <script src="chart-panels.js?v=__ASSET_REVISION__"></script>
     <script src="slide-previews.js?v=__ASSET_REVISION__"></script>
+    <script src="new-slide.js?v=__ASSET_REVISION__"></script>
     <script src="app.js?v=__ASSET_REVISION__"></script>
   </body>
 </html>
