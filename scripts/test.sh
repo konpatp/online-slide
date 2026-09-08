@@ -22,4 +22,5 @@ if [[ "${ONLINE_SLIDE_BROWSER_CHECK:-0}" == "1" ]]; then
   python3 tools/browser_wysiwyg.py
   python3 tools/browser_chart_panels.py
   python3 tools/browser_creation.py
+  python3 tools/browser_picker_latency.py
 fi

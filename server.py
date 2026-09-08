@@ -148,6 +148,7 @@ def make_server(
             display_map[f"uploads/{source.name}"] = f"uploads/{target.name}"
     display_revision = hashlib.sha256(json.dumps(display_map, sort_keys=True).encode()).hexdigest()
     runtime_assets = [
+        "index.html",
         "styles.css", "app.js", "slide-previews.js", "new-slide.js", "recipes.js", "joint-diagram.js",
         "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
         "math-runtime.js", "math-runtime.css",
@@ -260,7 +261,7 @@ def make_server(
             query = parse_qs(urlsplit(self.path).query)
             try:
                 with lock:
-                    if route.startswith('/api/'):
+                    if route.startswith('/api/') and route != '/api/layouts':
                         refresh_sources()
                     if route == '/api/bootstrap':
                         payload = bootstrap(query.get('slide', [''])[0])
@@ -315,7 +316,10 @@ def make_server(
             if route in {"/", "/index.html"}:
                 raw = (public_dir / "index.html").read_text(encoding="utf-8")
                 raw = raw.replace("__ASSET_REVISION__", asset_revision).encode("utf-8")
-                send_bytes(self, 200, raw, 'text/html; charset=utf-8', 'no-cache, must-revalidate')
+                # Preview shell contains no curator/evidence state. Cache only
+                # the exact runtime generation; payloads still arrive separately.
+                cache = 'private, max-age=31536000, immutable' if query.get('preview') == ['1'] and query.get('v') == [asset_revision] else 'no-cache, must-revalidate'
+                send_bytes(self, 200, raw, 'text/html; charset=utf-8', cache)
                 return
             candidate = (public_dir / route.lstrip("/")).resolve()
             if not candidate.is_relative_to(public_dir.resolve()) or not candidate.is_file():

@@ -402,7 +402,8 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .create-slide-body nav button {text-align:left;padding:13px 16px;border:1px solid transparent;border-radius:9px;background:#f4f6fa;color:#14233b;font:inherit;cursor:pointer;}
 .create-slide-body nav button[aria-pressed="true"] {border-color:#2f6fed;background:#edf3ff;color:#235bc5;}
 .create-slide-body p {font-size:14px;color:#65748a;line-height:1.5;}
-.create-slide-preview {aspect-ratio:16/9;background:#f4f6fa;border:1px solid #e0e5ee;border-radius:8px;overflow:hidden;}
+.create-slide-preview {position:relative;aspect-ratio:16/9;background:#f4f6fa;border:1px solid #e0e5ee;border-radius:8px;overflow:hidden;}
+.layout-preview-loading {position:absolute;inset:0;z-index:2;width:100%;border:0;background:#f4f6fa;color:#65748a;font:inherit;cursor:pointer;}
 .create-slide-preview iframe {display:block;width:100%;height:100%;border:0;pointer-events:none;}
 .recipe-section-divider.centered-section .recipe-header {text-align:center;}
 @media(max-width:650px) {.create-slide-body {grid-template-columns:1fr;gap:12px;}.create-slide-body nav {display:grid;grid-template-columns:1fr 1fr;}.create-slide-dialog {padding:16px;}.create-slide-dialog footer {gap:10px;}}
