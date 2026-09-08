@@ -718,7 +718,7 @@ def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
     def choose(old: Any, new: Any, remote: Any, path: tuple[str, ...]) -> Any:
         if old == new:
             return remote
-        if len(path) > 1 and path[0] in {"overlays", "objects", "tables"}:
+        if len(path) > 1 and path[0] in {"overlays", "objects", "tables", "textBoxes"}:
             key = path[1]
             if path[0]=='tables':key=key.partition('::table::')[0]
             if base_sources.get(key) != revisions[key]:
@@ -779,7 +779,7 @@ def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
         else:
             hidden.discard(key)
     result["hidden"] = [key for key in result["order"] if key in hidden]
-    for field, depth in (("overlays", 3), ("objects", 2), ("tables", 1)):
+    for field, depth in (("overlays", 3), ("objects", 2), ("tables", 1), ("textBoxes", 2)):
         result[field] = merge_map(base.get(field, {}), candidate.get(field, {}),
                                   current.get(field, {}), depth, (field,))
     return validate_state_snapshot(result, current, catalog)
@@ -1046,6 +1046,8 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
     validate_tables(tables, catalog)
     objects = state.get("objects", {})
     validate_objects(objects, catalog)
+    text_boxes = state.get("textBoxes", {})
+    validate_text_boxes(text_boxes, catalog)
     reconciled = {
         "schema": STATE_SCHEMA,
         "revision": int(state.get("revision", 0)) + (1 if changed else 0),
@@ -1054,10 +1056,32 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
         "overlays": overlays,
         "tables": tables,
         "objects": objects,
+        "textBoxes": text_boxes,
     }
     if state.get("createdSlides"):
         reconciled["createdSlides"] = copy.deepcopy(state["createdSlides"])
     return reconciled, changed
+
+
+def validate_text_boxes(boxes: Any, catalog: dict[str, dict[str, Any]]) -> None:
+    """Curator-owned text uses the same safe text/marks/region contract.
+
+    Each UUID identity is an atomic conflict domain, independent of other
+    insertions and author-owned source components. No raw HTML is accepted.
+    """
+    _require(isinstance(boxes, dict), "textBoxes must be an object")
+    for sid, components in boxes.items():
+        _require(sid in catalog, "text box targets unknown slide")
+        _require(isinstance(components, dict) and len(components) <= 200,
+                 "text boxes must be a bounded component map")
+        for key, value in components.items():
+            _require(isinstance(key, str) and COMPONENT_ID.fullmatch(key) and
+                     key.startswith('text-box-') and key not in catalog[sid]['components'] and
+                     key not in _visual_objects(catalog[sid]), "text box identity collides or is invalid")
+            _require(isinstance(value, dict) and {'text', 'region'} <= set(value) and
+                     set(value) <= {'text', 'region', 'marks', 'color', 'fontScale', 'hidden'},
+                     "text box needs bounded text and supported formatting")
+            validate_overlays({sid:{key:value}}, {sid:{'components':{key:{'kind':'text','text':''}}}})
 
 
 def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None:
@@ -1167,6 +1191,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
     overlays = candidate.get("overlays")
     tables = candidate.get("tables", {})
     objects = candidate.get("objects", {})
+    text_boxes = candidate.get("textBoxes", {})
     known = set(catalog)
     _require(isinstance(order, list) and len(order) == len(known) and set(order) == known,
              "order must contain every published slide exactly once")
@@ -1176,6 +1201,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
     validate_overlays(overlays, catalog)
     validate_tables(tables, catalog)
     validate_objects(objects, catalog)
+    validate_text_boxes(text_boxes, catalog)
     result = {
         "schema": STATE_SCHEMA,
         "revision": int(current["revision"]) + 1,
@@ -1184,6 +1210,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
         "overlays": overlays,
         "tables": tables,
         "objects": objects,
+        "textBoxes": text_boxes,
     }
     # Created sources are service-owned. A stale or malicious snapshot cannot
     # replace them; only the atomic creation endpoint can add a source.

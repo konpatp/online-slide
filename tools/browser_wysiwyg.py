@@ -38,12 +38,32 @@ def main():
                 cell = page.locator('[data-stage] [data-component-id="random-mid"]')
                 sibling = page.locator('[data-stage] [data-component-id="random-high"]')
                 original_sibling = sibling.text_content()
+                # Formatting unchanged source text must still bind that exact
+                # wording in the durable overlay (not marks alone).
+                original_text = cell.text_content()
+                cell.click()
+                with page.expect_response(lambda r: r.request.method == 'POST') as response:
+                    page.locator('[data-bold]').click()
+                assert response.value.ok, response.value.text()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                bound = json.loads(state_path.read_text())['overlays'][sid]['random-mid']
+                assert bound['text'] == original_text
+                assert bound['marks'] == [{'start':0,'end':len(original_text),'bold':True}]
+                page.reload(); cell.wait_for()
+                assert cell.locator('[data-text-bold="true"]').text_content() == original_text
+                if page.locator('[data-edit-toggle]').text_content() == 'Enable edit':
+                    page.locator('[data-edit-toggle]').click()
+                page.wait_for_function("document.querySelector('[data-stage] [data-component-id=\"random-mid\"]').isContentEditable")
+                page.wait_for_timeout(350)
+                cell.click();page.locator('[data-reset-component]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                page.wait_for_timeout(150)
                 cell.click(); cell.fill('Plain bold tail')
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
                 cell.click(); page.keyboard.press('Home')
                 for _ in range(6): page.keyboard.press('ArrowRight')
                 for _ in range(4): page.keyboard.press('Shift+ArrowRight')
-                assert page.evaluate('getSelection().toString()') == 'bold'
+                assert page.evaluate('getSelection().toString()') == 'bold', cell.evaluate('e=>({html:e.outerHTML, selection:getSelection().toString(),active:document.activeElement.outerHTML})')
                 page.locator('[data-bold]').click()
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
                 saved = json.loads(state_path.read_text())

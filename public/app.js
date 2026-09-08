@@ -46,6 +46,7 @@
   var prefetchTimer = null;
   var focusedThumb = null;
   var focusCreatedTitle = null;
+  var focusTextBox = null;
   var creator = previewMode ? null : new window.SlideCreator({
     ready: function() {return Boolean(state && accepted && !pending && !inFlight &&
       sameSnapshot(state, accepted) && status.textContent === 'Saved');},
@@ -136,6 +137,7 @@
       hidden: value.hidden.slice(),
       overlays: copy(value.overlays),
       tables: copy(value.tables || {}),
+      textBoxes: copy(value.textBoxes || {}),
       objects: copy(value.objects || {})
     };
   }
@@ -185,7 +187,7 @@
       }
     });
     result.hidden = result.order.filter(function (key) { return hidden.has(key); });
-    [["overlays", 3], ["objects", 2], ["tables", 1]].forEach(function (row) {
+    [["overlays", 3], ["objects", 2], ["tables", 1], ["textBoxes", 2]].forEach(function (row) {
       result[row[0]] = merge(base[row[0]], local[row[0]], remote[row[0]], row[1]);
     });
     return result;
@@ -314,6 +316,8 @@
   }
 
   function effectiveComponent(slide, componentId) {
+    var box = ((state.textBoxes || {})[slide.id] || {})[componentId];
+    if (box) return Object.assign({kind:'text', role:'Text box'}, box);
     var table = insertedTableOwner(slide.id, componentId);
     var source = slide.components[componentId] || (table && table.components[componentId]);
     if (!source) throw new Error("Unknown semantic component " + slide.id + "@" + componentId);
@@ -347,6 +351,12 @@
   }
 
   function updateOverlay(slideId, componentId, key, value) {
+    var box = ((state.textBoxes || {})[slideId] || {})[componentId];
+    if (box) {
+      if (value === undefined || value === null) delete box[key];
+      else box[key] = value;
+      return;
+    }
     var source = state.slides[slideId].components[componentId];
     var table = insertedTableOwner(slideId, componentId);
     if (!source && table && table.components[componentId]) {
@@ -357,6 +367,10 @@
     var overlay = overlayFor(slideId, componentId, true);
     if (source[key] === value || value === undefined || value === null) delete overlay[key];
     else overlay[key] = value;
+    // Formatting and its exact wording are one conflict domain. Even when
+    // wording equals the source, marks may not be persisted without that bind.
+    if (Object.prototype.hasOwnProperty.call(overlay, 'marks') && !Object.prototype.hasOwnProperty.call(overlay, 'text'))
+      overlay.text = source.text;
     cleanOverlay(slideId, componentId);
   }
 
@@ -736,14 +750,15 @@
       element.appendChild(span); offset = mark.end;
     });
     element.appendChild(document.createTextNode(component.text.slice(offset)));
+    if (component.text.endsWith('\n')) element.appendChild(document.createElement('br'));
   }
 
   function readMarkedText(element) {
-    var raw = element.textContent, text = raw.trim(), trim = raw.length - raw.trimStart().length;
+    var text = element.textContent;
     var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0, marks = [];
     while ((node = walker.nextNode())) {
       var owner = node.parentElement.closest('[data-text-bold],b,strong');
-      var start = Math.max(0, offset - trim), end = Math.min(text.length, offset + node.length - trim);
+      var start = offset, end = offset + node.length;
       if (owner && element.contains(owner) && end > start) {
         var bold = owner.dataset.textBold !== 'false', last = marks[marks.length-1];
         if (last && last.end === start && last.bold === bold) last.end = end;
@@ -832,8 +847,10 @@
     element.addEventListener("paste", function (event) {
       if (!editMode || isLatex) return;
       var raw = event.clipboardData && event.clipboardData.getData("text/plain");
-      if (!raw || (raw.indexOf("\t") < 0 && raw.indexOf("\n") < 0)) return;
-      if (pasteTableGrid(slide, componentId, raw)) event.preventDefault();
+      if (raw === null || raw === undefined) return;
+      event.preventDefault();
+      if ((raw.includes('\t') || raw.includes('\n')) && pasteTableGrid(slide, componentId, raw)) return;
+      insertPlainText(element,raw.replace(/\r\n?/g,'\n'));
     });
     element.addEventListener("keydown", function (event) {
       if (editMode && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
@@ -850,6 +867,9 @@
       next.click();
     });
     element.addEventListener('beforeinput', function(event) {
+      if (editMode && !isLatex && ['insertParagraph','insertLineBreak'].includes(event.inputType)) {
+        event.preventDefault(); insertPlainText(element,'\n'); return;
+      }
       if (event.inputType === 'formatBold') {
         event.preventDefault(); toggleTextBold(slide.id,componentId,element);
       }
@@ -866,6 +886,21 @@
     });
     bindTextRegion(slide, componentId, element, element, {minSize: 10});
     return element;
+  }
+
+  function insertPlainText(element,text) {
+    var selection=getSelection();
+    if(!selection.rangeCount) return;
+    var range=selection.getRangeAt(0);
+    if(!element.contains(range.startContainer) || !element.contains(range.endContainer)) return;
+    range.deleteContents();
+    var node=document.createTextNode(text);range.insertNode(node);
+    // Chromium needs an empty-line placeholder after a terminal newline;
+    // otherwise its next native insertion removes that newline as redundant.
+    if(element.textContent.endsWith('\n') && element.lastChild.nodeName!=='BR') element.appendChild(document.createElement('br'));
+    range.setStart(node,node.length);range.collapse(true);
+    selection.removeAllRanges();selection.addRange(range);
+    element.dispatchEvent(new Event('input',{bubbles:true}));
   }
 
   function fitTextInRegion(element, region, options) {
@@ -1397,6 +1432,15 @@
   }
 
   function renderStage() {
+    // A save acknowledgment must not steal the caret from an active editor.
+    var active=document.activeElement, caret=null, selection=getSelection();
+    if (editMode && active && active.isContentEditable && stage.contains(active) && selection.rangeCount) {
+      var range=selection.getRangeAt(0);
+      if(active.contains(range.startContainer) && active.contains(range.endContainer)) {
+        var prefix=document.createRange();prefix.selectNodeContents(active);prefix.setEnd(range.startContainer,range.startOffset);
+        caret={slideId:active.closest('.slide-canvas').dataset.slideId,id:active.dataset.componentId,text:active.textContent,start:prefix.toString().length,length:range.toString().length};
+      }
+    }
     var index = currentIndex();
     currentId = state.order[index];
     var slide = currentSlide();
@@ -1405,10 +1449,28 @@
     renderRecipe[slide.recipe](canvas, slide);
     addFooter(canvas, slide);
     renderRecipe.annotations(canvas,slide);
+    Object.keys((state.textBoxes || {})[slide.id] || {}).forEach(function(id) {
+      var text = editableText(slide,id,'div','slide-annotation-text');
+      canvas.appendChild(text);
+      bindTextRegion(slide,id,text,text,{alwaysFit:true});
+    });
     stage.appendChild(canvas);
     fitStage();
     stage.classList.toggle("edit-mode", editMode);
     applyAllTextRegions();
+    if(caret && caret.slideId===currentId) {
+      var replacement=stage.querySelector('[data-component-id="'+caret.id+'"]');
+      if(replacement && replacement.isContentEditable && replacement.textContent===caret.text) {
+        replacement.focus();
+        var walker=document.createTreeWalker(replacement,NodeFilter.SHOW_TEXT),node,offset=0,restored=document.createRange(),started=false;
+        while((node=walker.nextNode())) {
+          if(!started && caret.start<=offset+node.length) {restored.setStart(node,caret.start-offset);started=true;}
+          if(started && caret.start+caret.length<=offset+node.length) {restored.setEnd(node,caret.start+caret.length-offset);break;}
+          offset+=node.length;
+        }
+        if(started) {selection.removeAllRanges();selection.addRange(restored);}
+      }
+    }
     if (window.ResizeObserver) {
       var canvasObserver = new ResizeObserver(function () {
         requestAnimationFrame(function () {
@@ -1449,7 +1511,7 @@
     state.order.forEach(function (id, index) {
       var slide = slideById(id);
       var key = JSON.stringify([state.slideRevisions[id],state.overlays[id],(state.tables||{})[id],
-        (state.objects||{})[id],state.hidden.includes(id)]);
+        (state.objects||{})[id],(state.textBoxes||{})[id],state.hidden.includes(id)]);
       var retained = existing.get(id);
       if (retained && retained.dataset.previewKey === key) {
         retained.classList.toggle('current', id === currentId);
@@ -1532,7 +1594,7 @@
     document.querySelectorAll("[data-font-delta], [data-color]").forEach(function (button) { button.disabled = !textSelected; });
     document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
     var objectSelected = Boolean(editMode && selected && selected.visualObject);
-    document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected));
+    document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected)) || Boolean(selected && ((state.textBoxes || {})[selected.slideId] || {})[selected.componentId]);
     var hideButton=document.querySelector('[data-hide-component]');
     hideButton.disabled=!(editMode && component);
     hideButton.textContent=component && component.hidden ? 'Show' : 'Hide';
@@ -1565,6 +1627,15 @@
     ensureSlide(currentId).then(prepareSlide).then(function() {
       if (generation !== renderGeneration) return;
       renderStage(); renderTools();
+      if (focusTextBox) {
+        var added = stage.querySelector('[data-component-id="'+focusTextBox+'"]');
+        focusTextBox = null;
+        if (added) {
+          added.focus(); added.click();
+          var range=document.createRange(); range.selectNodeContents(added);
+          var selection=getSelection(); selection.removeAllRanges(); selection.addRange(range);
+        }
+      }
       // Give the main slide its first useful paint before background previews.
       var readyDeadline = performance.now() + 18000;
       function afterUsefulPaint() {
@@ -1591,7 +1662,30 @@
     undoButton.disabled = !undoBase;
     editToggle.textContent = editMode ? "Done editing" : "Enable edit";
     editToggle.classList.toggle("active", editMode);
+    document.querySelector('[data-add-text]').hidden = !editMode;
   }
+
+  function addTextBox(x, y) {
+    if (!editMode || !state || loadedSlides.get(currentId) !== state.slideRevisions[currentId]) return;
+    beginChange();
+    var id='text-box-'+crypto.randomUUID();
+    if (!state.textBoxes) state.textBoxes={};
+    if (!state.textBoxes[currentId]) state.textBoxes[currentId]={};
+    state.textBoxes[currentId][id]={text:'Type your text', region:{
+      x:Math.max(24,Math.min(1376,x)), y:Math.max(24,Math.min(896,y)), width:520, height:160}};
+    focusTextBox=id;
+    render(); persist();
+  }
+
+  document.querySelector('[data-add-text]').addEventListener('click',function() {addTextBox(700,450);});
+  stage.addEventListener('dblclick',function(event) {
+    if (!editMode || event.target.closest('[data-component-id], [data-visual-object-id], button, input, svg, canvas, .native-chart, [data-native-table], .text-region-frame')) return;
+    var canvas=event.target.closest('.slide-canvas');
+    if (!canvas) return;
+    event.preventDefault();
+    var box=canvas.getBoundingClientRect();
+    addTextBox((event.clientX-box.left)*1920/box.width,(event.clientY-box.top)*1080/box.height);
+  });
 
   function selectComponent(slideId, componentId, element) {
     selected = slideId ? {slideId: slideId, componentId: componentId} : null;

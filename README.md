@@ -48,6 +48,10 @@ Open <http://127.0.0.1:8000/>. Enable edit mode to:
 - move or resize a semantic target bar, and edit a B4/R3 reach line through
   its endpoints or center handle;
 - drag the selected text region by its top edge and resize it from its corner;
+- use **Add text** in edit mode, or double-click empty slide space, to insert a
+  padded 40px text box; type immediately, use Enter/Shift+Enter for line breaks,
+  and drag/resize with the same region handles. Text, bold ranges and geometry
+  survive reload independently of source files;
 - change the selected leaf's font size or theme color;
 - drop an external image onto a gallery cell;
 - resize the selected image inside its non-cropping slot; and
