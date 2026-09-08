@@ -372,3 +372,15 @@ edits, reordered existing slides, visibility changes, stale baselines, or
 replacement of an existing different state file. Recheck its baseline digest
 immediately before service cutover, and retain the old release/state pair for
 rollback. This command prepares state; it does not deploy or rewrite live state.
+# Display image publication
+
+Install `requirements.txt` for image packaging and uploads. PNG/JPEG originals
+are retained, while published display references use quality-88 lossy WebP
+(method 4, full-resolution, exact alpha). Existing WebP and vector SVG are not
+recompressed. Building a deck caches derivatives across builds and retains only
+the current asset set in the new release. The server projects display URLs
+without rewriting authored SlideSpecs or human edits; existing uploads are
+packaged at activation and new uploads at receipt, never during image requests.
+Original uploaded rasters are retained under `uploads/originals` and are not
+served by the display upload route. Retiring a deck's upload store also retires
+those originals; immutable source assets retain their repository ownership.

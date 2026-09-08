@@ -10,6 +10,7 @@ import shutil
 import tempfile
 
 from slidekit import catalog_receipt, empty_state, load_catalog, reconcile_state
+from display_media import RASTERS, publish_image
 
 TOOLKIT = Path(__file__).resolve().parent
 
@@ -18,6 +19,8 @@ def build(source: Path, output: Path) -> dict:
     source, output = source.resolve(), output.resolve()
     if output == source or source.is_relative_to(output):
         raise ValueError("output must be a separate generated directory")
+    if (output / "data" / "live-state.json").exists():
+        raise ValueError("refusing to rebuild over live authoring state")
     catalog = load_catalog(source / "slides")
     seed_path = source / "seed-state.json"
     seed = json.loads(seed_path.read_text()) if seed_path.exists() else empty_state()
@@ -40,11 +43,28 @@ def build(source: Path, output: Path) -> dict:
             if directory.is_dir():
                 directory.chmod(0o755)
         if assets.is_dir():
-            shutil.copytree(assets, staging / "public" / "assets", dirs_exist_ok=True)
+            shutil.copytree(assets, staging / "public" / "assets", dirs_exist_ok=True,
+                            ignore=lambda directory, names: [
+                                name for name in names if Path(name).suffix.lower() in RASTERS
+                                and (Path(directory) / name).is_file()
+                            ])
+        display_map = {}
+        # Reuse the previous generated release as the cache; the new release
+        # retains only derivatives reachable from the current source assets.
+        for image in sorted(assets.rglob("*")) if assets.is_dir() else ():
+            if not image.is_file() or image.suffix.lower() not in RASTERS:
+                continue
+            target = publish_image(image, output / "public" / "display")
+            relative = target.relative_to(output / "public")
+            (staging / "public" / "display").mkdir(exist_ok=True)
+            shutil.copy2(target, staging / "public" / relative)
+            display_map[image.relative_to(source).as_posix()] = relative.as_posix()
         shutil.copytree(source / "slides", staging / "slides")
-        for name in ("server.py", "slidekit.py"):
+        for name in ("server.py", "slidekit.py", "display_media.py"):
             shutil.copy2(TOOLKIT / name, staging / name)
         (staging / "data").mkdir()
+        (staging / "data" / "display-media.json").write_text(
+            json.dumps(display_map, sort_keys=True) + "\n")
         (staging / "data" / "seed-state.json").write_text(
             json.dumps(seed, indent=2, sort_keys=True) + "\n")
         receipt = catalog_receipt(catalog)

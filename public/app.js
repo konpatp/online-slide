@@ -76,9 +76,10 @@
   function ensureSlide(id) {
     var revision = state.slideRevisions[id];
     if (loadedSlides.get(id) === revision) return Promise.resolve(slideById(id));
-    var key = id + ':' + revision;
+    var displayRevision = state.displayRevision || 'source';
+    var key = id + ':' + revision + ':' + displayRevision;
     if (!slideRequests.has(key)) {
-      slideRequests.set(key, fetch('api/slides/' + encodeURIComponent(id) + '?revision=' + revision)
+      slideRequests.set(key, fetch('api/slides/' + encodeURIComponent(id) + '?revision=' + revision + '&display=' + displayRevision)
         .then(function(r) {if(!r.ok) throw new Error('Slide source changed or unavailable. Reload to continue.'); return r.json();})
         .then(function(slide) {
           if (state.slideRevisions[id] === revision) {

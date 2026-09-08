@@ -16,6 +16,10 @@ class BuildTests(unittest.TestCase):
             source = Path(temp) / "source"
             shutil.copytree(ROOT / "slides", source / "slides")
             shutil.copytree(ROOT / "public/assets", source / "assets")
+            from PIL import Image
+            raster = source / "assets" / "test.png"
+            Image.new("RGB", (16, 16), "blue").save(raster)
+            original = raster.read_bytes()
             output = Path(temp) / "built"
             def digest():
                 return {p.relative_to(output).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -25,6 +29,11 @@ class BuildTests(unittest.TestCase):
             second = build_deck.build(source, output)
             self.assertEqual(first, second)
             self.assertEqual(before, digest())
+            display_map = json.loads((output / "data/display-media.json").read_text())
+            self.assertTrue(display_map["assets/test.png"].endswith(".webp"))
+            self.assertTrue((output / "public" / display_map["assets/test.png"]).exists())
+            self.assertFalse((output / "public/assets/test.png").exists())
+            self.assertEqual(raster.read_bytes(), original)
             self.assertFalse((output / "data/live-state.json").exists())
             # Adding one file alone is sufficient. Existing source bytes stay unchanged.
             spec = json.loads((source / "slides/01-hero-plot.json").read_text())

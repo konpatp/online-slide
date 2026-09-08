@@ -262,6 +262,21 @@ class ServerProtocolTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(served, image)
 
+    def test_png_upload_serves_webp_and_retains_original(self):
+        import io
+        from PIL import Image
+        source = io.BytesIO()
+        Image.new("RGB", (16, 16), "orange").save(source, format="PNG")
+        original = source.getvalue()
+        status, receipt = self.post("/api/assets", original, "image/png")
+        self.assertEqual(status, 201)
+        self.assertTrue(receipt["src"].endswith(".webp"))
+        status, served = self.get("/" + receipt["src"])
+        self.assertEqual(Image.open(io.BytesIO(served)).format, "WEBP")
+        originals = list((self.uploads_path / "originals").glob("*.png"))
+        self.assertEqual(len(originals), 1)
+        self.assertEqual(originals[0].read_bytes(), original)
+
     def merge_save(self, base, snapshot):
         return self.post("/api/deck-state", {
             "baseRevision": base["revision"],

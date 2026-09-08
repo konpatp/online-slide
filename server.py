@@ -24,6 +24,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, parse_qs, unquote
+from display_media import display_bytes, display_references, publish_image, RASTERS
 
 from slidekit import (
     ContractError,
@@ -133,6 +134,15 @@ def make_server(
 
     lock = threading.RLock()
     uploads_dir = uploads_dir or state_path.parent / "uploads"
+    display_manifest = public_dir.parent / "data" / "display-media.json"
+    display_map = read_json(display_manifest) if display_manifest.is_file() else {}
+    # Existing user uploads receive derivatives at activation, never on GET.
+    # Original uploads and curator state remain untouched and recoverable.
+    for source in sorted(uploads_dir.glob("*")):
+        if source.is_file() and source.suffix.lower() in RASTERS:
+            target = publish_image(source, uploads_dir)
+            display_map[f"uploads/{source.name}"] = f"uploads/{target.name}"
+    display_revision = hashlib.sha256(json.dumps(display_map, sort_keys=True).encode()).hexdigest()
     runtime_assets = [
         "styles.css", "app.js", "slide-previews.js", "recipes.js", "joint-diagram.js",
         "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
@@ -173,6 +183,7 @@ def make_server(
             return
 
     def response(handler: SimpleHTTPRequestHandler, status: int, payload: Any, cache_control="no-store") -> None:
+        payload = display_references(payload, display_map)
         raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         send_bytes(handler, status, raw, "application/json; charset=utf-8", cache_control)
 
@@ -201,6 +212,7 @@ def make_server(
         payload["tables"] = json.loads(json.dumps(state.get("tables", {})))
         payload["objects"] = json.loads(json.dumps(state.get("objects", {})))
         payload["sourceRevision"] = source_revision
+        payload["displayRevision"] = display_revision
         payload["slideRevisions"] = source_revisions(catalog)
         if not compact:
             payload["slides"] = catalog
@@ -378,10 +390,23 @@ def make_server(
                 response(self, 413, {"error": "image is too large or empty"})
                 return
             raw = self.rfile.read(length)
+            original = raw
+            original_extension = extension
+            try:
+                raw, suffix = display_bytes(raw, "." + extension)
+                extension = suffix.lstrip(".")
+            except (OSError, ValueError) as exc:
+                response(self, 400, {"error": f"invalid display image: {exc}"})
+                return
             digest = hashlib.sha256(raw).hexdigest()
             name = f"{digest}.{extension}"
             path = uploads_dir / name
             try:
+                if original != raw:
+                    original_digest = hashlib.sha256(original).hexdigest()
+                    retained = uploads_dir / "originals" / f"{original_digest}.{original_extension}"
+                    if not retained.exists():
+                        atomic_write_bytes(retained, original)
                 if not path.exists():
                     atomic_write_bytes(path, raw)
             except OSError as exc:
