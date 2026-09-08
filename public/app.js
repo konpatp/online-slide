@@ -1411,6 +1411,7 @@
       fitObservers.push(canvasObserver);
     }
     position.textContent = (index + 1) + " / " + state.order.length;
+    document.querySelector('[data-layouts-link]').href = 'catalog.html#' + currentId;
     document.querySelector("[data-prev]").disabled = index === 0;
     document.querySelector("[data-next]").disabled = index === state.order.length - 1;
     if (selected && !selected.visualObject && selected.slideId === currentId) {

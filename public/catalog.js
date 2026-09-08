@@ -3,6 +3,8 @@
   "use strict";
   const root = document.getElementById("catalog");
   const urls = [];
+  const focus = location.hash;
+  document.querySelector('header a').href = './' + focus;
   function node(tag, text, parent) {
     const element = document.createElement(tag);
     if (text) element.textContent = text;
@@ -25,7 +27,7 @@
       node("p", "Layout owns: " + guide.owns, section);
       if (starters.some(item => item.id === id)) {
         const use = node('a', 'Create a slide with this layout →', section);
-        use.href = './?new=' + encodeURIComponent(id);
+        use.href = './?new=' + encodeURIComponent(id) + focus;
       }
       const examples = node("div", "", section); examples.className = "examples";
       if (!grouped[id]) node("p", "No example in this deck yet.", examples);

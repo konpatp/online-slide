@@ -92,6 +92,11 @@ def main():
                     page.wait_for_timeout(150)
                     page.screenshot(path='/tmp/new-slide-'+recipe+'.png')
                 page.locator('[data-create-cancel]').click()
+                page.locator('[data-layouts-link]').click()
+                page.locator('#section-divider a').first.click()
+                page.locator('[data-layout="section-divider"][aria-pressed="true"]').wait_for()
+                assert page.url.split('#')[1] == table_id
+                page.locator('[data-create-cancel]').click()
                 assert not errors, errors
                 print(json.dumps({'physicalCreate': True, 'titleSaved': True, 'tableCellSaved': True,
                                   'lostAckReloadRetry': True, 'duplicates': 0, 'pageErrors': errors}))

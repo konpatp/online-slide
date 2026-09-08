@@ -63,7 +63,7 @@
             button.addEventListener('click', () => select(item.id)); list.appendChild(button);
           });
         }
-        select(intent?.template || preferred || 'section-divider');
+        if (dialog.open) select(intent?.template || preferred || 'section-divider');
       } catch (error) { message.textContent = error.message; }
     };
     open.addEventListener('click', () => this.show());
