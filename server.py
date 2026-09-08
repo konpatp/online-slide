@@ -18,6 +18,7 @@ from functools import lru_cache
 import hashlib
 import json
 import mimetypes
+mimetypes.add_type("image/webp", ".webp")
 import os
 import re
 import tempfile

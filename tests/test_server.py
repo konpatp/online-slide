@@ -348,6 +348,8 @@ class ServerProtocolTests(unittest.TestCase):
         status, receipt = self.post("/api/assets", original, "image/png")
         self.assertEqual(status, 201)
         self.assertTrue(receipt["src"].endswith(".webp"))
+        with urlopen(self.base + "/" + receipt["src"]) as response:
+            self.assertEqual(response.headers.get("Content-Type"), "image/webp")
         status, served = self.get("/" + receipt["src"])
         self.assertEqual(Image.open(io.BytesIO(served)).format, "WEBP")
         originals = list((self.uploads_path / "originals").glob("*.png"))
