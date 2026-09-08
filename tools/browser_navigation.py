@@ -41,8 +41,9 @@ def main():
                     assert canvas.evaluate('c=>c.navigationSentinel') is True,'same-slide click rebuilt content'
                     visits.append(key)
                     for mode in (True,False):
-                        page.locator('[data-edit-toggle]').click();ready(key)
-                        assert page.locator('[data-edit-toggle]').get_attribute('aria-pressed')==str(mode).lower()
+                        page.locator('[data-edit-toggle]').click()
+                        page.wait_for_function("mode=>document.querySelector('[data-stage]').classList.contains('edit-mode')===mode",arg=mode)
+                        ready(key)
                     if round_number==2:
                         page.screenshot(path=str(args.output/(key+'.png')))
                     assert not errors,errors
