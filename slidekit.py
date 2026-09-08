@@ -226,7 +226,8 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                 _require(isinstance(destination,str) and SLIDE_ID.fullmatch(destination) and destination not in destinations,f'{source}: invalid or duplicate index destination')
                 destinations.add(destination)
     elif recipe == "section-divider":
-        _require(not data, f"{source}: section dividers contain only headline and optional eyebrow/footer")
+        _require(set(data) <= {"centered"} and isinstance(data.get("centered", False), bool),
+                 f"{source}: section dividers support only the centered option")
     elif recipe == "evidence-figure":
         image_id=data.get('image')
         _require(isinstance(image_id,str) and components.get(image_id,{}).get('kind')=='image',
@@ -632,7 +633,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     return spec
 
 
-def load_catalog(slides_dir: Path) -> dict[str, dict[str, Any]]:
+def load_catalog(slides_dir: Path, created_slides=None) -> dict[str, dict[str, Any]]:
     catalog: dict[str, dict[str, Any]] = {}
     paths = sorted(slides_dir.glob("*.json"))
     _require(paths, f"{slides_dir}: no slide sources found")
@@ -644,6 +645,12 @@ def load_catalog(slides_dir: Path) -> dict[str, dict[str, Any]]:
         validate_slide_spec(spec, source=str(path))
         slide_id = spec["id"]
         _require(slide_id not in catalog, f"duplicate permanent slide id: {slide_id}")
+        catalog[slide_id] = spec
+    _require(created_slides is None or isinstance(created_slides, dict), "createdSlides must be an object")
+    for slide_id, spec in (created_slides or {}).items():
+        validate_slide_spec(spec, source=f"createdSlides.{slide_id}")
+        _require(slide_id == spec['id'] and slide_id not in catalog,
+                 f"created slide identity collides with authored source: {slide_id}")
         catalog[slide_id] = spec
     route_ids=set(catalog)
     for spec in catalog.values():
@@ -1048,6 +1055,8 @@ def reconcile_state(state: dict[str, Any], catalog: dict[str, dict[str, Any]]) -
         "tables": tables,
         "objects": objects,
     }
+    if state.get("createdSlides"):
+        reconciled["createdSlides"] = copy.deepcopy(state["createdSlides"])
     return reconciled, changed
 
 
@@ -1167,7 +1176,7 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
     validate_overlays(overlays, catalog)
     validate_tables(tables, catalog)
     validate_objects(objects, catalog)
-    return {
+    result = {
         "schema": STATE_SCHEMA,
         "revision": int(current["revision"]) + 1,
         "order": list(order),
@@ -1176,6 +1185,11 @@ def validate_state_snapshot(candidate: Any, current: dict[str, Any],
         "tables": tables,
         "objects": objects,
     }
+    # Created sources are service-owned. A stale or malicious snapshot cannot
+    # replace them; only the atomic creation endpoint can add a source.
+    if current.get("createdSlides"):
+        result["createdSlides"] = copy.deepcopy(current["createdSlides"])
+    return result
 
 
 def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
