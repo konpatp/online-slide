@@ -354,6 +354,16 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                 leaves.update(used)
                 for field in ('heading','visibility'):
                     if panel.get(field):ref(panel[field],'table.'+field)
+            if 'tableSelector' in data:
+                selector=data['tableSelector']
+                _require(isinstance(selector,dict),f'{source}: tableSelector must be an object')
+                ref(selector.get('label'),'tableSelector.label')
+                options=selector.get('options')
+                _require(isinstance(options,list) and len(options)==len(ids),f'{source}: table selector must cover every table')
+                values=[option.get('value') for option in options]
+                _require(all(isinstance(value,str) for value in values) and set(values)==ids and len(set(values))==len(values),f'{source}: table selector must name each table once')
+                for option in options:ref(option.get('label'),'tableSelector.option.label')
+                _require(data.get('initialTable',panels[0]['id']) in ids,f'{source}: initialTable must name a table')
             unknown=set(referenced)-set(components)
             _require(not unknown,f'{source}: unknown table control components: {sorted(unknown)}')
             return spec

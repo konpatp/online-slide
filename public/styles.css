@@ -162,6 +162,7 @@ body.resizing-text-region [contenteditable="true"], body.moving-text-region [con
 
 /* Evidence table */
 .table-body { display: flex; align-items: center; }
+.selectable-tables .table-value { white-space: pre-line; }
 .evidence-table { --table-fit-scale: 1; width: 100%; height: auto; border-collapse: separate; border-spacing: 0; table-layout: fixed; color: #2a3d59; }
 .evidence-table th, .evidence-table td { padding: calc(.64cqw * var(--table-fit-scale)) calc(.9cqw * var(--table-fit-scale)); border-bottom: 1px solid #dfe5ee; text-align: center; vertical-align: middle; }
 .evidence-table th:not(:last-child), .evidence-table td:not(:last-child) { border-right: 1px solid #edf1f6; }

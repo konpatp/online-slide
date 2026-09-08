@@ -23,6 +23,19 @@ def logical(panel):
             'components':{}}
 
 class TablePanelTests(unittest.TestCase):
+    def test_table_selector_covers_exact_native_table_identities(self):
+        spec=fixture()
+        spec['data']['tableSelector']={'label':'headline','options':[
+            {'value':p['id'],'label':p['heading']} for p in spec['data']['tables']]}
+        spec['data']['initialTable']='secondary'
+        validate_slide_spec(spec)
+        bad=copy.deepcopy(spec);bad['data']['tableSelector']['options'].pop()
+        with self.assertRaisesRegex(ContractError,'cover every table'):validate_slide_spec(bad)
+        bad=copy.deepcopy(spec);bad['data']['tableSelector']['options'][1]['value']='primary'
+        with self.assertRaisesRegex(ContractError,'each table once'):validate_slide_spec(bad)
+        bad=copy.deepcopy(spec);bad['data']['initialTable']='unknown'
+        with self.assertRaisesRegex(ContractError,'initialTable'):validate_slide_spec(bad)
+
     def test_parallel_table_saves_merge_but_changed_source_refuses(self):
         spec=fixture();catalog={spec['id']:spec}
         base=reconcile_state(empty_state(),catalog)[0]

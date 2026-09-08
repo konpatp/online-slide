@@ -150,6 +150,12 @@ Removing an edited table, sharing a cell between tables, or saving against a
 changed source fails closed. `tools/browser_table_panels.py` exercises real
 cell editing, row insertion, visibility, save/reload, and source reordering.
 
+To compare checkpoints in the same space, add `data.tableSelector` with a
+component `label` and `options: [{value: TABLE_ID, label: COMPONENT_ID}]` covering
+every table exactly once. `initialTable` sets the initial view. The shared facet
+buttons switch one native table in place and remember the presenter selection;
+each checkpoint retains independent semantic cells and structural edits.
+
 `slide-index` supplies semantic links grouped into named sections. Its item
 order and visibility come from current curator state, not a copied order list;
 section visibility is one revision-checked update. Index source links must
