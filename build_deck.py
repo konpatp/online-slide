@@ -15,6 +15,14 @@ from display_media import RASTERS, publish_image
 TOOLKIT = Path(__file__).resolve().parent
 
 
+def copy_build_tree(source: Path, destination: Path, **options) -> None:
+    """Copy immutable inputs into a replaceable, build-owned artifact tree."""
+    shutil.copytree(source, destination, **options)
+    for directory in (destination, *destination.rglob("*")):
+        if directory.is_dir():
+            directory.chmod(0o755)
+
+
 def build(source: Path, output: Path) -> dict:
     source, output = source.resolve(), output.resolve()
     if output == source or source.is_relative_to(output):
@@ -38,12 +46,9 @@ def build(source: Path, output: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix=".slide-build-", dir=output.parent) as temp:
         staging = Path(temp) / "site"
         staging.mkdir()
-        shutil.copytree(TOOLKIT / "public", staging / "public")
-        for directory in (staging / "public", *(staging / "public").rglob("*")):
-            if directory.is_dir():
-                directory.chmod(0o755)
+        copy_build_tree(TOOLKIT / "public", staging / "public")
         if assets.is_dir():
-            shutil.copytree(assets, staging / "public" / "assets", dirs_exist_ok=True,
+            copy_build_tree(assets, staging / "public" / "assets", dirs_exist_ok=True,
                             ignore=lambda directory, names: [
                                 name for name in names if Path(name).suffix.lower() in RASTERS
                                 and (Path(directory) / name).is_file()
@@ -59,8 +64,8 @@ def build(source: Path, output: Path) -> dict:
             (staging / "public" / "display").mkdir(exist_ok=True)
             shutil.copy2(target, staging / "public" / relative)
             display_map[image.relative_to(source).as_posix()] = relative.as_posix()
-        shutil.copytree(source / "slides", staging / "slides")
-        shutil.copytree(TOOLKIT / "slidekit", staging / "slidekit",
+        copy_build_tree(source / "slides", staging / "slides")
+        copy_build_tree(TOOLKIT / "slidekit", staging / "slidekit",
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         for name in ("server.py", "slide_templates.py", "display_media.py"):
             shutil.copy2(TOOLKIT / name, staging / name)
