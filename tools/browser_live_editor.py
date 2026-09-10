@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: read-only-probe
 """Read-only live editor smoke: block EVERY mutating request, query or not.
 
 Real persistence belongs to browser_text_boxes.py's disposable server. This

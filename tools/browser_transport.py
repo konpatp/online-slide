@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Physical editor, lazy navigation and draft recovery proof; scratch state only."""
 import json
 from pathlib import Path

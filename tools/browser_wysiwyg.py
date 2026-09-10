@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Physical table formatting, edit/present equivalence, lazy rail and focus proof."""
 import json
 from pathlib import Path

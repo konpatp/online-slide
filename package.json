@@ -4,6 +4,11 @@
   "private": true,
   "description": "Declarative scientific slides with revision-safe live editing",
   "scripts": {
+    "build:browser": "node scripts/build-browser.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "check:browser-build": "node scripts/build-browser.mjs --check",
+    "test:core": "node scripts/test-browser-core.mjs",
     "build:diagram": "node scripts/build-diagram.mjs",
     "test": "./scripts/test.sh"
   },
@@ -15,6 +20,10 @@
     "plotly.js-dist-min": "2.35.2"
   },
   "devDependencies": {
-    "esbuild": "0.25.9"
+    "@types/node": "22.20.2",
+    "esbuild": "0.25.9",
+    "eslint": "10.10.0",
+    "globals": "16.5.0",
+    "typescript": "5.9.3"
   }
 }

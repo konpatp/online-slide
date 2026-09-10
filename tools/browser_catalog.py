@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Read-only catalog, automatic discovery, real preview and source-download proof."""
 import json
 from pathlib import Path
@@ -31,8 +32,9 @@ def main():
                 before = (root / "state.json").read_bytes()
                 page.goto(url)
                 page.wait_for_selector(".example")
-                assert page.locator("section").count() == 6
-                assert page.evaluate("JSON.stringify(Object.keys(createScientificSlideRecipes({})).sort()) === JSON.stringify(Object.keys(scientificRecipeGuides).sort())")
+                recipes = page.evaluate('Object.keys(scientificRecipeGuides).length')
+                assert page.locator("section").count() == recipes
+                assert page.evaluate("JSON.stringify(Object.keys(createScientificSlideRecipes({})).filter(key=>key!=='annotations').sort()) === JSON.stringify(Object.keys(scientificRecipeGuides).sort())")
                 count = page.locator(".example").count()
                 assert page.locator("iframe").count() == 0
                 page.locator(".preview button").first.click()
@@ -54,7 +56,7 @@ def main():
                 page.locator(".preview button").first.click()
                 page.frame_locator("iframe").first.locator(".slide-canvas").wait_for()
                 page.screenshot(path=str(output / "catalog.png"))
-                print(json.dumps({"ok":True,"recipes":6,"examplesAfterAddition":count+1,"stateWrites":0,"sourceDownload":True,"preview":True}))
+                print(json.dumps({"ok":True,"recipes":recipes,"examplesAfterAddition":count+1,"stateWrites":0,"sourceDownload":True,"preview":True}))
                 browser.close()
         finally:
             server.shutdown()

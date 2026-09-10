@@ -31,6 +31,11 @@ python3 server.py --host 127.0.0.1 --port 8000
 The compiled JointJS, JSXGraph, KaTeX, and Plotly runtimes are committed, so viewing
 and editing do not require Node. To change them, run
 `npm ci && npm run build:diagram`.
+Browser editor and recipe sources live in `src/`; run `npm run build:browser`
+after changing them. The normal test gate checks strict TypeScript contracts,
+JavaScript references and generated-asset freshness. See
+[editor architecture](docs/editor-architecture.md) for module ownership and
+focused browser checks.
 
 Open <http://127.0.0.1:8000/>. Enable edit mode to:
 
@@ -341,8 +346,9 @@ using only temporary local state.
 
 ## Fast path and browser acceptance
 
-The normal source gate uses Python's standard library and the already-built
-browser bundle:
+The normal gate uses Python source/state checks plus strict TypeScript,
+JavaScript reference checks, fast browser-core unit tests, and deterministic
+browser-bundle verification (`npm ci` once for development):
 
 ```bash
 ./scripts/test.sh

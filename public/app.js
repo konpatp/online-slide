@@ -1,916 +1,97 @@
-/* ScientificSlideKit pilot: declarative recipes plus a bundled diagram engine. */
-(function () {
-  "use strict";
-
-  var SVG_NS = "http://www.w3.org/2000/svg";
-  var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1";
-  var previewMode = Boolean(window.slidekitPreview);
-  if (enteredFromPresentationUrl || previewMode) {
-    document.body.classList.add("present-only");
-  }
-  if (previewMode) document.body.classList.add('preview-only');
-  var stage = document.querySelector("[data-stage]");
-  var stageWrap = document.querySelector(".stage-wrap");
-  var thumbList = document.querySelector("[data-thumb-list]");
-  var count = document.querySelector("[data-slide-count]");
-  var position = document.querySelector("[data-position]");
-  var status = document.querySelector("[data-save-state]");
-  var editToggle = document.querySelector("[data-edit-toggle]");
-  var fullscreenToggle = document.querySelector("[data-fullscreen-toggle]");
-  var presentationExit = document.querySelector("[data-presentation-exit]");
-  var undoButton = document.querySelector("[data-undo]");
-  var draftButton = document.querySelector("[data-conflict-draft]");
-  var draftKey = "slidekit-conflict-draft:" + location.pathname;
-  var toast = document.querySelector("[data-toast]");
-  var selectedLabel = document.querySelector("[data-selected-component]");
-  var state = null;
-  var accepted = null;
-  var currentId = null;
-  var selected = null;
-  var editMode = false;
-  var pending = null;
-  var inFlight = null;
-  var undoBase = null;
-  var inputTimer = null;
-  var toastTimer = null;
-  var presentationExitTimer = null;
-  var fitObservers = [];
-  var textRegionBindings = new Map();
-  var textRegionFrame = null;
-  var regionGesture = null;
-  var tableColumnGesture = null;
-  var loadedSlides = new Map();
-  var slideRequests = new Map();
-  var libraries = new Map();
-  var renderGeneration = 0;
-  var prefetchTimer = null;
-  var focusedThumb = null;
-  var focusCreatedTitle = null;
-  var focusTextBox = null;
-  var creator = previewMode ? null : new window.SlideCreator({
-    ready: function() {return Boolean(state && accepted && !pending && !inFlight &&
-      sameSnapshot(state, accepted) && status.textContent === 'Saved');},
-    currentId: function() {return currentId;},
-    created: function(payload) {
-      accepted = acceptPayload(payload); state = copy(accepted);
-      currentId = payload.loadedSlides[0]; selected = null; undoBase = null;
-      editMode = true; focusCreatedTitle = currentId;
-      history.replaceState(null, '', '#' + currentId);
-      render(); setStatus('Saved', 'saved');
-      showToast('Slide created. Type your title; changes save automatically.');
-    }
-  });
-  var previews = previewMode ? null : new window.SlidePreviews(document.querySelector('.filmstrip'), function(id) {
-    return ensureSlide(id).then(function(slide) {
-      return Object.assign(snapshot(state), {revision:state.revision, sourceRevision:state.sourceRevision,
-        runtimeRevision:window.slidekitAssetRevision,
-        slideRevisions:{[id]:state.slideRevisions[id]}, slides:{[id]:slide}, loadedSlides:[id]});
-    });
-  });
-
-  function loadLibrary(name) {
-    if (!libraries.has(name)) {
-      libraries.set(name, new Promise(function(resolve, reject) {
-        var script = document.createElement('script');
-        script.src = name + '?v=' + window.slidekitAssetRevision;
-        script.onload = resolve;
-        script.onerror = function() {libraries.delete(name); script.remove(); reject(new Error('Could not load ' + name));};
-        document.head.appendChild(script);
-      }));
-    }
-    return libraries.get(name);
-  }
-
-  function acceptPayload(payload) {
-    if (payload.runtimeRevision && payload.runtimeRevision !== window.slidekitAssetRevision)
-      throw new Error('Renderer changed. Reload the parent deck before showing this preview.');
-    // Compact ACKs contain mutable state only. Never reuse stale source specs.
-    if (!payload.slides) payload.slides = state.slides;
-    if (payload.loadedSlides && state) Object.keys(payload.slides).forEach(function(id) {
-      if (!payload.loadedSlides.includes(id) && loadedSlides.get(id) === payload.slideRevisions[id])
-        payload.slides[id] = state.slides[id];
-    });
-    (payload.loadedSlides || (payload.sourceRevision !== (accepted || {}).sourceRevision ? Object.keys(payload.slides) : []))
-      .forEach(function(id) { loadedSlides.set(id, payload.slideRevisions[id]); });
-    return payload;
-  }
-
-  function ensureSlide(id) {
-    var revision = state.slideRevisions[id];
-    if (loadedSlides.get(id) === revision) return Promise.resolve(slideById(id));
-    var displayRevision = state.displayRevision || 'source';
-    var key = id + ':' + revision + ':' + displayRevision;
-    if (!slideRequests.has(key)) {
-      slideRequests.set(key, window.slidekitRequest('api/slides/' + encodeURIComponent(id) + '?revision=' + revision + '&display=' + displayRevision)
-        .then(function(r) {if(!r.ok) throw new Error('Slide source changed or unavailable. Reload to continue.'); return r.json();})
-        .then(function(slide) {
-          if (state.slideRevisions[id] === revision) {
-            state.slides[id] = slide; accepted.slides[id] = slide;
-            loadedSlides.set(id, revision);
-          }
-          return slide;
-        }).finally(function() {slideRequests.delete(key);}));
-    }
-    return slideRequests.get(key);
-  }
-
-  function prepareSlide(slide) {
-    var needed = [];
-    if (slide.recipe === 'chart-panels') needed.push(loadLibrary('plotly.min.js'));
-    if (slide.recipe === 'mechanism-pipeline') needed.push(loadLibrary('joint-diagram.js'));
-    if (slide.recipe === 'vector-geometry') needed.push(loadLibrary('geometry-runtime.js'));
-    if (Object.values(slide.components || {}).some(function(c) {return c.render === 'latex';}))
-      needed.push(loadLibrary('math-runtime.js'));
-    return Promise.all(needed);
-  }
-
+// Generated by npm run build:browser; edit src/, not this file.
+"use strict";
+(() => {
+  // src/editor/viewport.ts
   var CANONICAL_SLIDE_WIDTH = 1920;
   var CANONICAL_SLIDE_HEIGHT = 1080;
   var EDITOR_MAX_SLIDE_WIDTH = 1280;
-
-  function copy(value) { return JSON.parse(JSON.stringify(value)); }
-
-  function snapshot(value) {
-    return {
-      schema: value.schema,
-      order: value.order.slice(),
-      hidden: value.hidden.slice(),
-      overlays: copy(value.overlays),
-      tables: copy(value.tables || {}),
-      textBoxes: copy(value.textBoxes || {}),
-      objects: copy(value.objects || {})
-    };
-  }
-
-  function sameSnapshot(a, b) {
-    return JSON.stringify(snapshot(a)) === JSON.stringify(snapshot(b));
-  }
-
-  // Carry only edits made after a request started onto the server's merged
-  // response. Replaying a whole snapshot here would erase another editor.
-  function carryForward(base, local, remote) {
-    var result = copy(remote);
-    function changed(a, b) { return JSON.stringify(a) !== JSON.stringify(b); }
-    function merge(a, b, c, depth) {
-      var out = copy(c || {});
-      var keys = Object.keys(Object.assign({}, a || {}, b || {}));
-      if (depth === 1 && [a,b,c].some(function(value) {return value && value.marks !== undefined;})) {
-        function group(value) {var result={}; ['text','marks'].forEach(function(key) {
-          if (value && value[key] !== undefined) result[key]=value[key];
-        }); return result;}
-        if (changed(group(a),group(b))) {
-          delete out.text; delete out.marks; Object.assign(out,group(b));
-        }
-        keys=keys.filter(function(key) {return key!=='text' && key!=='marks';});
-      }
-      keys.forEach(function (key) {
-        var old = (a || {})[key], next = (b || {})[key];
-        if (!changed(old, next)) return;
-        if (depth > 1) {
-          out[key] = merge(old, next, out[key], depth - 1);
-          if (!Object.keys(out[key]).length) delete out[key];
-        } else if (next === undefined) delete out[key];
-        else out[key] = copy(next);
-      });
-      return out;
+  function createViewport({ stage, stageWrap, presentationExit, fullscreenToggle, applyAllTextRegions, syncTextRegionFrame, showToast }) {
+    let presentationExitTimer;
+    function stageContentBox() {
+      var style = getComputedStyle(stageWrap);
+      return {
+        width: Math.max(0, stageWrap.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)),
+        height: Math.max(0, stageWrap.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+      };
     }
-    if (changed(base.order, local.order)) {
-      var known = new Set(base.order), remaining = local.order.slice();
-      result.order = remote.order.map(function (key) {
-        return known.has(key) ? remaining.shift() : key;
+    function fitStage() {
+      var available = stageContentBox();
+      if (!available.width || !available.height) return;
+      var presentation = document.body.classList.contains("present-only");
+      var width = presentation ? available.width : Math.min(available.width, EDITOR_MAX_SLIDE_WIDTH);
+      var scale = Math.min(width / CANONICAL_SLIDE_WIDTH, available.height / CANONICAL_SLIDE_HEIGHT);
+      if (!Number.isFinite(scale) || scale <= 0) return;
+      stage.style.width = (CANONICAL_SLIDE_WIDTH * scale).toFixed(2) + "px";
+      stage.style.height = (CANONICAL_SLIDE_HEIGHT * scale).toFixed(2) + "px";
+      stage.style.setProperty("--stage-scale", String(scale));
+      stage.dataset.stageFit = "uniform-contain";
+      stage.dataset.stageScale = scale.toFixed(6);
+      requestAnimationFrame(function() {
+        applyAllTextRegions();
+        syncTextRegionFrame();
       });
     }
-    var hidden = new Set(remote.hidden);
-    base.order.forEach(function (key) {
-      if (base.hidden.includes(key) !== local.hidden.includes(key)) {
-        if (local.hidden.includes(key)) hidden.add(key); else hidden.delete(key);
-      }
-    });
-    result.hidden = result.order.filter(function (key) { return hidden.has(key); });
-    [["overlays", 3], ["objects", 2], ["tables", 1], ["textBoxes", 2]].forEach(function (row) {
-      result[row[0]] = merge(base[row[0]], local[row[0]], remote[row[0]], row[1]);
-    });
-    return result;
-  }
-
-  function retainDraft(message, restored) {
-    var draft = restored || {message: message, base: snapshot(accepted),
-      sourceRevision: accepted.sourceRevision, local: snapshot(state)};
-    try { localStorage.setItem(draftKey, JSON.stringify(draft)); } catch (_) {}
-    draftButton.hidden = false;
-    draftButton.onclick = function () {
-      var url = URL.createObjectURL(new Blob([JSON.stringify(draft, null, 2)],
-        {type: "application/json"}));
-      var link = document.createElement("a");
-      link.href = url; link.download = "unsaved-slide-edits.json"; link.click();
-      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-    };
-  }
-
-  function setStatus(label, kind) {
-    status.textContent = label;
-    status.className = "save-state " + (kind || "saved");
-    if (creator) creator.refresh();
-  }
-
-  function showToast(message) {
-    toast.textContent = message;
-    toast.classList.add("visible");
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toast.classList.remove("visible"); }, 2700);
-  }
-
-  function stageContentBox() {
-    var style = getComputedStyle(stageWrap);
-    return {
-      width: Math.max(0, stageWrap.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)),
-      height: Math.max(0, stageWrap.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
-    };
-  }
-
-  function fitStage() {
-    var available = stageContentBox();
-    if (!available.width || !available.height) return;
-    var presentation = document.body.classList.contains("present-only");
-    var width = presentation ? available.width : Math.min(available.width, EDITOR_MAX_SLIDE_WIDTH);
-    var scale = Math.min(width / CANONICAL_SLIDE_WIDTH, available.height / CANONICAL_SLIDE_HEIGHT);
-    if (!Number.isFinite(scale) || scale <= 0) return;
-    stage.style.width = (CANONICAL_SLIDE_WIDTH * scale).toFixed(2) + "px";
-    stage.style.height = (CANONICAL_SLIDE_HEIGHT * scale).toFixed(2) + "px";
-    stage.style.setProperty("--stage-scale", String(scale));
-    stage.dataset.stageFit = "uniform-contain";
-    stage.dataset.stageScale = scale.toFixed(6);
-    requestAnimationFrame(function () {
-      applyAllTextRegions();
-      syncTextRegionFrame();
-    });
-  }
-
-  function revealPresentationExit() {
-    if (!document.body.classList.contains("present-only")) return;
-    presentationExit.classList.add("visible");
-    clearTimeout(presentationExitTimer);
-    presentationExitTimer = setTimeout(function () {
-      presentationExit.classList.remove("visible");
-    }, 2400);
-  }
-
-  function removePresentationQuery() {
-    var url = new URL(location.href);
-    url.searchParams.delete("present");
-    history.replaceState(null, "", url.pathname + url.search + url.hash);
-    enteredFromPresentationUrl = false;
-  }
-
-  function setPresentationMode(enabled) {
-    document.body.classList.toggle("present-only", enabled);
-    fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
-    requestAnimationFrame(fitStage);
-    if (enabled) revealPresentationExit();
-    else {
+    function revealPresentationExit() {
+      if (!document.body.classList.contains("present-only")) return;
+      presentationExit.classList.add("visible");
       clearTimeout(presentationExitTimer);
-      presentationExit.classList.remove("visible");
+      presentationExitTimer = setTimeout(function() {
+        presentationExit.classList.remove("visible");
+      }, 2400);
     }
-  }
-
-  function exitFullscreenPresentation() {
-    removePresentationQuery();
-    setPresentationMode(false);
-    if (document.fullscreenElement && document.exitFullscreen) {
-      var request = document.exitFullscreen();
-      if (request && request.catch) request.catch(function () {});
+    function removePresentationQuery() {
+      var url = new URL(location.href);
+      url.searchParams.delete("present");
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
     }
-  }
-
-  function toggleFullscreenPresentation() {
-    if (document.fullscreenElement || document.body.classList.contains("present-only")) {
-      exitFullscreenPresentation();
-      return;
-    }
-    setPresentationMode(true);
-    var request = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
-    if (request && request.catch) {
-      request.catch(function () {
-        showToast("Presentation view is active. Use the browser fullscreen control if needed.");
-      });
-    }
-  }
-
-  function slideById(id) { return state.slides[id]; }
-  function currentSlide() { return slideById(currentId); }
-  function currentIndex() {
-    var index = state.order.indexOf(currentId);
-    return index < 0 ? 0 : index;
-  }
-
-  function overlayFor(slideId, componentId, create) {
-    if (!state.overlays[slideId]) {
-      if (!create) return {};
-      state.overlays[slideId] = {};
-    }
-    if (!state.overlays[slideId][componentId]) {
-      if (!create) return {};
-      state.overlays[slideId][componentId] = {};
-    }
-    return state.overlays[slideId][componentId];
-  }
-
-  function effectiveComponent(slide, componentId) {
-    var box = ((state.textBoxes || {})[slide.id] || {})[componentId];
-    if (box) return Object.assign({kind:'text', role:'Text box'}, box);
-    var table = insertedTableOwner(slide.id, componentId);
-    var source = slide.components[componentId] || (table && table.components[componentId]);
-    if (!source) throw new Error("Unknown semantic component " + slide.id + "@" + componentId);
-    var overlay = overlayFor(slide.id, componentId, false);
-    return Object.assign({}, source, overlay);
-  }
-
-  function objectsForSlide(slide) {
-    return copy((state.objects || {})[slide.id] || {});
-  }
-
-  function updateVisualObject(slideId, objectId, kind, geometry, commit) {
-    if (!state.objects) state.objects = {};
-    if (!state.objects[slideId]) state.objects[slideId] = {};
-    beginChange();
-    state.objects[slideId][objectId] = Object.assign({kind: kind}, copy(geometry));
-    if (commit) persist();
-  }
-
-  function cleanVisualObject(slideId, objectId) {
-    if (!state.objects || !state.objects[slideId]) return;
-    delete state.objects[slideId][objectId];
-    if (!Object.keys(state.objects[slideId]).length) delete state.objects[slideId];
-  }
-
-  function cleanOverlay(slideId, componentId) {
-    var slideOverlays = state.overlays[slideId];
-    if (!slideOverlays) return;
-    if (Object.keys(slideOverlays[componentId] || {}).length === 0) delete slideOverlays[componentId];
-    if (Object.keys(slideOverlays).length === 0) delete state.overlays[slideId];
-  }
-
-  function updateOverlay(slideId, componentId, key, value) {
-    var box = ((state.textBoxes || {})[slideId] || {})[componentId];
-    if (box) {
-      if (value === undefined || value === null) delete box[key];
-      else box[key] = value;
-      return;
-    }
-    var source = state.slides[slideId].components[componentId];
-    var table = insertedTableOwner(slideId, componentId);
-    if (!source && table && table.components[componentId]) {
-      if (value === undefined || value === null) delete table.components[componentId][key];
-      else table.components[componentId][key] = value;
-      return;
-    }
-    var overlay = overlayFor(slideId, componentId, true);
-    if (source[key] === value || value === undefined || value === null) delete overlay[key];
-    else overlay[key] = value;
-    // Formatting and its exact wording are one conflict domain. Even when
-    // wording equals the source, marks may not be persisted without that bind.
-    if (Object.prototype.hasOwnProperty.call(overlay, 'marks') && !Object.prototype.hasOwnProperty.call(overlay, 'text'))
-      overlay.text = source.text;
-    cleanOverlay(slideId, componentId);
-  }
-
-  function insertedTableOwner(slideId, componentId) {
-    var matches=Object.keys(state.tables || {}).filter(function(key) {
-      return (key===slideId || key.indexOf(slideId+'::table::')===0) && state.tables[key].components[componentId];
-    });
-    if(matches.length>1) throw new Error('Ambiguous table-owned text '+componentId);
-    return matches.length ? state.tables[matches[0]] : null;
-  }
-
-  function tableContexts(slide) {
-    if(slide._tableKey || !slide.data.tables) return [slide];
-    return slide.data.tables.map(function(data) {
-      return Object.assign({},slide,{data:data,_tableKey:slide.id+'::table::'+data.id});
-    });
-  }
-
-  function selectedTableContext(slide, cell) {
-    return tableContexts(slide).find(function(item) {return (item._tableKey || item.id)===cell.tableKey;}) || slide;
-  }
-
-  function sourceTableModel(slide) {
-    if(slide.data.tables) throw new Error('Select a semantic table before changing its structure');
-    return {
-      columns: slide.data.columns.map(function (componentId, index) {
-        return {id: componentId, label: componentId,
-          width: (slide.data.columnWeights || [])[index] || (index === 0 ? 1.5 : 1)};
-      }),
-      rows: slide.data.rows.map(function (row) {
-        return {
-          id: row.label,
-          label: row.label,
-          cells: row.cells.slice(),
-          best: Number.isInteger(row.best) ? row.cells[row.best] : null,
-          globalBest: Number.isInteger(row.globalBest) ? row.cells[row.globalBest] : null
-        };
-      }),
-      components: {}
-    };
-  }
-
-  function effectiveTable(slide) {
-    return (state.tables || {})[slide._tableKey || slide.id] || sourceTableModel(slide);
-  }
-
-  function ensureTable(slide) {
-    if (!state.tables) state.tables = {};
-    var key=slide._tableKey || slide.id;
-    if (!state.tables[key]) state.tables[key] = sourceTableModel(slide);
-    return state.tables[key];
-  }
-
-  function tableToken() {
-    var random = Math.random().toString(36).slice(2, 8);
-    return Date.now().toString(36) + "-" + random;
-  }
-
-  function insertedTableText(table, prefix, value, role) {
-    var id = prefix + "-" + tableToken();
-    table.components[id] = {kind: "text", text: value, role: role};
-    return id;
-  }
-
-  function retireTableComponent(table, componentId) {
-    if (table.components[componentId]) delete table.components[componentId];
-  }
-
-  function tableCell(slide, componentId) {
-    if (!slide || slide.recipe !== "evidence-table") return null;
-    if(slide.data.tables) {
-      var found=tableContexts(slide).map(function(context) {return tableCell(context,componentId);}).filter(Boolean);
-      if(found.length>1) throw new Error('Ambiguous table cell '+componentId);
-      return found[0] || null;
-    }
-    var table = effectiveTable(slide);
-    for (var columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
-      if (table.columns[columnIndex].label === componentId) {
-        return {tableKey:slide._tableKey || slide.id,header: true, rowIndex: -1, columnIndex: columnIndex,
-          rowId: "table-header", columnId: table.columns[columnIndex].id};
+    function setPresentationMode(enabled) {
+      document.body.classList.toggle("present-only", enabled);
+      fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
+      requestAnimationFrame(fitStage);
+      if (enabled) revealPresentationExit();
+      else {
+        clearTimeout(presentationExitTimer);
+        presentationExit.classList.remove("visible");
       }
     }
-    for (var rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
-      var row = table.rows[rowIndex];
-      if (row.label === componentId) {
-        return {tableKey:slide._tableKey || slide.id,header: false, rowIndex: rowIndex, columnIndex: 0,
-          rowId: row.id, columnId: table.columns[0].id};
-      }
-      var cellIndex = row.cells.indexOf(componentId);
-      if (cellIndex >= 0) {
-        return {tableKey:slide._tableKey || slide.id,header: false, rowIndex: rowIndex, columnIndex: cellIndex + 1,
-          rowId: row.id, columnId: table.columns[cellIndex + 1].id};
-      }
-    }
-    return null;
-  }
-
-  function addTableRow(slide, afterIndex) {
-    var table = ensureTable(slide);
-    var token = tableToken();
-    var label = "table-row-" + token;
-    table.components[label] = {kind: "text", text: "New row", role: "table-row-label"};
-    var cells = table.columns.slice(1).map(function () {
-      return insertedTableText(table, "table-cell", "—", "table-value");
-    });
-    var row = {id: label, label: label, cells: cells, best: null, globalBest: null};
-    table.rows.splice(Math.max(0, Math.min(table.rows.length, afterIndex + 1)), 0, row);
-    return row;
-  }
-
-  function addTableColumn(slide, afterIndex) {
-    var table = ensureTable(slide);
-    var label = insertedTableText(table, "table-column", "New column", "table-heading");
-    var insertAt = Math.max(1, Math.min(table.columns.length, afterIndex + 1));
-    table.columns.splice(insertAt, 0, {id: label, label: label, width: 1});
-    table.rows.forEach(function (row) {
-      row.cells.splice(insertAt - 1, 0,
-        insertedTableText(table, "table-cell", "—", "table-value"));
-    });
-    return insertAt;
-  }
-
-  function mutateSelectedTable(action) {
-    if (!selected || !selected.tableCell) return;
-    var slide = state.slides[selected.slideId];
-    if (!slide || slide.recipe !== "evidence-table") return;
-    slide=selectedTableContext(slide,selected.tableCell);
-    var table = ensureTable(slide);
-    var cell = selected.tableCell;
-    beginChange();
-    if (action === "table-reset") {
-      delete state.tables[slide._tableKey || slide.id];
-      selected = null;
-    } else if (action === "row-add") {
-      var row = addTableRow(slide, cell.rowIndex < 0 ? table.rows.length - 1 : cell.rowIndex);
-      selected.componentId = row.label;
-    } else if (action === "row-delete" && cell.rowIndex >= 0 && table.rows.length > 1) {
-      var removedRow = table.rows.splice(cell.rowIndex, 1)[0];
-      retireTableComponent(table, removedRow.label);
-      removedRow.cells.forEach(function (componentId) {
-        retireTableComponent(table, componentId);
-      });
-      selected = null;
-    } else if ((action === "row-up" || action === "row-down") && cell.rowIndex >= 0) {
-      var rowTarget = cell.rowIndex + (action === "row-up" ? -1 : 1);
-      if (rowTarget >= 0 && rowTarget < table.rows.length) {
-        table.rows.splice(rowTarget, 0, table.rows.splice(cell.rowIndex, 1)[0]);
-      }
-    } else if (action === "column-add") {
-      var columnIndex = addTableColumn(slide, cell.columnIndex);
-      selected.componentId = table.columns[columnIndex].label;
-    } else if (action === "column-delete" && cell.columnIndex > 0 && table.columns.length > 2) {
-      var removed = table.columns.splice(cell.columnIndex, 1)[0];
-      table.rows.forEach(function (rowItem) {
-        var removedCell = rowItem.cells.splice(cell.columnIndex - 1, 1)[0];
-        if (rowItem.best === removedCell) rowItem.best = null;
-        if (rowItem.globalBest === removedCell) rowItem.globalBest = null;
-        retireTableComponent(table, removedCell);
-      });
-      retireTableComponent(table, removed.label);
-      selected = null;
-    } else if ((action === "column-left" || action === "column-right") && cell.columnIndex > 0) {
-      var columnTarget = cell.columnIndex + (action === "column-left" ? -1 : 1);
-      if (columnTarget > 0 && columnTarget < table.columns.length) {
-        table.columns.splice(columnTarget, 0, table.columns.splice(cell.columnIndex, 1)[0]);
-        table.rows.forEach(function (rowItem) {
-          rowItem.cells.splice(columnTarget - 1, 0,
-            rowItem.cells.splice(cell.columnIndex - 1, 1)[0]);
+    function exitFullscreenPresentation() {
+      removePresentationQuery();
+      setPresentationMode(false);
+      if (document.fullscreenElement && document.exitFullscreen) {
+        var request = document.exitFullscreen();
+        if (request && request.catch) request.catch(function() {
         });
       }
     }
-    render();
-    persist();
-  }
-
-  function setTableText(slide, table, componentId, value) {
-    updateOverlay(slide.id, componentId, "text", value);
-    // TSV replacement must not retain ranges over unrelated characters.
-    if (effectiveComponent(state.slides[slide.id],componentId).marks)
-      updateOverlay(slide.id,componentId,'marks',[]);
-  }
-
-  function pasteTableGrid(slide, componentId, raw) {
-    var start = tableCell(slide, componentId);
-    if (!start) return false;
-    slide=selectedTableContext(slide,start);
-    var values = raw.replace(/\r/g, "").split("\n").filter(function (line, index, rows) {
-      return line.length || index < rows.length - 1;
-    }).map(function (line) { return line.split("\t"); });
-    if (!values.length || (values.length === 1 && values[0].length === 1)) return false;
-    var table = ensureTable(slide);
-    beginChange();
-    while (start.columnIndex + Math.max.apply(null, values.map(function (row) { return row.length; })) > table.columns.length) {
-      addTableColumn(slide, table.columns.length - 1);
-    }
-    if (!start.header) {
-      while (start.rowIndex + values.length > table.rows.length) addTableRow(slide, table.rows.length - 1);
-    }
-    values.forEach(function (valuesRow, rowOffset) {
-      valuesRow.forEach(function (value, columnOffset) {
-        var columnIndex = start.columnIndex + columnOffset;
-        var targetId;
-        if (start.header && rowOffset === 0) {
-          targetId = table.columns[columnIndex].label;
-        } else {
-          var rowIndex = start.header ? rowOffset - 1 : start.rowIndex + rowOffset;
-          if (rowIndex < 0) return;
-          targetId = columnIndex === 0 ? table.rows[rowIndex].label : table.rows[rowIndex].cells[columnIndex - 1];
-        }
-        setTableText(slide, table, targetId, value.trim());
-      });
-    });
-    render();
-    persist();
-    return true;
-  }
-
-  function startTableColumnResize(slide, columnId, event) {
-    if (!editMode) return;
-    event.preventDefault();
-    event.stopPropagation();
-    var table = ensureTable(slide);
-    var index = table.columns.findIndex(function (column) { return column.id === columnId; });
-    if (index < 0) return;
-    beginChange();
-    var body = event.target.closest(".table-body").getBoundingClientRect();
-    tableColumnGesture = {
-      slide: slide,
-      table: table,
-      index: index,
-      startX: event.clientX,
-      startWidth: table.columns[index].width,
-      bodyWidth: body.width,
-      total: table.columns.reduce(function (sum, column) { return sum + column.width; }, 0)
-    };
-    document.body.classList.add("resizing-table-column");
-    document.addEventListener("pointermove", moveTableColumnResize);
-    document.addEventListener("pointerup", finishTableColumnResize, {once: true});
-    document.addEventListener("pointercancel", finishTableColumnResize, {once: true});
-  }
-
-  function moveTableColumnResize(event) {
-    if (!tableColumnGesture) return;
-    event.preventDefault();
-    var gesture = tableColumnGesture;
-    var delta = (event.clientX - gesture.startX) / gesture.bodyWidth * gesture.total;
-    gesture.table.columns[gesture.index].width = Math.max(.35, Math.min(4, gesture.startWidth + delta));
-    var tableElement = stage.querySelector(".evidence-table");
-    if (!tableElement) return;
-    var total = gesture.table.columns.reduce(function (sum, column) { return sum + column.width; }, 0);
-    gesture.table.columns.forEach(function (column) {
-      var col = tableElement.querySelector('col[data-table-column-id="' + column.id + '"]');
-      if (col) col.style.width = (column.width / total * 100).toFixed(3) + "%";
-    });
-  }
-
-  function finishTableColumnResize() {
-    document.removeEventListener("pointermove", moveTableColumnResize);
-    document.removeEventListener("pointerup", finishTableColumnResize);
-    document.removeEventListener("pointercancel", finishTableColumnResize);
-    document.body.classList.remove("resizing-table-column");
-    if (!tableColumnGesture) return;
-    tableColumnGesture = null;
-    render();
-    persist();
-  }
-
-  function beginChange() {
-    if (!undoBase) undoBase = copy(accepted);
-    undoButton.disabled = false;
-    setStatus("Saving…", "saving");
-  }
-
-  function persist() {
-    if (previewMode) return;
-    pending = snapshot(state);
-    retainDraft('Changes saved on this device; awaiting server acknowledgement.');
-    setStatus("Saving…", "saving");
-    flush();
-  }
-
-  function flush() {
-    if (window.slidekitRuntimeStale()) return;
-    if (inFlight || !pending) return;
-    var job = pending;
-    pending = null;
-    inFlight = job;
-    window.slidekitRequest("api/deck-state", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        baseRevision: accepted.revision,
-        baseSourceRevision: accepted.sourceRevision,
-        baseSlideRevisions: accepted.slideRevisions,
-        baseSnapshot: snapshot(accepted),
-        snapshot: job,
-        compact: true
-      })
-    }).then(function (response) {
-      return response.json().then(function (payload) {
-        return {ok: response.ok, status: response.status, payload: payload};
-      });
-    }).then(function (result) {
-      inFlight = null;
-      if (!result.ok) {
-        if (result.status === 409 && result.payload.state) {
-          retainDraft(result.payload.error);
-          accepted = acceptPayload(result.payload.state);
-          state = copy(accepted);
-          pending = null;
-          undoBase = null;
-          selected = null;
-          render();
-          setStatus("Conflict · draft retained", "error");
-          showToast(result.payload.error + ". Your unsaved changes are available to download.");
-        } else if (result.status === 400) {
-          retainDraft(result.payload.error);
-          pending = null;
-          setStatus("Invalid edit · draft retained", "error");
-          showToast(result.payload.error);
-        } else {
-          pending = pending || job;
-          setStatus("Offline · retrying", "error");
-          setTimeout(flush, 1400);
-        }
+    function toggleFullscreenPresentation() {
+      if (document.fullscreenElement || document.body.classList.contains("present-only")) {
+        exitFullscreenPresentation();
         return;
       }
-      var remote = acceptPayload(result.payload);
-      state = carryForward(job, state, remote);
-      accepted = remote;
-      pending = sameSnapshot(state, accepted) ? null : snapshot(state);
-      if (!pending) {
-        state = copy(accepted);
-        undoBase = null;
-        render();
-        setStatus("Saved", "saved");
-        try {localStorage.removeItem(draftKey);} catch (_) {}
-        draftButton.hidden = true;
-      } else {
-        setStatus("Saving…", "saving");
-        flush();
-      }
-    }).catch(function (error) {
-      if (window.slidekitRuntimeStale()) {
-        inFlight = null; pending = pending || job;
-        retainDraft(error.message); setStatus('Renderer updated · reload; draft retained', 'error');
-        return;
-      }
-      console.error("deck-state save failed", error);
-      inFlight = null;
-      pending = pending || job;
-      setStatus("Offline · retrying", "error");
-      setTimeout(flush, 1400);
-    });
-  }
-
-  function svgElement(name, attrs) {
-    var node = document.createElementNS(SVG_NS, name);
-    Object.keys(attrs || {}).forEach(function (key) { node.setAttribute(key, attrs[key]); });
-    return node;
-  }
-
-  function applyComponentStyle(element, component) {
-    if (component.color) element.style.color = component.color;
-    if (component.fontScale) element.style.setProperty("--component-scale", component.fontScale);
-  }
-
-  function renderMarkedText(element, component) {
-    element.textContent = '';
-    var offset = 0;
-    (component.marks || []).forEach(function(mark) {
-      element.appendChild(document.createTextNode(component.text.slice(offset, mark.start)));
-      var span = document.createElement('span');
-      span.dataset.textBold = String(mark.bold);
-      span.style.fontWeight = mark.bold ? '700' : '400';
-      span.textContent = component.text.slice(mark.start, mark.end);
-      element.appendChild(span); offset = mark.end;
-    });
-    element.appendChild(document.createTextNode(component.text.slice(offset)));
-    if (component.text.endsWith('\n')) element.appendChild(document.createElement('br'));
-  }
-
-  function readMarkedText(element) {
-    var text = element.textContent;
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0, marks = [];
-    while ((node = walker.nextNode())) {
-      var owner = node.parentElement.closest('[data-text-bold],b,strong');
-      var start = offset, end = offset + node.length;
-      if (owner && element.contains(owner) && end > start) {
-        var bold = owner.dataset.textBold !== 'false', last = marks[marks.length-1];
-        if (last && last.end === start && last.bold === bold) last.end = end;
-        else marks.push({start:start, end:end, bold:bold});
-      }
-      offset += node.length;
-    }
-    return {text:text, marks:marks};
-  }
-
-  function toggleTextBold(slideId, componentId, element) {
-    if (!editMode || !element || element.dataset.latexSource !== undefined) return;
-    var value = readMarkedText(element), selection = window.getSelection();
-    var start = 0, end = value.text.length;
-    if (selection.rangeCount && !selection.isCollapsed) {
-      var range = selection.getRangeAt(0);
-      if (element.contains(range.startContainer) && element.contains(range.endContainer)) {
-        var prefix = document.createRange(); prefix.selectNodeContents(element); prefix.setEnd(range.startContainer, range.startOffset);
-        start = prefix.toString().length; end = start + range.toString().length;
+      setPresentationMode(true);
+      var request = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+      if (request && request.catch) {
+        request.catch(function() {
+          showToast("Presentation view is active. Use the browser fullscreen control if needed.");
+        });
       }
     }
-    if (end <= start) return;
-    var flags = Array(value.text.length).fill(null);
-    value.marks.forEach(function(mark) {flags.fill(mark.bold,mark.start,mark.end);});
-    var inherited = Number(getComputedStyle(element).fontWeight) >= 600;
-    var makeBold = !flags.slice(start,end).every(function(flag) {return flag === null ? inherited : flag;});
-    flags.fill(makeBold,start,end);
-    var marks = [];
-    flags.forEach(function(flag,index) {
-      if (flag === null) return;
-      var last = marks[marks.length-1];
-      if (last && last.end === index && last.bold === flag) last.end++;
-      else marks.push({start:index,end:index+1,bold:flag});
-    });
-    beginChange();
-    updateOverlay(slideId, componentId, 'text', value.text);
-    updateOverlay(slideId, componentId, 'marks', marks);
-    renderMarkedText(element, {text:value.text, marks:marks});
-    // Preserve the highlighted range so a second toggle or continued typing
-    // operates on the same text, rather than unexpectedly formatting the cell.
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0;
-    var restored = document.createRange(), started = false;
-    while ((node = walker.nextNode())) {
-      if (!started && start <= offset + node.length) {restored.setStart(node, start-offset); started = true;}
-      if (started && end <= offset + node.length) {restored.setEnd(node, end-offset); break;}
-      offset += node.length;
-    }
-    selection.removeAllRanges(); selection.addRange(restored);
-    element.dispatchEvent(new Event('input', {bubbles:true}));
-    renderTools();
+    return { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation };
   }
 
-  function editableText(slide, componentId, tag, className) {
-    var component = effectiveComponent(slide, componentId);
-    var element = document.createElement(tag || "div");
-    element.className = (className || "") + " semantic-component";
-    var isLatex = component.render === "latex";
-    if (isLatex) {
-      if (!window.ScientificMathRuntime) throw new Error("KaTeX math runtime is missing");
-      window.ScientificMathRuntime.renderLatex(element, component.text, {displayMode: component.display === "block"});
-      element.setAttribute("data-latex-source", component.text);
-    } else {
-      renderMarkedText(element, component);
-    }
-    element.setAttribute("data-component-id", componentId);
-    element.setAttribute("data-component-kind", "text");
-    element.setAttribute("aria-label", component.role || componentId);
-    element.contentEditable = editMode && !isLatex ? "true" : "false";
-    applyComponentStyle(element, component);
-    if (component.hidden) element.classList.add('curator-hidden-component');
-    element.addEventListener("click", function (event) {
-      if (!editMode) return;
-      event.stopPropagation();
-      selectComponent(slide.id, componentId, element);
-    });
-    element.addEventListener("input", function () {
-      if (!editMode || isLatex) return;
-      var value = readMarkedText(element);
-      updateOverlay(slide.id, componentId, "text", value.text);
-      if (value.marks.length || effectiveComponent(slide,componentId).marks)
-        updateOverlay(slide.id, componentId, 'marks', value.marks);
-      beginChange();
-      clearTimeout(inputTimer);
-      inputTimer = setTimeout(persist, 260);
-    });
-    element.addEventListener("paste", function (event) {
-      if (!editMode || isLatex) return;
-      var raw = event.clipboardData && event.clipboardData.getData("text/plain");
-      if (raw === null || raw === undefined) return;
-      event.preventDefault();
-      if ((raw.includes('\t') || raw.includes('\n')) && pasteTableGrid(slide, componentId, raw)) return;
-      insertPlainText(element,raw.replace(/\r\n?/g,'\n'));
-    });
-    element.addEventListener("keydown", function (event) {
-      if (editMode && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
-        event.preventDefault(); event.stopPropagation();
-        toggleTextBold(slide.id,componentId,element); return;
-      }
-      if (!editMode || event.key !== "Tab" || !element.closest("[data-table-cell]")) return;
-      event.preventDefault();
-      var cells = Array.from(element.closest('[data-native-table]').querySelectorAll("[data-table-cell] .semantic-component"));
-      var index = cells.indexOf(element);
-      var next = cells[index + (event.shiftKey ? -1 : 1)];
-      if (!next) next = cells[event.shiftKey ? cells.length - 1 : 0];
-      next.focus();
-      next.click();
-    });
-    element.addEventListener('beforeinput', function(event) {
-      if (editMode && !isLatex && ['insertParagraph','insertLineBreak'].includes(event.inputType)) {
-        event.preventDefault(); insertPlainText(element,'\n'); return;
-      }
-      if (event.inputType === 'formatBold') {
-        event.preventDefault(); toggleTextBold(slide.id,componentId,element);
-      }
-    });
-    element.addEventListener("dblclick", function (event) {
-      if (!editMode || !isLatex) return;
-      event.stopPropagation();
-      var source = window.prompt("Edit LaTeX", effectiveComponent(slide, componentId).text);
-      if (source === null) return;
-      beginChange();
-      updateOverlay(slide.id, componentId, "text", source.trim());
-      render();
-      persist();
-    });
-    bindTextRegion(slide, componentId, element, element, {minSize: 10});
-    return element;
+  // src/editor/fit.ts
+  var fitObservers = [];
+  function trackFitObserver(observer) {
+    fitObservers.push(observer);
   }
-
-  function insertPlainText(element,text) {
-    var selection=getSelection();
-    if(!selection.rangeCount) return;
-    var range=selection.getRangeAt(0);
-    if(!element.contains(range.startContainer) || !element.contains(range.endContainer)) return;
-    range.deleteContents();
-    var node=document.createTextNode(text);range.insertNode(node);
-    // Chromium needs an empty-line placeholder after a terminal newline;
-    // otherwise its next native insertion removes that newline as redundant.
-    if(element.textContent.endsWith('\n') && element.lastChild.nodeName!=='BR') element.appendChild(document.createElement('br'));
-    range.setStart(node,node.length);range.collapse(true);
-    selection.removeAllRanges();selection.addRange(range);
-    element.dispatchEvent(new Event('input',{bubbles:true}));
-  }
-
-  function fitTextInRegion(element, region, options) {
+  function fitTextInRegion(element, region, options = {}) {
     options = options || {};
     if (!element.isConnected || region.clientWidth < 1 || region.clientHeight < 1) return;
     element.style.removeProperty("font-size");
     var maxSize = Number(element.dataset.fitMaxSize || parseFloat(getComputedStyle(element).fontSize));
     element.dataset.fitMaxSize = String(maxSize);
     var minSize = Math.min(maxSize, options.minSize || 20);
-    var fits = function (size) {
+    var fits = function(size) {
       element.style.fontSize = size + "px";
       return element.scrollWidth <= region.clientWidth + 1 && element.scrollHeight <= region.clientHeight + 1;
     };
@@ -921,13 +102,14 @@
     else {
       for (var index = 0; index < 10; index += 1) {
         var candidate = (low + high) / 2;
-        if (fits(candidate)) { best = candidate; low = candidate; }
-        else high = candidate;
+        if (fits(candidate)) {
+          best = candidate;
+          low = candidate;
+        } else high = candidate;
       }
     }
     element.style.fontSize = best.toFixed(2) + "px";
-    while (best > minSize &&
-           (element.scrollWidth > region.clientWidth + 1 || element.scrollHeight > region.clientHeight + 1)) {
+    while (best > minSize && (element.scrollWidth > region.clientWidth + 1 || element.scrollHeight > region.clientHeight + 1)) {
       best = Math.max(minSize, best - 0.25);
       element.style.fontSize = best.toFixed(2) + "px";
     }
@@ -941,9 +123,12 @@
     element.dataset.fitLines = String(lineCount);
     element.dataset.fitOverflow = String(!contained);
   }
-
-  function registerTextFit(element, region, options) {
-    var fit = function () { requestAnimationFrame(function () { fitTextInRegion(element, region, options); }); };
+  function registerTextFit(element, region, options = {}) {
+    var fit = function() {
+      requestAnimationFrame(function() {
+        fitTextInRegion(element, region, options);
+      });
+    };
     var observer = new ResizeObserver(fit);
     observer.observe(region);
     fitObservers.push(observer);
@@ -951,44 +136,31 @@
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
     fit();
   }
-
-  function fitGroupInRegion(element, region, options) {
+  function fitGroupInRegion(element, region, options = {}) {
     options = options || {};
     if (!element.isConnected || region.clientWidth < 1 || region.clientHeight < 1) return;
     var property = options.property || "--region-fit-scale";
     var minScale = options.minScale || 0.58;
     var maxScale = options.maxScale || 1;
-    // KaTeX's hidden MathML/HTML pairing can report a 1–2 px scroll-height
-    // surplus even when its visible box is fully contained. Treat only a
-    // material surplus as overflow so a harmless rounding artifact cannot
-    // force an entire table to its minimum scale.
     var tolerance = options.tolerance || 3;
-    var leaves = function () {
+    var leaves = function() {
       return options.contentSelector ? Array.from(element.querySelectorAll(options.contentSelector)) : [];
     };
-    var leafFits = function (leaf) {
-      var math=leaf.querySelector('.katex-html'),cell=leaf.closest('td,th');
-      if(math && cell) {
-        // KaTeX's accessibility/strut boxes can exceed the text leaf's
-        // scrollHeight while the visible formula fits its padded table cell.
-        // Judge rendered mathematics in that actual allocation, not hidden
-        // MathML dimensions; long formulae still fail horizontal containment.
-        var ink=math.getBoundingClientRect(),box=cell.getBoundingClientRect();
-        var scale=box.width/cell.offsetWidth,style=getComputedStyle(cell);
-        return ink.left>=box.left+parseFloat(style.paddingLeft)*scale-tolerance &&
-          ink.right<=box.right-parseFloat(style.paddingRight)*scale+tolerance &&
-          ink.top>=box.top+parseFloat(style.paddingTop)*scale-tolerance &&
-          ink.bottom<=box.bottom-parseFloat(style.paddingBottom)*scale+tolerance;
+    var leafFits = function(leaf) {
+      var math = leaf.querySelector(".katex-html"), cell = leaf.closest("td,th");
+      if (math && cell) {
+        var ink = math.getBoundingClientRect(), box = cell.getBoundingClientRect();
+        var scale = box.width / cell.offsetWidth, style = getComputedStyle(cell);
+        return ink.left >= box.left + parseFloat(style.paddingLeft) * scale - tolerance && ink.right <= box.right - parseFloat(style.paddingRight) * scale + tolerance && ink.top >= box.top + parseFloat(style.paddingTop) * scale - tolerance && ink.bottom <= box.bottom - parseFloat(style.paddingBottom) * scale + tolerance;
       }
       return leaf.scrollWidth <= leaf.clientWidth + tolerance && leaf.scrollHeight <= leaf.clientHeight + tolerance;
     };
-    var fits = function (scale) {
+    var fits = function(scale) {
       element.style.setProperty(property, scale.toFixed(4));
       var box = element.getBoundingClientRect();
       var outer = region.getBoundingClientRect();
       var contained = box.width <= outer.width + tolerance && box.height <= outer.height + tolerance;
-      return contained && element.scrollWidth <= element.clientWidth + tolerance &&
-        element.scrollHeight <= element.clientHeight + tolerance && leaves().every(leafFits);
+      return contained && element.scrollWidth <= element.clientWidth + tolerance && element.scrollHeight <= element.clientHeight + tolerance && leaves().every(leafFits);
     };
     var low = minScale;
     var high = maxScale;
@@ -997,25 +169,28 @@
     else {
       for (var index = 0; index < 10; index += 1) {
         var candidate = (low + high) / 2;
-        if (fits(candidate)) { best = candidate; low = candidate; }
-        else high = candidate;
+        if (fits(candidate)) {
+          best = candidate;
+          low = candidate;
+        } else high = candidate;
       }
     }
     element.style.setProperty(property, best.toFixed(4));
     var finalBox = element.getBoundingClientRect();
     var finalOuter = region.getBoundingClientRect();
-    var overflow = finalBox.width > finalOuter.width + tolerance ||
-      finalBox.height > finalOuter.height + tolerance ||
-      element.scrollWidth > element.clientWidth + tolerance ||
-      element.scrollHeight > element.clientHeight + tolerance ||
-      leaves().some(function (leaf) {return !leafFits(leaf);});
+    var overflow = finalBox.width > finalOuter.width + tolerance || finalBox.height > finalOuter.height + tolerance || element.scrollWidth > element.clientWidth + tolerance || element.scrollHeight > element.clientHeight + tolerance || leaves().some(function(leaf) {
+      return !leafFits(leaf);
+    });
     element.dataset.fitMode = options.mode || "group-region";
     element.dataset.fitScale = best.toFixed(4);
     element.dataset.fitOverflow = String(overflow);
   }
-
-  function registerGroupFit(element, region, options) {
-    var fit = function () { requestAnimationFrame(function () { fitGroupInRegion(element, region, options); }); };
+  function registerGroupFit(element, region, options = {}) {
+    var fit = function() {
+      requestAnimationFrame(function() {
+        fitGroupInRegion(element, region, options);
+      });
+    };
     var observer = new ResizeObserver(fit);
     observer.observe(region);
     fitObservers.push(observer);
@@ -1023,920 +198,2022 @@
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
     fit();
   }
-
   function clearFitObservers() {
-    fitObservers.forEach(function (observer) { observer.disconnect(); });
+    fitObservers.forEach(function(observer) {
+      observer.disconnect();
+    });
     fitObservers = [];
   }
 
-  function textRegionKey(slideId, componentId) {
-    return slideId + "@" + componentId;
-  }
-
-  function bindTextRegion(slide, componentId, element, host, options) {
-    options = options || {};
-    var key = textRegionKey(slide.id, componentId);
-    var binding = {
-      key: key,
-      slideId: slide.id,
-      componentId: componentId,
-      element: element,
-      host: host || element,
-      minSize: options.minSize || 20,
-      fitMode: options.fitMode || "editable-text-region",
-      alwaysFit: options.alwaysFit === true,
-      fitRegistered: options.fitRegistered === true
-    };
-    binding.host.classList.add("editable-text-region");
-    binding.host.setAttribute("data-text-region-for", componentId);
-    textRegionBindings.set(key, binding);
-    requestAnimationFrame(function () {
-      if (textRegionBindings.get(key) !== binding || !binding.host.isConnected) return;
-      applyTextRegion(binding);
-    });
-    return binding.host;
-  }
-
-  function canvasCoordinateScale(canvas) {
-    return {
-      x: canvas.clientWidth / CANONICAL_SLIDE_WIDTH,
-      y: canvas.clientHeight / CANONICAL_SLIDE_HEIGHT
-    };
-  }
-
-  function canvasRenderScale(canvas) {
-    var rect = canvas.getBoundingClientRect();
-    return {
-      x: rect.width / canvas.clientWidth,
-      y: rect.height / canvas.clientHeight
-    };
-  }
-
-  function ensureTextRegionFit(binding) {
-    if (binding.fitRegistered) return;
-    binding.fitRegistered = true;
-    registerTextFit(binding.element, binding.host, {
-      mode: binding.fitMode,
-      minSize: binding.minSize
-    });
-  }
-
-  function applyTextRegion(binding) {
-    var canvas = binding.host.closest(".slide-canvas");
-    if (!canvas) return;
-    var component = effectiveComponent(state.slides[binding.slideId], binding.componentId);
-    var region = component.region;
-    if (!region) {
-      if (binding.alwaysFit) ensureTextRegionFit(binding);
-      return;
+  // src/editor/regions.ts
+  var CANONICAL_SLIDE_WIDTH2 = 1920;
+  var CANONICAL_SLIDE_HEIGHT2 = 1080;
+  function createTextRegions({ getComponent, getSelected, isEditMode, beginChange, persist, updateOverlay, resizeChart }) {
+    const textRegionBindings = /* @__PURE__ */ new Map();
+    let textRegionFrame = null;
+    let regionGesture = null;
+    function textRegionKey(slideId, componentId) {
+      return slideId + "@" + componentId;
     }
-    var scale = canvasCoordinateScale(canvas);
-    binding.host.style.translate = (region.x * scale.x).toFixed(2) + "px " +
-      (region.y * scale.y).toFixed(2) + "px";
-    binding.host.style.width = (region.width * scale.x).toFixed(2) + "px";
-    binding.host.style.height = (region.height * scale.y).toFixed(2) + "px";
-    binding.host.classList.add("text-region-bounded");
-    if(component.kind==='chart') {
-      binding.host.style.flex='none';
-      if(binding.host._fullLayout && window.Plotly && (binding.host.layout.width!==binding.host.clientWidth || binding.host.layout.height!==binding.host.clientHeight)) window.Plotly.relayout(binding.host,{width:binding.host.clientWidth,height:binding.host.clientHeight});
-      return;
+    function bindTextRegion(slide, componentId, element, host, options = {}) {
+      options = options || {};
+      var key = textRegionKey(slide.id, componentId);
+      var binding = {
+        key,
+        slideId: slide.id,
+        componentId,
+        element,
+        host: host || element,
+        minSize: options.minSize || 20,
+        fitMode: options.fitMode || "editable-text-region",
+        alwaysFit: options.alwaysFit === true,
+        fitRegistered: options.fitRegistered === true
+      };
+      binding.host.classList.add("editable-text-region");
+      binding.host.setAttribute("data-text-region-for", componentId);
+      textRegionBindings.set(key, binding);
+      requestAnimationFrame(function() {
+        if (textRegionBindings.get(key) !== binding || !binding.host.isConnected) return;
+        applyTextRegion(binding);
+      });
+      return binding.host;
     }
-    ensureTextRegionFit(binding);
-    fitTextInRegion(binding.element, binding.host, {
-      mode: binding.fitMode,
-      minSize: binding.minSize
-    });
-  }
-
-  function applyAllTextRegions() {
-    textRegionBindings.forEach(function (binding) {
-      if (binding.host.isConnected) applyTextRegion(binding);
-    });
-  }
-
-  function currentTextRegionBinding() {
-    if (!selected || !editMode) return null;
-    var component = selectedComponent();
-    if (!component || !['text','chart'].includes(component.kind)) return null;
-    return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
-  }
-
-  function removeTextRegionFrame() {
-    if (textRegionFrame) textRegionFrame.remove();
-    textRegionFrame = null;
-  }
-
-  function regionFromBinding(binding) {
-    var canvas = binding.host.closest(".slide-canvas");
-    var scale = canvasRenderScale(canvas);
-    var rect = binding.host.getBoundingClientRect();
-    var component = effectiveComponent(state.slides[binding.slideId], binding.componentId);
-    return component.region ? Object.assign({}, component.region) : {
-      x: 0,
-      y: 0,
-      width: rect.width / scale.x,
-      height: rect.height / scale.y
-    };
-  }
-
-  function syncTextRegionFrame() {
-    var binding = currentTextRegionBinding();
-    if (!binding || !binding.host.isConnected) {
-      removeTextRegionFrame();
-      return;
+    function canvasCoordinateScale(canvas) {
+      return {
+        x: canvas.clientWidth / CANONICAL_SLIDE_WIDTH2,
+        y: canvas.clientHeight / CANONICAL_SLIDE_HEIGHT2
+      };
     }
-    var canvas = binding.host.closest(".slide-canvas");
-    if (!canvas) return;
-    if (!textRegionFrame || textRegionFrame.parentElement !== canvas) {
-      removeTextRegionFrame();
-      textRegionFrame = document.createElement("div");
-      textRegionFrame.className = "text-region-frame";
+    function canvasRenderScale(canvas) {
+      var rect = canvas.getBoundingClientRect();
+      return {
+        x: rect.width / canvas.clientWidth,
+        y: rect.height / canvas.clientHeight
+      };
+    }
+    function ensureTextRegionFit(binding) {
+      if (binding.fitRegistered) return;
+      binding.fitRegistered = true;
+      registerTextFit(binding.element, binding.host, {
+        mode: binding.fitMode,
+        minSize: binding.minSize
+      });
+    }
+    function applyTextRegion(binding) {
+      var canvas = binding.host.closest(".slide-canvas");
+      if (!canvas) return;
+      var component = getComponent(binding.slideId, binding.componentId);
+      if (!component) return;
+      var region = component.region;
+      if (!region) {
+        if (binding.alwaysFit) ensureTextRegionFit(binding);
+        return;
+      }
+      var scale = canvasCoordinateScale(canvas);
+      binding.host.style.translate = (region.x * scale.x).toFixed(2) + "px " + (region.y * scale.y).toFixed(2) + "px";
+      binding.host.style.width = (region.width * scale.x).toFixed(2) + "px";
+      binding.host.style.height = (region.height * scale.y).toFixed(2) + "px";
+      binding.host.classList.add("text-region-bounded");
+      if (component.kind === "chart") {
+        binding.host.style.flex = "none";
+        resizeChart(binding.host);
+        return;
+      }
+      ensureTextRegionFit(binding);
+      fitTextInRegion(binding.element, binding.host, {
+        mode: binding.fitMode,
+        minSize: binding.minSize
+      });
+    }
+    function applyAllTextRegions() {
+      textRegionBindings.forEach(function(binding) {
+        if (binding.host.isConnected) applyTextRegion(binding);
+      });
+    }
+    function currentTextRegionBinding() {
+      const selected = getSelected();
+      if (!selected || !isEditMode()) return null;
+      var component = getComponent(selected.slideId, selected.componentId);
+      if (!component || !["text", "chart"].includes(component.kind)) return null;
+      return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
+    }
+    function removeTextRegionFrame() {
+      if (textRegionFrame) textRegionFrame.remove();
+      textRegionFrame = null;
+    }
+    function regionFromBinding(binding) {
+      var canvas = binding.host.closest(".slide-canvas");
+      if (!canvas) throw new Error("Detached text region");
+      var scale = canvasRenderScale(canvas);
+      var rect = binding.host.getBoundingClientRect();
+      var component = getComponent(binding.slideId, binding.componentId);
+      return component?.region ? Object.assign({}, component.region) : {
+        x: 0,
+        y: 0,
+        width: rect.width / scale.x,
+        height: rect.height / scale.y
+      };
+    }
+    function syncTextRegionFrame() {
+      var binding = currentTextRegionBinding();
+      if (!binding || !binding.host.isConnected) {
+        removeTextRegionFrame();
+        return;
+      }
+      var canvas = binding.host.closest(".slide-canvas");
+      if (!canvas) return;
+      if (!textRegionFrame || textRegionFrame.parentElement !== canvas) {
+        removeTextRegionFrame();
+        textRegionFrame = document.createElement("div");
+        textRegionFrame.className = "text-region-frame";
+        textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
+        var move = document.createElement("button");
+        move.type = "button";
+        move.className = "text-region-move-handle";
+        move.setAttribute("aria-label", "Move text region");
+        move.title = "Drag to move this text region";
+        move.addEventListener("pointerdown", function(event) {
+          startTextRegionGesture("move", event);
+        });
+        var resize = document.createElement("button");
+        resize.type = "button";
+        resize.className = "text-region-resize-handle";
+        resize.setAttribute("aria-label", "Resize text region");
+        resize.title = "Drag to resize; text wraps and fits inside";
+        resize.addEventListener("pointerdown", function(event) {
+          startTextRegionGesture("resize", event);
+        });
+        textRegionFrame.appendChild(move);
+        textRegionFrame.appendChild(resize);
+        canvas.appendChild(textRegionFrame);
+      }
       textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
-      var move = document.createElement("button");
-      move.type = "button";
-      move.className = "text-region-move-handle";
-      move.setAttribute("aria-label", "Move text region");
-      move.title = "Drag to move this text region";
-      move.addEventListener("pointerdown", function (event) {
-        startTextRegionGesture("move", event);
-      });
-      var resize = document.createElement("button");
-      resize.type = "button";
-      resize.className = "text-region-resize-handle";
-      resize.setAttribute("aria-label", "Resize text region");
-      resize.title = "Drag to resize; text wraps and fits inside";
-      resize.addEventListener("pointerdown", function (event) {
-        startTextRegionGesture("resize", event);
-      });
-      textRegionFrame.appendChild(move);
-      textRegionFrame.appendChild(resize);
-      canvas.appendChild(textRegionFrame);
+      var regionKind = getComponent(binding.slideId, binding.componentId)?.kind === "chart" ? "chart" : "text";
+      textRegionFrame.querySelector(".text-region-move-handle").setAttribute("aria-label", "Move " + regionKind + " region");
+      textRegionFrame.querySelector(".text-region-resize-handle").setAttribute("aria-label", "Resize " + regionKind + " region");
+      if (!canvas) return;
+      var canvasRect = canvas.getBoundingClientRect();
+      var rect = binding.host.getBoundingClientRect();
+      var scale = canvasRenderScale(canvas);
+      textRegionFrame.style.left = (rect.left - canvasRect.left) / scale.x + "px";
+      textRegionFrame.style.top = (rect.top - canvasRect.top) / scale.y + "px";
+      textRegionFrame.style.width = rect.width / scale.x + "px";
+      textRegionFrame.style.height = rect.height / scale.y + "px";
     }
-    textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
-    var regionKind=effectiveComponent(state.slides[binding.slideId],binding.componentId).kind==='chart'?'chart':'text';
-    textRegionFrame.querySelector('.text-region-move-handle').setAttribute('aria-label','Move '+regionKind+' region');
-    textRegionFrame.querySelector('.text-region-resize-handle').setAttribute('aria-label','Resize '+regionKind+' region');
-    var canvasRect = canvas.getBoundingClientRect();
-    var rect = binding.host.getBoundingClientRect();
-    var scale = canvasRenderScale(canvas);
-    textRegionFrame.style.left = ((rect.left - canvasRect.left) / scale.x) + "px";
-    textRegionFrame.style.top = ((rect.top - canvasRect.top) / scale.y) + "px";
-    textRegionFrame.style.width = (rect.width / scale.x) + "px";
-    textRegionFrame.style.height = (rect.height / scale.y) + "px";
-  }
-
-  function startTextRegionGesture(kind, event) {
-    var binding = currentTextRegionBinding();
-    if (!binding) return;
-    event.preventDefault();
-    event.stopPropagation();
-    var canvas = binding.host.closest(".slide-canvas");
-    var canvasRect = canvas.getBoundingClientRect();
-    var hostRect = binding.host.getBoundingClientRect();
-    beginChange();
-    regionGesture = {
-      kind: kind,
-      binding: binding,
-      canvas: canvas,
-      canvasRect: canvasRect,
-      hostRect: hostRect,
-      startX: event.clientX,
-      startY: event.clientY,
-      region: regionFromBinding(binding)
+    function startTextRegionGesture(kind, event) {
+      var binding = currentTextRegionBinding();
+      if (!binding) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var canvas = binding.host.closest(".slide-canvas");
+      if (!canvas) return;
+      var canvasRect = canvas.getBoundingClientRect();
+      var hostRect = binding.host.getBoundingClientRect();
+      beginChange();
+      regionGesture = {
+        kind,
+        binding,
+        canvas,
+        canvasRect,
+        hostRect,
+        startX: event.clientX,
+        startY: event.clientY,
+        region: regionFromBinding(binding)
+      };
+      document.body.classList.add(kind === "move" ? "moving-text-region" : "resizing-text-region");
+      document.addEventListener("pointermove", moveTextRegionGesture);
+      document.addEventListener("pointerup", finishTextRegionGesture, { once: true });
+      document.addEventListener("pointercancel", finishTextRegionGesture, { once: true });
+    }
+    function moveTextRegionGesture(event) {
+      if (!regionGesture) return;
+      event.preventDefault();
+      var gesture = regionGesture;
+      var scale = canvasRenderScale(gesture.canvas);
+      var dx = event.clientX - gesture.startX;
+      var dy = event.clientY - gesture.startY;
+      var next = Object.assign({}, gesture.region);
+      if (gesture.kind === "move") {
+        dx = Math.max(
+          gesture.canvasRect.left - gesture.hostRect.left,
+          Math.min(gesture.canvasRect.right - gesture.hostRect.right, dx)
+        );
+        dy = Math.max(
+          gesture.canvasRect.top - gesture.hostRect.top,
+          Math.min(gesture.canvasRect.bottom - gesture.hostRect.bottom, dy)
+        );
+        next.x = gesture.region.x + dx / scale.x;
+        next.y = gesture.region.y + dy / scale.y;
+      } else {
+        var maxWidth = gesture.canvasRect.right - gesture.hostRect.left;
+        var maxHeight = gesture.canvasRect.bottom - gesture.hostRect.top;
+        next.width = Math.max(48, Math.min(
+          maxWidth / scale.x,
+          gesture.region.width + dx / scale.x
+        ));
+        next.height = Math.max(28, Math.min(
+          maxHeight / scale.y,
+          gesture.region.height + dy / scale.y
+        ));
+      }
+      next = {
+        x: Math.round(next.x * 10) / 10,
+        y: Math.round(next.y * 10) / 10,
+        width: Math.round(next.width * 10) / 10,
+        height: Math.round(next.height * 10) / 10
+      };
+      updateOverlay(gesture.binding.slideId, gesture.binding.componentId, "region", next);
+      applyTextRegion(gesture.binding);
+      syncTextRegionFrame();
+    }
+    function finishTextRegionGesture() {
+      document.removeEventListener("pointermove", moveTextRegionGesture);
+      document.removeEventListener("pointerup", finishTextRegionGesture);
+      document.removeEventListener("pointercancel", finishTextRegionGesture);
+      document.body.classList.remove("moving-text-region");
+      document.body.classList.remove("resizing-text-region");
+      if (!regionGesture) return;
+      regionGesture = null;
+      persist();
+    }
+    return {
+      bindTextRegion,
+      applyAllTextRegions,
+      syncTextRegionFrame,
+      removeTextRegionFrame,
+      clearTextRegions() {
+        textRegionBindings.clear();
+        removeTextRegionFrame();
+      }
     };
-    document.body.classList.add(kind === "move" ? "moving-text-region" : "resizing-text-region");
-    document.addEventListener("pointermove", moveTextRegionGesture);
-    document.addEventListener("pointerup", finishTextRegionGesture, {once: true});
-    document.addEventListener("pointercancel", finishTextRegionGesture, {once: true});
   }
 
-  function moveTextRegionGesture(event) {
-    if (!regionGesture) return;
-    event.preventDefault();
-    var gesture = regionGesture;
-    var scale = canvasRenderScale(gesture.canvas);
-    var dx = event.clientX - gesture.startX;
-    var dy = event.clientY - gesture.startY;
-    var next = Object.assign({}, gesture.region);
-    if (gesture.kind === "move") {
-      dx = Math.max(gesture.canvasRect.left - gesture.hostRect.left,
-        Math.min(gesture.canvasRect.right - gesture.hostRect.right, dx));
-      dy = Math.max(gesture.canvasRect.top - gesture.hostRect.top,
-        Math.min(gesture.canvasRect.bottom - gesture.hostRect.bottom, dy));
-      next.x = gesture.region.x + dx / scale.x;
-      next.y = gesture.region.y + dy / scale.y;
-    } else {
-      var maxWidth = gesture.canvasRect.right - gesture.hostRect.left;
-      var maxHeight = gesture.canvasRect.bottom - gesture.hostRect.top;
-      next.width = Math.max(48, Math.min(maxWidth / scale.x,
-        gesture.region.width + dx / scale.x));
-      next.height = Math.max(28, Math.min(maxHeight / scale.y,
-        gesture.region.height + dy / scale.y));
+  // src/editor/tables.ts
+  function createTableEditor({ getState, getSelected, clearSelection, isEditMode, stage, beginChange, render, persist, effectiveComponent, updateOverlay }) {
+    let tableColumnGesture = null;
+    function tableContexts(slide) {
+      if (slide._tableKey || !slide.data.tables) return [slide];
+      return slide.data.tables.map(function(data) {
+        return Object.assign({}, slide, { data, _tableKey: slide.id + "::table::" + data.id });
+      });
     }
-    next = {
-      x: Math.round(next.x * 10) / 10,
-      y: Math.round(next.y * 10) / 10,
-      width: Math.round(next.width * 10) / 10,
-      height: Math.round(next.height * 10) / 10
+    function selectedTableContext(slide, cell) {
+      return tableContexts(slide).find(function(item) {
+        return (item._tableKey || item.id) === cell.tableKey;
+      }) || slide;
+    }
+    function sourceTableModel(slide) {
+      if (slide.data.tables) throw new Error("Select a semantic table before changing its structure");
+      return {
+        columns: slide.data.columns.map(function(componentId, index) {
+          return {
+            id: componentId,
+            label: componentId,
+            width: (slide.data.columnWeights || [])[index] || (index === 0 ? 1.5 : 1)
+          };
+        }),
+        rows: slide.data.rows.map(function(row) {
+          return {
+            id: row.label,
+            label: row.label,
+            cells: row.cells.slice(),
+            best: typeof row.best === "number" && Number.isInteger(row.best) ? row.cells[row.best] : null,
+            globalBest: typeof row.globalBest === "number" && Number.isInteger(row.globalBest) ? row.cells[row.globalBest] : null
+          };
+        }),
+        components: {}
+      };
+    }
+    function effectiveTable(slide) {
+      return (getState().tables || {})[slide._tableKey || slide.id] || sourceTableModel(slide);
+    }
+    function ensureTable(slide) {
+      if (!getState().tables) getState().tables = {};
+      var key = slide._tableKey || slide.id;
+      if (!getState().tables[key]) getState().tables[key] = sourceTableModel(slide);
+      return getState().tables[key];
+    }
+    function tableToken() {
+      var random = Math.random().toString(36).slice(2, 8);
+      return Date.now().toString(36) + "-" + random;
+    }
+    function insertedTableText(table, prefix, value, role) {
+      var id = prefix + "-" + tableToken();
+      table.components[id] = { kind: "text", text: value, role };
+      return id;
+    }
+    function retireTableComponent(table, componentId) {
+      if (table.components[componentId]) delete table.components[componentId];
+    }
+    function tableCell(slide, componentId) {
+      if (!slide || slide.recipe !== "evidence-table") return null;
+      if (slide.data.tables) {
+        var found = tableContexts(slide).map(function(context) {
+          return tableCell(context, componentId);
+        }).filter(Boolean);
+        if (found.length > 1) throw new Error("Ambiguous table cell " + componentId);
+        return found[0] || null;
+      }
+      var table = effectiveTable(slide);
+      for (var columnIndex = 0; columnIndex < table.columns.length; columnIndex += 1) {
+        if (table.columns[columnIndex].label === componentId) {
+          return {
+            tableKey: slide._tableKey || slide.id,
+            header: true,
+            rowIndex: -1,
+            columnIndex,
+            rowId: "table-header",
+            columnId: table.columns[columnIndex].id
+          };
+        }
+      }
+      for (var rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
+        var row = table.rows[rowIndex];
+        if (row.label === componentId) {
+          return {
+            tableKey: slide._tableKey || slide.id,
+            header: false,
+            rowIndex,
+            columnIndex: 0,
+            rowId: row.id,
+            columnId: table.columns[0].id
+          };
+        }
+        var cellIndex = row.cells.indexOf(componentId);
+        if (cellIndex >= 0) {
+          return {
+            tableKey: slide._tableKey || slide.id,
+            header: false,
+            rowIndex,
+            columnIndex: cellIndex + 1,
+            rowId: row.id,
+            columnId: table.columns[cellIndex + 1].id
+          };
+        }
+      }
+      return null;
+    }
+    function addTableRow(slide, afterIndex) {
+      var table = ensureTable(slide);
+      var token = tableToken();
+      var label = "table-row-" + token;
+      table.components[label] = { kind: "text", text: "New row", role: "table-row-label" };
+      var cells = table.columns.slice(1).map(function() {
+        return insertedTableText(table, "table-cell", "\u2014", "table-value");
+      });
+      var row = { id: label, label, cells, best: null, globalBest: null };
+      table.rows.splice(Math.max(0, Math.min(table.rows.length, afterIndex + 1)), 0, row);
+      return row;
+    }
+    function addTableColumn(slide, afterIndex) {
+      var table = ensureTable(slide);
+      var label = insertedTableText(table, "table-column", "New column", "table-heading");
+      var insertAt = Math.max(1, Math.min(table.columns.length, afterIndex + 1));
+      table.columns.splice(insertAt, 0, { id: label, label, width: 1 });
+      table.rows.forEach(function(row) {
+        row.cells.splice(
+          insertAt - 1,
+          0,
+          insertedTableText(table, "table-cell", "\u2014", "table-value")
+        );
+      });
+      return insertAt;
+    }
+    function mutateSelectedTable(action) {
+      const selection = getSelected();
+      if (!selection?.tableCell) return;
+      var slide = getState().slides[selection.slideId];
+      if (!slide || slide.recipe !== "evidence-table") return;
+      slide = selectedTableContext(slide, selection.tableCell);
+      var table = ensureTable(slide);
+      var cell = selection.tableCell;
+      beginChange();
+      if (action === "table-reset") {
+        delete getState().tables[slide._tableKey || slide.id];
+        clearSelection();
+      } else if (action === "row-add") {
+        var row = addTableRow(slide, cell.rowIndex < 0 ? table.rows.length - 1 : cell.rowIndex);
+        selection.componentId = row.label;
+      } else if (action === "row-delete" && cell.rowIndex >= 0 && table.rows.length > 1) {
+        var removedRow = table.rows.splice(cell.rowIndex, 1)[0];
+        retireTableComponent(table, removedRow.label);
+        removedRow.cells.forEach(function(componentId) {
+          retireTableComponent(table, componentId);
+        });
+        clearSelection();
+      } else if ((action === "row-up" || action === "row-down") && cell.rowIndex >= 0) {
+        var rowTarget = cell.rowIndex + (action === "row-up" ? -1 : 1);
+        if (rowTarget >= 0 && rowTarget < table.rows.length) {
+          table.rows.splice(rowTarget, 0, table.rows.splice(cell.rowIndex, 1)[0]);
+        }
+      } else if (action === "column-add") {
+        var columnIndex = addTableColumn(slide, cell.columnIndex);
+        selection.componentId = table.columns[columnIndex].label;
+      } else if (action === "column-delete" && cell.columnIndex > 0 && table.columns.length > 2) {
+        var removed = table.columns.splice(cell.columnIndex, 1)[0];
+        table.rows.forEach(function(rowItem) {
+          var removedCell = rowItem.cells.splice(cell.columnIndex - 1, 1)[0];
+          if (rowItem.best === removedCell) rowItem.best = null;
+          if (rowItem.globalBest === removedCell) rowItem.globalBest = null;
+          retireTableComponent(table, removedCell);
+        });
+        retireTableComponent(table, removed.label);
+        clearSelection();
+      } else if ((action === "column-left" || action === "column-right") && cell.columnIndex > 0) {
+        var columnTarget = cell.columnIndex + (action === "column-left" ? -1 : 1);
+        if (columnTarget > 0 && columnTarget < table.columns.length) {
+          table.columns.splice(columnTarget, 0, table.columns.splice(cell.columnIndex, 1)[0]);
+          table.rows.forEach(function(rowItem) {
+            rowItem.cells.splice(
+              columnTarget - 1,
+              0,
+              rowItem.cells.splice(cell.columnIndex - 1, 1)[0]
+            );
+          });
+        }
+      }
+      render();
+      persist();
+    }
+    function setTableText(slide, table, componentId, value) {
+      updateOverlay(slide.id, componentId, "text", value);
+      if (effectiveComponent(getState().slides[slide.id], componentId).marks)
+        updateOverlay(slide.id, componentId, "marks", []);
+    }
+    function pasteTableGrid(slide, componentId, raw) {
+      const start = tableCell(slide, componentId);
+      if (!start) return false;
+      slide = selectedTableContext(slide, start);
+      var values = raw.replace(/\r/g, "").split("\n").filter(function(line, index, rows) {
+        return line.length || index < rows.length - 1;
+      }).map(function(line) {
+        return line.split("	");
+      });
+      if (!values.length || values.length === 1 && values[0].length === 1) return false;
+      var table = ensureTable(slide);
+      beginChange();
+      while (start.columnIndex + Math.max.apply(null, values.map(function(row) {
+        return row.length;
+      })) > table.columns.length) {
+        addTableColumn(slide, table.columns.length - 1);
+      }
+      if (!start.header) {
+        while (start.rowIndex + values.length > table.rows.length) addTableRow(slide, table.rows.length - 1);
+      }
+      values.forEach(function(valuesRow, rowOffset) {
+        valuesRow.forEach(function(value, columnOffset) {
+          var columnIndex = start.columnIndex + columnOffset;
+          var targetId;
+          if (start.header && rowOffset === 0) {
+            targetId = table.columns[columnIndex].label;
+          } else {
+            var rowIndex = start.header ? rowOffset - 1 : start.rowIndex + rowOffset;
+            if (rowIndex < 0) return;
+            targetId = columnIndex === 0 ? table.rows[rowIndex].label : table.rows[rowIndex].cells[columnIndex - 1];
+          }
+          setTableText(slide, table, targetId, value.trim());
+        });
+      });
+      render();
+      persist();
+      return true;
+    }
+    function startTableColumnResize(slide, columnId, event) {
+      if (!isEditMode()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      var table = ensureTable(slide);
+      var index = table.columns.findIndex(function(column) {
+        return column.id === columnId;
+      });
+      if (index < 0) return;
+      beginChange();
+      var body = event.target.closest(".table-body").getBoundingClientRect();
+      tableColumnGesture = {
+        slide,
+        table,
+        index,
+        startX: event.clientX,
+        startWidth: table.columns[index].width,
+        bodyWidth: body.width,
+        total: table.columns.reduce(function(sum, column) {
+          return sum + column.width;
+        }, 0)
+      };
+      document.body.classList.add("resizing-table-column");
+      document.addEventListener("pointermove", moveTableColumnResize);
+      document.addEventListener("pointerup", finishTableColumnResize, { once: true });
+      document.addEventListener("pointercancel", finishTableColumnResize, { once: true });
+    }
+    function moveTableColumnResize(event) {
+      if (!tableColumnGesture) return;
+      event.preventDefault();
+      var gesture = tableColumnGesture;
+      var delta = (event.clientX - gesture.startX) / gesture.bodyWidth * gesture.total;
+      gesture.table.columns[gesture.index].width = Math.max(0.35, Math.min(4, gesture.startWidth + delta));
+      const tableElement = stage.querySelector(".evidence-table");
+      if (!tableElement) return;
+      var total = gesture.table.columns.reduce(function(sum, column) {
+        return sum + column.width;
+      }, 0);
+      gesture.table.columns.forEach(function(column) {
+        var col = tableElement.querySelector('col[data-table-column-id="' + column.id + '"]');
+        if (col) col.style.width = (column.width / total * 100).toFixed(3) + "%";
+      });
+    }
+    function finishTableColumnResize() {
+      document.removeEventListener("pointermove", moveTableColumnResize);
+      document.removeEventListener("pointerup", finishTableColumnResize);
+      document.removeEventListener("pointercancel", finishTableColumnResize);
+      document.body.classList.remove("resizing-table-column");
+      if (!tableColumnGesture) return;
+      tableColumnGesture = null;
+      render();
+      persist();
+    }
+    return { tableContexts, selectedTableContext, sourceTableModel, effectiveTable, ensureTable, tableCell, mutateSelectedTable, pasteTableGrid, startTableColumnResize };
+  }
+
+  // src/editor/snapshot.ts
+  function copy(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+  function snapshot(value) {
+    return {
+      schema: value.schema,
+      order: value.order.slice(),
+      hidden: value.hidden.slice(),
+      overlays: copy(value.overlays),
+      tables: copy(value.tables || {}),
+      textBoxes: copy(value.textBoxes || {}),
+      objects: copy(value.objects || {})
     };
-    updateOverlay(gesture.binding.slideId, gesture.binding.componentId, "region", next);
-    applyTextRegion(gesture.binding);
-    syncTextRegionFrame();
   }
-
-  function finishTextRegionGesture() {
-    document.removeEventListener("pointermove", moveTextRegionGesture);
-    document.removeEventListener("pointerup", finishTextRegionGesture);
-    document.removeEventListener("pointercancel", finishTextRegionGesture);
-    document.body.classList.remove("moving-text-region");
-    document.body.classList.remove("resizing-text-region");
-    if (!regionGesture) return;
-    regionGesture = null;
-    persist();
+  function sameSnapshot(a, b) {
+    return JSON.stringify(snapshot(a)) === JSON.stringify(snapshot(b));
   }
-
-  function effectiveHeadline(slide) {
-    return effectiveComponent(slide, slide.headline).text;
+  var changed = (a, b) => JSON.stringify(a) !== JSON.stringify(b);
+  function asMap(value) {
+    if (value === void 0) return {};
+    if (value === null || typeof value !== "object" || Array.isArray(value))
+      throw new Error("Expected a semantic edit map");
+    return value;
   }
-
-  document.querySelector("[data-notes-toggle]").addEventListener("click", function () {
-    var slide = currentSlide();
-    var host = document.querySelector("[data-notes-content]");
-    host.textContent = "";
-    ["facts", "notes", "narrative"].forEach(function (key) {
-      if (!slide[key]) return;
-      var heading = document.createElement("h2"); heading.textContent = key;
-      var text = document.createElement("div"); text.className = "notes-text";
-      text.textContent = typeof slide[key] === "string" ? slide[key] : JSON.stringify(slide[key], null, 2);
-      host.append(heading, text);
-    });
-    if (!host.childNodes.length) host.textContent = "No private notes for this slide.";
-    document.querySelector("[data-notes-dialog]").showModal();
-  });
-
-  function slideShell(slide) {
-    var canvas = document.createElement("article");
-    canvas.className = "slide-canvas recipe-" + slide.recipe;
-    if (slide.recipe === 'section-divider' && slide.data.centered) canvas.classList.add('centered-section');
-    canvas.style.setProperty("--accent", (slide.theme||{}).accent||"#2f6fed");
-    canvas.setAttribute("data-slide-id", slide.id);
-    canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
-    canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
-    canvas.addEventListener("click", function () {
-      if (editMode) selectComponent(null, null);
-    });
-    if (state.hidden.indexOf(slide.id) >= 0) {
-      var ribbon = document.createElement("span");
-      ribbon.className = "hidden-ribbon";
-      ribbon.textContent = "Hidden from presentation";
-      canvas.appendChild(ribbon);
+  function textGroup(value) {
+    const result = {};
+    for (const key of ["text", "marks"]) if (value[key] !== void 0) result[key] = value[key];
+    return result;
+  }
+  function merge(a, b, c, depth) {
+    const out = copy(c);
+    let keys = Object.keys({ ...a, ...b });
+    if (depth === 1 && [a, b, c].some((value) => value.marks !== void 0)) {
+      if (changed(textGroup(a), textGroup(b))) {
+        delete out.text;
+        delete out.marks;
+        Object.assign(out, textGroup(b));
+      }
+      keys = keys.filter((key) => key !== "text" && key !== "marks");
     }
-    var header = document.createElement("header");
-    header.className = "recipe-header";
-    if (slide.eyebrow) header.appendChild(editableText(slide, slide.eyebrow, "div", "slide-kicker"));
-    header.appendChild(editableText(slide, slide.headline, "h1", "slide-title"));
-    canvas.appendChild(header);
-    return canvas;
-  }
-
-  function addFooter(canvas, slide) {
-    if (slide.footer) canvas.appendChild(editableText(slide, slide.footer, "div", "protocol-strip"));
-    if (slide.recipe === 'section-divider' && slide.data.centered) return;
-    var meta = document.createElement("div");
-    meta.className = "slide-meta";
-    meta.textContent = slide.recipe + " · " + slide.id;
-    canvas.appendChild(meta);
-  }
-
-  function uploadImage(slide, componentId, file) {
-    if (!file || !file.type.startsWith("image/")) {
-      showToast("Drop a PNG, JPEG, WebP, GIF, or SVG image.");
-      return;
+    for (const key of keys) {
+      if (!changed(a[key], b[key])) continue;
+      if (depth > 1) {
+        const next = merge(asMap(a[key]), asMap(b[key]), asMap(out[key]), depth - 1);
+        if (Object.keys(next).length) out[key] = next;
+        else delete out[key];
+      } else if (b[key] === void 0) delete out[key];
+      else out[key] = copy(b[key]);
     }
-    setStatus("Uploading…", "saving");
-    window.slidekitRequest("api/assets", {method: "POST", headers: {"Content-Type": file.type, "X-File-Name": file.name}, body: file})
-      .then(function (response) { return response.json().then(function (payload) { return {ok: response.ok, payload: payload}; }); })
-      .then(function (result) {
+    return out;
+  }
+  function carryForward(base, local, remote) {
+    const result = copy(remote);
+    if (changed(base.order, local.order)) {
+      const known = new Set(base.order), remaining = local.order.slice();
+      result.order = remote.order.map((key) => {
+        if (!known.has(key)) return key;
+        const next = remaining.shift();
+        if (next === void 0) throw new Error("Local slide order lost an identity");
+        return next;
+      });
+    }
+    const hidden = new Set(remote.hidden);
+    for (const key of base.order) if (base.hidden.includes(key) !== local.hidden.includes(key)) {
+      if (local.hidden.includes(key)) hidden.add(key);
+      else hidden.delete(key);
+    }
+    result.hidden = result.order.filter((key) => hidden.has(key));
+    const domains = [["overlays", 3], ["objects", 2], ["tables", 1], ["textBoxes", 2]];
+    for (const [field, depth] of domains)
+      result[field] = merge(base[field] || {}, local[field] || {}, remote[field] || {}, depth);
+    return result;
+  }
+  function saveRequest(accepted, job) {
+    return {
+      baseRevision: accepted.revision,
+      baseSourceRevision: accepted.sourceRevision,
+      baseSlideRevisions: accepted.slideRevisions,
+      baseSnapshot: snapshot(accepted),
+      snapshot: job,
+      compact: true
+    };
+  }
+
+  // src/editor/save-queue.ts
+  var SaveQueue = class {
+    constructor(host) {
+      this.host = host;
+      this.pending = null;
+      this.inFlight = null;
+      this.flush = () => {
+        if (this.host.stale() || this.inFlight || !this.pending) return;
+        const job = this.pending;
+        this.pending = null;
+        this.inFlight = job;
+        this.host.request(saveRequest(this.host.accepted(), job)).then((result) => {
+          this.inFlight = null;
+          if (!result.ok) {
+            const payload = result.payload;
+            const message = payload?.error || "Could not save slide edits";
+            if (result.status === 409 && payload?.state) {
+              const remote2 = this.host.decode(payload.state);
+              this.pending = null;
+              this.host.conflict(remote2, message);
+            } else if (result.status === 400) {
+              this.pending = null;
+              this.host.invalid(message);
+            } else this.retry(job);
+            return;
+          }
+          const remote = this.host.decode(result.payload);
+          const current = carryForward(job, this.host.current(), remote);
+          const clean = sameSnapshot(current, remote);
+          this.pending = clean ? null : snapshot(current);
+          this.host.acceptedResult(remote, current, clean);
+          if (!clean) this.flush();
+        }).catch((error) => {
+          this.inFlight = null;
+          this.pending = this.pending || job;
+          if (this.host.stale()) this.host.runtimeChanged(error);
+          else this.retry(job, error);
+        });
+      };
+    }
+    enqueue() {
+      this.pending = snapshot(this.host.current());
+      this.flush();
+    }
+    retry(job, error) {
+      this.pending = this.pending || job;
+      this.host.retry(error);
+      this.host.schedule(this.flush);
+    }
+  };
+
+  // src/editor/text.ts
+  function textEdit(value) {
+    return { text: value.text, marks: value.marks.map((mark) => ({ ...mark })) };
+  }
+  function toggleBold(value, start, end, inherited) {
+    const flags = Array(value.text.length).fill(null);
+    value.marks.forEach((mark) => flags.fill(mark.bold, mark.start, mark.end));
+    const makeBold = !flags.slice(start, end).every((flag) => flag === null ? inherited : flag);
+    flags.fill(makeBold, start, end);
+    const marks = [];
+    flags.forEach((flag, index) => {
+      if (flag === null) return;
+      const last = marks[marks.length - 1];
+      if (last && last.end === index && last.bold === flag) last.end++;
+      else marks.push({ start: index, end: index + 1, bold: flag });
+    });
+    return { text: value.text, marks };
+  }
+  function renderMarkedText(element, component) {
+    element.textContent = "";
+    let offset = 0;
+    (component.marks || []).forEach((mark) => {
+      element.appendChild(document.createTextNode(component.text.slice(offset, mark.start)));
+      const span = document.createElement("span");
+      span.dataset.textBold = String(mark.bold);
+      span.style.fontWeight = mark.bold ? "700" : "400";
+      span.textContent = component.text.slice(mark.start, mark.end);
+      element.appendChild(span);
+      offset = mark.end;
+    });
+    element.appendChild(document.createTextNode(component.text.slice(offset)));
+    if (component.text.endsWith("\n")) element.appendChild(document.createElement("br"));
+  }
+  function readMarkedText(element) {
+    const text = element.textContent || "";
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const marks = [];
+    let node, offset = 0;
+    while (node = walker.nextNode()) {
+      const owner = node.parentElement?.closest("[data-text-bold],b,strong");
+      const start = offset, end = offset + (node.textContent || "").length;
+      if (owner && element.contains(owner) && end > start) {
+        const bold = owner.dataset.textBold !== "false", last = marks[marks.length - 1];
+        if (last && last.end === start && last.bold === bold) last.end = end;
+        else marks.push({ start, end, bold });
+      }
+      offset = end;
+    }
+    return { text, marks };
+  }
+  function insertPlainText(element, text) {
+    const selection = getSelection();
+    if (!selection?.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return;
+    range.deleteContents();
+    const node = document.createTextNode(text);
+    range.insertNode(node);
+    if (element.textContent?.endsWith("\n") && element.lastChild?.nodeName !== "BR")
+      element.appendChild(document.createElement("br"));
+    range.setStart(node, node.length);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  // src/app.js
+  (function() {
+    "use strict";
+    var SVG_NS = "http://www.w3.org/2000/svg";
+    var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1";
+    var previewMode = Boolean(window.slidekitPreview);
+    if (enteredFromPresentationUrl || previewMode) {
+      document.body.classList.add("present-only");
+    }
+    if (previewMode) document.body.classList.add("preview-only");
+    var stage = document.querySelector("[data-stage]");
+    var stageWrap = document.querySelector(".stage-wrap");
+    var thumbList = document.querySelector("[data-thumb-list]");
+    var count = document.querySelector("[data-slide-count]");
+    var position = document.querySelector("[data-position]");
+    var status = document.querySelector("[data-save-state]");
+    var editToggle = document.querySelector("[data-edit-toggle]");
+    var fullscreenToggle = document.querySelector("[data-fullscreen-toggle]");
+    var presentationExit = document.querySelector("[data-presentation-exit]");
+    var undoButton = document.querySelector("[data-undo]");
+    var draftButton = document.querySelector("[data-conflict-draft]");
+    var draftKey = "slidekit-conflict-draft:" + location.pathname;
+    var toast = document.querySelector("[data-toast]");
+    var selectedLabel = document.querySelector("[data-selected-component]");
+    var state = null;
+    var accepted = null;
+    var currentId = null;
+    var selected = null;
+    var editMode = false;
+    var undoBase = null;
+    var inputTimer = null;
+    var toastTimer = null;
+    var loadedSlides = /* @__PURE__ */ new Map();
+    var slideRequests = /* @__PURE__ */ new Map();
+    var libraries = /* @__PURE__ */ new Map();
+    var renderGeneration = 0;
+    var prefetchTimer = null;
+    var focusedThumb = null;
+    var focusCreatedTitle = null;
+    var focusTextBox = null;
+    var creator = previewMode ? null : new window.SlideCreator({
+      ready: function() {
+        return Boolean(state && accepted && !saves.pending && !saves.inFlight && sameSnapshot(state, accepted) && status.textContent === "Saved");
+      },
+      currentId: function() {
+        return currentId;
+      },
+      created: function(payload) {
+        accepted = acceptPayload(payload);
+        state = copy(accepted);
+        currentId = payload.loadedSlides[0];
+        selected = null;
+        undoBase = null;
+        editMode = true;
+        focusCreatedTitle = currentId;
+        history.replaceState(null, "", "#" + currentId);
+        render();
+        setStatus("Saved", "saved");
+        showToast("Slide created. Type your title; changes save automatically.");
+      }
+    });
+    var previews = previewMode ? null : new window.SlidePreviews(document.querySelector(".filmstrip"), function(id) {
+      return ensureSlide(id).then(function(slide) {
+        return Object.assign(snapshot(state), {
+          revision: state.revision,
+          sourceRevision: state.sourceRevision,
+          runtimeRevision: window.slidekitAssetRevision,
+          slideRevisions: { [id]: state.slideRevisions[id] },
+          slides: { [id]: slide },
+          loadedSlides: [id]
+        });
+      });
+    });
+    function loadLibrary(name) {
+      if (!libraries.has(name)) {
+        libraries.set(name, new Promise(function(resolve, reject) {
+          var script = document.createElement("script");
+          script.src = name + "?v=" + window.slidekitAssetRevision;
+          script.onload = resolve;
+          script.onerror = function() {
+            libraries.delete(name);
+            script.remove();
+            reject(new Error("Could not load " + name));
+          };
+          document.head.appendChild(script);
+        }));
+      }
+      return libraries.get(name);
+    }
+    function acceptPayload(payload) {
+      if (payload.runtimeRevision && payload.runtimeRevision !== window.slidekitAssetRevision)
+        throw new Error("Renderer changed. Reload the parent deck before showing this preview.");
+      if (!payload.slides) payload.slides = state.slides;
+      if (payload.loadedSlides && state) Object.keys(payload.slides).forEach(function(id) {
+        if (!payload.loadedSlides.includes(id) && loadedSlides.get(id) === payload.slideRevisions[id])
+          payload.slides[id] = state.slides[id];
+      });
+      (payload.loadedSlides || (payload.sourceRevision !== (accepted || {}).sourceRevision ? Object.keys(payload.slides) : [])).forEach(function(id) {
+        loadedSlides.set(id, payload.slideRevisions[id]);
+      });
+      return payload;
+    }
+    function ensureSlide(id) {
+      var revision = state.slideRevisions[id];
+      if (loadedSlides.get(id) === revision) return Promise.resolve(slideById(id));
+      var displayRevision = state.displayRevision || "source";
+      var key = id + ":" + revision + ":" + displayRevision;
+      if (!slideRequests.has(key)) {
+        slideRequests.set(key, window.slidekitRequest("api/slides/" + encodeURIComponent(id) + "?revision=" + revision + "&display=" + displayRevision).then(function(r) {
+          if (!r.ok) throw new Error("Slide source changed or unavailable. Reload to continue.");
+          return r.json();
+        }).then(function(slide) {
+          if (state.slideRevisions[id] === revision) {
+            state.slides[id] = slide;
+            accepted.slides[id] = slide;
+            loadedSlides.set(id, revision);
+          }
+          return slide;
+        }).finally(function() {
+          slideRequests.delete(key);
+        }));
+      }
+      return slideRequests.get(key);
+    }
+    function prepareSlide(slide) {
+      var needed = [];
+      if (slide.recipe === "chart-panels") needed.push(loadLibrary("plotly.min.js"));
+      if (slide.recipe === "mechanism-pipeline") needed.push(loadLibrary("joint-diagram.js"));
+      if (slide.recipe === "vector-geometry") needed.push(loadLibrary("geometry-runtime.js"));
+      if (Object.values(slide.components || {}).some(function(c) {
+        return c.render === "latex";
+      }))
+        needed.push(loadLibrary("math-runtime.js"));
+      return Promise.all(needed);
+    }
+    function retainDraft(message, restored) {
+      var draft = restored || {
+        message,
+        base: snapshot(accepted),
+        sourceRevision: accepted.sourceRevision,
+        local: snapshot(state)
+      };
+      try {
+        localStorage.setItem(draftKey, JSON.stringify(draft));
+      } catch (_) {
+      }
+      draftButton.hidden = false;
+      draftButton.onclick = function() {
+        var url = URL.createObjectURL(new Blob(
+          [JSON.stringify(draft, null, 2)],
+          { type: "application/json" }
+        ));
+        var link = document.createElement("a");
+        link.href = url;
+        link.download = "unsaved-slide-edits.json";
+        link.click();
+        setTimeout(function() {
+          URL.revokeObjectURL(url);
+        }, 1e3);
+      };
+    }
+    function setStatus(label, kind) {
+      status.textContent = label;
+      status.className = "save-state " + (kind || "saved");
+      if (creator) creator.refresh();
+    }
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("visible");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(function() {
+        toast.classList.remove("visible");
+      }, 2700);
+    }
+    var { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation } = createViewport({
+      stage,
+      stageWrap,
+      presentationExit,
+      fullscreenToggle,
+      applyAllTextRegions: function() {
+        applyAllTextRegions();
+      },
+      syncTextRegionFrame: function() {
+        syncTextRegionFrame();
+      },
+      showToast
+    });
+    function slideById(id) {
+      return state.slides[id];
+    }
+    function currentSlide() {
+      return slideById(currentId);
+    }
+    function currentIndex() {
+      var index = state.order.indexOf(currentId);
+      return index < 0 ? 0 : index;
+    }
+    function overlayFor(slideId, componentId, create) {
+      if (!state.overlays[slideId]) {
+        if (!create) return {};
+        state.overlays[slideId] = {};
+      }
+      if (!state.overlays[slideId][componentId]) {
+        if (!create) return {};
+        state.overlays[slideId][componentId] = {};
+      }
+      return state.overlays[slideId][componentId];
+    }
+    function effectiveComponent(slide, componentId) {
+      var box = ((state.textBoxes || {})[slide.id] || {})[componentId];
+      if (box) return Object.assign({ kind: "text", role: "Text box" }, box);
+      var table = insertedTableOwner(slide.id, componentId);
+      var source = slide.components[componentId] || table && table.components[componentId];
+      if (!source) throw new Error("Unknown semantic component " + slide.id + "@" + componentId);
+      var overlay = overlayFor(slide.id, componentId, false);
+      return Object.assign({}, source, overlay);
+    }
+    function objectsForSlide(slide) {
+      return copy((state.objects || {})[slide.id] || {});
+    }
+    function updateVisualObject(slideId, objectId, kind, geometry, commit) {
+      if (!state.objects) state.objects = {};
+      if (!state.objects[slideId]) state.objects[slideId] = {};
+      beginChange();
+      state.objects[slideId][objectId] = Object.assign({ kind }, copy(geometry));
+      if (commit) persist();
+    }
+    function cleanVisualObject(slideId, objectId) {
+      if (!state.objects || !state.objects[slideId]) return;
+      delete state.objects[slideId][objectId];
+      if (!Object.keys(state.objects[slideId]).length) delete state.objects[slideId];
+    }
+    function cleanOverlay(slideId, componentId) {
+      var slideOverlays = state.overlays[slideId];
+      if (!slideOverlays) return;
+      if (Object.keys(slideOverlays[componentId] || {}).length === 0) delete slideOverlays[componentId];
+      if (Object.keys(slideOverlays).length === 0) delete state.overlays[slideId];
+    }
+    function updateOverlay(slideId, componentId, key, value) {
+      var box = ((state.textBoxes || {})[slideId] || {})[componentId];
+      if (box) {
+        if (value === void 0 || value === null) delete box[key];
+        else box[key] = value;
+        return;
+      }
+      var source = state.slides[slideId].components[componentId];
+      var table = insertedTableOwner(slideId, componentId);
+      if (!source && table && table.components[componentId]) {
+        if (value === void 0 || value === null) delete table.components[componentId][key];
+        else table.components[componentId][key] = value;
+        return;
+      }
+      var overlay = overlayFor(slideId, componentId, true);
+      if (source[key] === value || value === void 0 || value === null) delete overlay[key];
+      else overlay[key] = value;
+      if (Object.prototype.hasOwnProperty.call(overlay, "marks") && !Object.prototype.hasOwnProperty.call(overlay, "text"))
+        overlay.text = source.text;
+      cleanOverlay(slideId, componentId);
+    }
+    function updateText(slideId, componentId, value) {
+      var edit = textEdit(value);
+      updateOverlay(slideId, componentId, "text", edit.text);
+      updateOverlay(slideId, componentId, "marks", edit.marks);
+    }
+    function insertedTableOwner(slideId, componentId) {
+      var matches = Object.keys(state.tables || {}).filter(function(key) {
+        return (key === slideId || key.indexOf(slideId + "::table::") === 0) && state.tables[key].components[componentId];
+      });
+      if (matches.length > 1) throw new Error("Ambiguous table-owned text " + componentId);
+      return matches.length ? state.tables[matches[0]] : null;
+    }
+    var { tableContexts, selectedTableContext, sourceTableModel, effectiveTable, ensureTable, tableCell, mutateSelectedTable, pasteTableGrid, startTableColumnResize } = createTableEditor({
+      getState: function() {
+        return state;
+      },
+      getSelected: function() {
+        return selected;
+      },
+      clearSelection: function() {
+        selected = null;
+      },
+      isEditMode: function() {
+        return editMode;
+      },
+      stage,
+      beginChange,
+      render,
+      persist,
+      effectiveComponent,
+      updateOverlay
+    });
+    function beginChange() {
+      if (!undoBase) undoBase = copy(accepted);
+      undoButton.disabled = false;
+      setStatus("Saving\u2026", "saving");
+    }
+    function persist() {
+      if (previewMode) return;
+      retainDraft("Changes saved on this device; awaiting server acknowledgement.");
+      setStatus("Saving\u2026", "saving");
+      saves.enqueue();
+    }
+    var deferredRemoteRender = false;
+    var saves = new SaveQueue({
+      current: function() {
+        return state;
+      },
+      accepted: function() {
+        return accepted;
+      },
+      decode: acceptPayload,
+      stale: function() {
+        return window.slidekitRuntimeStale();
+      },
+      request: function(body) {
+        return window.slidekitRequest("api/deck-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        }).then(function(response) {
+          return response.json().then(function(payload) {
+            return { ok: response.ok, status: response.status, payload };
+          });
+        });
+      },
+      acceptedResult: function(remote, current, clean) {
+        deferredRemoteRender = deferredRemoteRender || !sameSnapshot(state, current) || accepted.sourceRevision !== remote.sourceRevision;
+        state = current;
+        accepted = remote;
+        if (clean) {
+          undoBase = null;
+          if (deferredRemoteRender) {
+            deferredRemoteRender = false;
+            render();
+          } else {
+            renderThumbs();
+            renderTools();
+            undoButton.disabled = true;
+          }
+          setStatus("Saved", "saved");
+          try {
+            localStorage.removeItem(draftKey);
+          } catch (_) {
+          }
+          draftButton.hidden = true;
+        } else setStatus("Saving\u2026", "saving");
+      },
+      conflict: function(remote, message) {
+        deferredRemoteRender = false;
+        retainDraft(message);
+        accepted = remote;
+        state = copy(remote);
+        undoBase = null;
+        selected = null;
+        render();
+        setStatus("Conflict \xB7 draft retained", "error");
+        showToast(message + ". Your unsaved changes are available to download.");
+      },
+      invalid: function(message) {
+        retainDraft(message);
+        setStatus("Invalid edit \xB7 draft retained", "error");
+        showToast(message);
+      },
+      retry: function(error) {
+        if (error) console.error("deck-state save failed", error);
+        setStatus("Offline \xB7 retrying", "error");
+      },
+      runtimeChanged: function(error) {
+        retainDraft(error.message);
+        setStatus("Renderer updated \xB7 reload; draft retained", "error");
+      },
+      schedule: function(callback) {
+        setTimeout(callback, 1400);
+      }
+    });
+    function svgElement(name, attrs) {
+      var node = document.createElementNS(SVG_NS, name);
+      Object.keys(attrs || {}).forEach(function(key) {
+        node.setAttribute(key, attrs[key]);
+      });
+      return node;
+    }
+    function applyComponentStyle(element, component) {
+      if (component.color) element.style.color = component.color;
+      if (component.fontScale) element.style.setProperty("--component-scale", component.fontScale);
+    }
+    function toggleTextBold(slideId, componentId, element) {
+      if (!editMode || !element || element.dataset.latexSource !== void 0) return;
+      var value = readMarkedText(element), selection = window.getSelection();
+      var start = 0, end = value.text.length;
+      if (selection.rangeCount && !selection.isCollapsed) {
+        var range = selection.getRangeAt(0);
+        if (element.contains(range.startContainer) && element.contains(range.endContainer)) {
+          var prefix = document.createRange();
+          prefix.selectNodeContents(element);
+          prefix.setEnd(range.startContainer, range.startOffset);
+          start = prefix.toString().length;
+          end = start + range.toString().length;
+        }
+      }
+      if (end <= start) return;
+      var formatted = toggleBold(value, start, end, Number(getComputedStyle(element).fontWeight) >= 600);
+      beginChange();
+      updateText(slideId, componentId, formatted);
+      renderMarkedText(element, formatted);
+      var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0;
+      var restored = document.createRange(), started = false;
+      while (node = walker.nextNode()) {
+        if (!started && start <= offset + node.length) {
+          restored.setStart(node, start - offset);
+          started = true;
+        }
+        if (started && end <= offset + node.length) {
+          restored.setEnd(node, end - offset);
+          break;
+        }
+        offset += node.length;
+      }
+      selection.removeAllRanges();
+      selection.addRange(restored);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      renderTools();
+    }
+    function editableText(slide, componentId, tag, className) {
+      var component = effectiveComponent(slide, componentId);
+      var element = document.createElement(tag || "div");
+      element.className = (className || "") + " semantic-component";
+      var isLatex = component.render === "latex";
+      if (isLatex) {
+        if (!window.ScientificMathRuntime) throw new Error("KaTeX math runtime is missing");
+        window.ScientificMathRuntime.renderLatex(element, component.text, { displayMode: component.display === "block" });
+        element.setAttribute("data-latex-source", component.text);
+      } else {
+        renderMarkedText(element, component);
+      }
+      element.setAttribute("data-component-id", componentId);
+      element.setAttribute("data-component-kind", "text");
+      element.setAttribute("aria-label", component.role || componentId);
+      element.contentEditable = editMode && !isLatex ? "true" : "false";
+      applyComponentStyle(element, component);
+      if (component.hidden) element.classList.add("curator-hidden-component");
+      element.addEventListener("click", function(event) {
+        if (!editMode) return;
+        event.stopPropagation();
+        selectComponent(slide.id, componentId, element);
+      });
+      element.addEventListener("input", function() {
+        if (!editMode || isLatex) return;
+        var value = readMarkedText(element);
+        updateText(slide.id, componentId, value);
+        beginChange();
+        clearTimeout(inputTimer);
+        inputTimer = setTimeout(persist, 260);
+      });
+      element.addEventListener("paste", function(event) {
+        if (!editMode || isLatex) return;
+        var raw = event.clipboardData && event.clipboardData.getData("text/plain");
+        if (raw === null || raw === void 0) return;
+        event.preventDefault();
+        if ((raw.includes("	") || raw.includes("\n")) && pasteTableGrid(slide, componentId, raw)) return;
+        insertPlainText(element, raw.replace(/\r\n?/g, "\n"));
+      });
+      element.addEventListener("keydown", function(event) {
+        if (editMode && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+          event.preventDefault();
+          event.stopPropagation();
+          toggleTextBold(slide.id, componentId, element);
+          return;
+        }
+        if (!editMode || event.key !== "Tab" || !element.closest("[data-table-cell]")) return;
+        event.preventDefault();
+        var cells = Array.from(element.closest("[data-native-table]").querySelectorAll("[data-table-cell] .semantic-component"));
+        var index = cells.indexOf(element);
+        var next = cells[index + (event.shiftKey ? -1 : 1)];
+        if (!next) next = cells[event.shiftKey ? cells.length - 1 : 0];
+        next.focus();
+        next.click();
+      });
+      element.addEventListener("beforeinput", function(event) {
+        if (editMode && !isLatex && ["insertParagraph", "insertLineBreak"].includes(event.inputType)) {
+          event.preventDefault();
+          insertPlainText(element, "\n");
+          return;
+        }
+        if (event.inputType === "formatBold") {
+          event.preventDefault();
+          toggleTextBold(slide.id, componentId, element);
+        }
+      });
+      element.addEventListener("dblclick", function(event) {
+        if (!editMode || !isLatex) return;
+        event.stopPropagation();
+        var source = window.prompt("Edit LaTeX", effectiveComponent(slide, componentId).text);
+        if (source === null) return;
+        beginChange();
+        updateOverlay(slide.id, componentId, "text", source.trim());
+        render();
+        persist();
+      });
+      bindTextRegion(slide, componentId, element, element, { minSize: 10 });
+      return element;
+    }
+    var { bindTextRegion, applyAllTextRegions, syncTextRegionFrame, removeTextRegionFrame, clearTextRegions } = createTextRegions({
+      getComponent: function(sid, cid) {
+        return cid ? effectiveComponent(state.slides[sid], cid) : null;
+      },
+      getSelected: function() {
+        return selected;
+      },
+      isEditMode: function() {
+        return editMode;
+      },
+      beginChange,
+      persist,
+      updateOverlay,
+      resizeChart: function(host) {
+        if (host._fullLayout && window.Plotly && (host.layout.width !== host.clientWidth || host.layout.height !== host.clientHeight))
+          window.Plotly.relayout(host, { width: host.clientWidth, height: host.clientHeight });
+      }
+    });
+    function effectiveHeadline(slide) {
+      return effectiveComponent(slide, slide.headline).text;
+    }
+    document.querySelector("[data-notes-toggle]").addEventListener("click", function() {
+      var slide = currentSlide();
+      var host = document.querySelector("[data-notes-content]");
+      host.textContent = "";
+      ["facts", "notes", "narrative"].forEach(function(key) {
+        if (!slide[key]) return;
+        var heading = document.createElement("h2");
+        heading.textContent = key;
+        var text = document.createElement("div");
+        text.className = "notes-text";
+        text.textContent = typeof slide[key] === "string" ? slide[key] : JSON.stringify(slide[key], null, 2);
+        host.append(heading, text);
+      });
+      if (!host.childNodes.length) host.textContent = "No private notes for this slide.";
+      document.querySelector("[data-notes-dialog]").showModal();
+    });
+    function slideShell(slide) {
+      var canvas = document.createElement("article");
+      canvas.className = "slide-canvas recipe-" + slide.recipe;
+      if (slide.recipe === "section-divider" && slide.data.centered) canvas.classList.add("centered-section");
+      canvas.style.setProperty("--accent", (slide.theme || {}).accent || "#2f6fed");
+      canvas.setAttribute("data-slide-id", slide.id);
+      canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
+      canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
+      canvas.addEventListener("click", function() {
+        if (editMode) selectComponent(null, null);
+      });
+      if (state.hidden.indexOf(slide.id) >= 0) {
+        var ribbon = document.createElement("span");
+        ribbon.className = "hidden-ribbon";
+        ribbon.textContent = "Hidden from presentation";
+        canvas.appendChild(ribbon);
+      }
+      var header = document.createElement("header");
+      header.className = "recipe-header";
+      if (slide.eyebrow) header.appendChild(editableText(slide, slide.eyebrow, "div", "slide-kicker"));
+      header.appendChild(editableText(slide, slide.headline, "h1", "slide-title"));
+      canvas.appendChild(header);
+      return canvas;
+    }
+    function addFooter(canvas, slide) {
+      if (slide.footer) canvas.appendChild(editableText(slide, slide.footer, "div", "protocol-strip"));
+      if (slide.recipe === "section-divider" && slide.data.centered) return;
+      var meta = document.createElement("div");
+      meta.className = "slide-meta";
+      meta.textContent = slide.recipe + " \xB7 " + slide.id;
+      canvas.appendChild(meta);
+    }
+    function uploadImage(slide, componentId, file) {
+      if (!file || !file.type.startsWith("image/")) {
+        showToast("Drop a PNG, JPEG, WebP, GIF, or SVG image.");
+        return;
+      }
+      setStatus("Uploading\u2026", "saving");
+      window.slidekitRequest("api/assets", { method: "POST", headers: { "Content-Type": file.type, "X-File-Name": file.name }, body: file }).then(function(response) {
+        return response.json().then(function(payload) {
+          return { ok: response.ok, payload };
+        });
+      }).then(function(result) {
         if (!result.ok) throw new Error(result.payload.error || "upload failed");
         beginChange();
         updateOverlay(slide.id, componentId, "src", result.payload.src);
         render();
         persist();
         showToast("Image replaced with a content-addressed asset.");
-      }).catch(function (error) {
+      }).catch(function(error) {
         setStatus("Upload failed", "error");
         showToast(error.message);
       });
-  }
-
-  function galleryImage(slide, componentId) {
-    var component = effectiveComponent(slide, componentId);
-    var cell = document.createElement("div");
-    cell.className = "gallery-cell semantic-component";
-    if(component.hidden) cell.classList.add('curator-hidden-component');
-    cell.setAttribute("data-component-id", componentId);
-    cell.setAttribute("data-component-kind", "image");
-    cell.setAttribute("aria-label", component.alt);
-    var img = document.createElement("img");
-    img.src = component.src;
-    img.alt = component.alt;
-    img.draggable = false;
-    img.style.setProperty("--image-scale", component.imageScale || 1);
-    cell.appendChild(img);
-    if (component.caption) {
-      var captionFrame = document.createElement("div");
-      captionFrame.className = "gallery-caption-frame";
-      var caption = editableText(slide, component.caption, "figcaption", "gallery-cell-caption");
-      captionFrame.appendChild(caption);
-      cell.appendChild(captionFrame);
-      bindTextRegion(slide, component.caption, caption, captionFrame, {
-        alwaysFit: true,
-        fitMode: "gallery-caption-region",
-        minSize: 12
-      });
     }
-    cell.addEventListener("click", function (event) {
-      if (!editMode) return;
-      event.stopPropagation();
-      selectComponent(slide.id, componentId, cell);
-    });
-    cell.addEventListener("dragover", function (event) {
-      if (!editMode) return;
-      event.preventDefault();
-      cell.classList.add("drop-ready");
-    });
-    cell.addEventListener("dragleave", function () { cell.classList.remove("drop-ready"); });
-    cell.addEventListener("drop", function (event) {
-      if (!editMode) return;
-      event.preventDefault();
-      cell.classList.remove("drop-ready");
-      uploadImage(slide, componentId, event.dataTransfer.files[0]);
-    });
-    return cell;
-  }
-
-  var renderRecipe = window.createScientificSlideRecipes({
-    svgElement: svgElement,
-    editableText: editableText,
-    bindTextRegion: bindTextRegion,
-    selectBoundedComponent: selectComponent,
-    galleryImage: galleryImage,
-    effectiveComponent: effectiveComponent,
-    sourceRevision: function(slideId) { return state.slideRevisions[slideId]; },
-    effectiveTable: effectiveTable,
-    startTableColumnResize: startTableColumnResize,
-    fitTextInRegion: registerTextFit,
-    fitGroupInRegion: registerGroupFit,
-    isEditMode: function () { return editMode; },
-    isSlideHidden: function(id) {return state.hidden.indexOf(id)>=0;},
-    orderOfSlide: function(id) {return state.order.indexOf(id);},
-    setSlidesHidden: function(ids,hidden) {
-      if(!editMode) return;
-      beginChange();
-      ids.forEach(function(id) {
-        if(!state.slides[id]) throw new Error('Unknown index destination '+id);
-        var index=state.hidden.indexOf(id);
-        if(hidden && index<0) state.hidden.push(id);
-        if(!hidden && index>=0) state.hidden.splice(index,1);
+    function galleryImage(slide, componentId) {
+      var component = effectiveComponent(slide, componentId);
+      var cell = document.createElement("div");
+      cell.className = "gallery-cell semantic-component";
+      if (component.hidden) cell.classList.add("curator-hidden-component");
+      cell.setAttribute("data-component-id", componentId);
+      cell.setAttribute("data-component-kind", "image");
+      cell.setAttribute("aria-label", component.alt);
+      var img = document.createElement("img");
+      img.src = component.src;
+      img.alt = component.alt;
+      img.draggable = false;
+      img.style.setProperty("--image-scale", component.imageScale || 1);
+      cell.appendChild(img);
+      if (component.caption) {
+        var captionFrame = document.createElement("div");
+        captionFrame.className = "gallery-caption-frame";
+        var caption = editableText(slide, component.caption, "figcaption", "gallery-cell-caption");
+        captionFrame.appendChild(caption);
+        cell.appendChild(captionFrame);
+        bindTextRegion(slide, component.caption, caption, captionFrame, {
+          alwaysFit: true,
+          fitMode: "gallery-caption-region",
+          minSize: 12
+        });
+      }
+      cell.addEventListener("click", function(event) {
+        if (!editMode) return;
+        event.stopPropagation();
+        selectComponent(slide.id, componentId, cell);
       });
-      render();persist();
-    },
-    objectsForSlide: objectsForSlide,
-    selectedObjectId: function (slide) {
-      return selected && selected.visualObject && selected.slideId === slide.id ? selected.objectId : null;
-    },
-    selectVisualObject: function (slideId, objectId, objectKind) {
-      selected = {slideId: slideId, objectId: objectId, objectKind: objectKind, visualObject: true};
-      stage.querySelectorAll(".selected-component").forEach(function (node) {
-        node.classList.remove("selected-component");
+      cell.addEventListener("dragover", function(event) {
+        if (!editMode) return;
+        event.preventDefault();
+        cell.classList.add("drop-ready");
       });
+      cell.addEventListener("dragleave", function() {
+        cell.classList.remove("drop-ready");
+      });
+      cell.addEventListener("drop", function(event) {
+        if (!editMode) return;
+        event.preventDefault();
+        cell.classList.remove("drop-ready");
+        uploadImage(slide, componentId, event.dataTransfer.files[0]);
+      });
+      return cell;
+    }
+    var renderRecipe = window.createScientificSlideRecipes({
+      svgElement,
+      editableText,
+      bindTextRegion,
+      selectBoundedComponent: selectComponent,
+      galleryImage,
+      effectiveComponent,
+      sourceRevision: function(slideId) {
+        return state.slideRevisions[slideId];
+      },
+      effectiveTable,
+      startTableColumnResize,
+      fitTextInRegion: registerTextFit,
+      fitGroupInRegion: registerGroupFit,
+      isEditMode: function() {
+        return editMode;
+      },
+      isSlideHidden: function(id) {
+        return state.hidden.indexOf(id) >= 0;
+      },
+      orderOfSlide: function(id) {
+        return state.order.indexOf(id);
+      },
+      setSlidesHidden: function(ids, hidden) {
+        if (!editMode) return;
+        beginChange();
+        ids.forEach(function(id) {
+          if (!state.slides[id]) throw new Error("Unknown index destination " + id);
+          var index = state.hidden.indexOf(id);
+          if (hidden && index < 0) state.hidden.push(id);
+          if (!hidden && index >= 0) state.hidden.splice(index, 1);
+        });
+        render();
+        persist();
+      },
+      objectsForSlide,
+      selectedObjectId: function(slide) {
+        return selected && selected.visualObject && selected.slideId === slide.id ? selected.objectId : null;
+      },
+      selectVisualObject: function(slideId, objectId, objectKind) {
+        selected = { slideId, objectId, objectKind, visualObject: true };
+        stage.querySelectorAll(".selected-component").forEach(function(node) {
+          node.classList.remove("selected-component");
+        });
+        removeTextRegionFrame();
+        renderTools();
+      },
+      updateVisualObject,
+      saveChartLayout: function(slideId, componentId, value) {
+        beginChange();
+        updateOverlay(slideId, componentId, "chartLayout", value);
+        persist();
+      }
+    });
+    function clearStage(message) {
+      clearFitObservers();
       removeTextRegionFrame();
-      renderTools();
-    },
-    updateVisualObject: updateVisualObject,
-    saveChartLayout: function (slideId, componentId, value) {
+      clearTextRegions();
+      stage.querySelectorAll(".native-chart").forEach(function(chart) {
+        window.disposeScientificChart(chart);
+      });
+      stage.textContent = message;
+    }
+    function renderStage() {
+      var active = document.activeElement, caret = null, selection = getSelection();
+      if (editMode && active && active.isContentEditable && stage.contains(active) && selection.rangeCount) {
+        var range = selection.getRangeAt(0);
+        if (active.contains(range.startContainer) && active.contains(range.endContainer)) {
+          var prefix = document.createRange();
+          prefix.selectNodeContents(active);
+          prefix.setEnd(range.startContainer, range.startOffset);
+          caret = { slideId: active.closest(".slide-canvas").dataset.slideId, id: active.dataset.componentId, text: active.textContent, start: prefix.toString().length, length: range.toString().length };
+        }
+      }
+      var index = currentIndex();
+      currentId = state.order[index];
+      var slide = currentSlide();
+      clearStage("");
+      var canvas = slideShell(slide);
+      renderRecipe[slide.recipe](canvas, slide);
+      addFooter(canvas, slide);
+      renderRecipe.annotations(canvas, slide);
+      Object.keys((state.textBoxes || {})[slide.id] || {}).forEach(function(id) {
+        var text = editableText(slide, id, "div", "slide-annotation-text");
+        canvas.appendChild(text);
+        bindTextRegion(slide, id, text, text, { alwaysFit: true });
+      });
+      stage.appendChild(canvas);
+      fitStage();
+      stage.classList.toggle("edit-mode", editMode);
+      applyAllTextRegions();
+      if (caret && caret.slideId === currentId) {
+        var replacement = stage.querySelector('[data-component-id="' + caret.id + '"]');
+        if (replacement && replacement.isContentEditable && replacement.textContent === caret.text) {
+          replacement.focus();
+          var walker = document.createTreeWalker(replacement, NodeFilter.SHOW_TEXT), node, offset = 0, restored = document.createRange(), started = false;
+          while (node = walker.nextNode()) {
+            if (!started && caret.start <= offset + node.length) {
+              restored.setStart(node, caret.start - offset);
+              started = true;
+            }
+            if (started && caret.start + caret.length <= offset + node.length) {
+              restored.setEnd(node, caret.start + caret.length - offset);
+              break;
+            }
+            offset += node.length;
+          }
+          if (started) {
+            selection.removeAllRanges();
+            selection.addRange(restored);
+          }
+        }
+      }
+      if (window.ResizeObserver) {
+        var canvasObserver = new ResizeObserver(function() {
+          requestAnimationFrame(function() {
+            if (!canvas.isConnected) return;
+            applyAllTextRegions();
+            syncTextRegionFrame();
+          });
+        });
+        canvasObserver.observe(canvas);
+        trackFitObserver(canvasObserver);
+      }
+      position.textContent = index + 1 + " / " + state.order.length;
+      document.querySelector("[data-layouts-link]").href = "catalog.html#" + currentId;
+      document.querySelector("[data-prev]").disabled = index === 0;
+      document.querySelector("[data-next]").disabled = index === state.order.length - 1;
+      if (selected && !selected.visualObject && selected.slideId === currentId) {
+        var element = stage.querySelector('[data-component-id="' + selected.componentId + '"]');
+        if (element) {
+          element.classList.add("selected-component");
+          selected.tableCell = tableCell(slide, selected.componentId);
+          if (!selected.tableCell) delete selected.tableCell;
+        }
+      }
+      requestAnimationFrame(syncTextRegionFrame);
+      if (focusCreatedTitle === currentId) {
+        focusCreatedTitle = null;
+        var title = canvas.querySelector('[data-component-id="' + slide.headline + '"]');
+        title.focus();
+        selectComponent(slide.id, slide.headline, title);
+        var range = document.createRange();
+        range.selectNodeContents(title);
+        var selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }
+    function renderThumbs() {
+      if (previewMode) return;
+      var existing = new Map(Array.from(thumbList.children).map(function(card) {
+        return [card.dataset.id, card];
+      }));
+      count.textContent = String(state.order.length);
+      state.order.forEach(function(id, index) {
+        var slide = slideById(id);
+        var key = JSON.stringify([
+          state.slideRevisions[id],
+          state.overlays[id],
+          (state.tables || {})[id],
+          (state.objects || {})[id],
+          (state.textBoxes || {})[id],
+          state.hidden.includes(id)
+        ]);
+        var retained = existing.get(id);
+        if (retained && retained.dataset.previewKey === key) {
+          retained.classList.toggle("current", id === currentId);
+          retained.querySelector(".thumb-index").textContent = String(index + 1).padStart(2, "0");
+          retained.querySelectorAll('[data-action="move"]').forEach(function(button) {
+            var target = index + Number(button.dataset.delta);
+            button.disabled = target < 0 || target >= state.order.length;
+          });
+          if (thumbList.children[index] !== retained) thumbList.insertBefore(retained, thumbList.children[index] || null);
+          existing.delete(id);
+          return;
+        }
+        if (retained) {
+          retained.remove();
+          existing.delete(id);
+        }
+        var card = document.createElement("article");
+        card.dataset.previewKey = key;
+        card.className = "thumb" + (id === currentId ? " current" : "") + (state.hidden.indexOf(id) >= 0 ? " hidden" : "");
+        card.setAttribute("data-id", id);
+        var number = document.createElement("div");
+        number.className = "thumb-index";
+        number.textContent = String(index + 1).padStart(2, "0");
+        card.appendChild(number);
+        var inner = document.createElement("div");
+        inner.className = "thumb-card";
+        var art = document.createElement("div");
+        art.className = "thumb-art";
+        art.style.setProperty("--thumb-accent", (slide.theme || {}).accent || "#2f6fed");
+        var kicker = document.createElement("div");
+        kicker.className = "thumb-kicker";
+        kicker.textContent = slide.recipe.replaceAll("-", " ");
+        var title = document.createElement("div");
+        title.className = "thumb-title";
+        title.textContent = effectiveHeadline(slide);
+        art.appendChild(kicker);
+        art.appendChild(title);
+        inner.appendChild(art);
+        var actions = document.createElement("div");
+        actions.className = "thumb-actions";
+        [
+          ["\u2191", "move", -1, "Move earlier"],
+          ["\u2193", "move", 1, "Move later"],
+          [
+            state.hidden.indexOf(id) >= 0 ? "Show" : "Hide",
+            "visibility",
+            null,
+            state.hidden.indexOf(id) >= 0 ? "Show slide" : "Hide slide"
+          ]
+        ].forEach(function(item) {
+          var button = document.createElement("button");
+          button.className = "thumb-action " + item[1];
+          button.type = "button";
+          button.textContent = item[0];
+          button.setAttribute("aria-label", item[3]);
+          button.title = item[3];
+          if (item[1] === "move") button.disabled = index + item[2] < 0 || index + item[2] >= state.order.length;
+          button.setAttribute("data-action", item[1]);
+          if (item[2] !== null) button.setAttribute("data-delta", item[2]);
+          actions.appendChild(button);
+        });
+        inner.appendChild(actions);
+        card.appendChild(inner);
+        thumbList.insertBefore(card, thumbList.children[index] || null);
+      });
+      existing.forEach(function(card) {
+        card.remove();
+      });
+      if (focusedThumb !== currentId) {
+        focusedThumb = currentId;
+        var focused = Array.from(thumbList.children).find(function(card) {
+          return card.dataset.id === currentId;
+        });
+        if (focused) focused.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+      }
+      previews.sync();
+    }
+    function selectedComponent() {
+      if (!selected || selected.visualObject || !state.slides[selected.slideId]) return null;
+      return effectiveComponent(state.slides[selected.slideId], selected.componentId);
+    }
+    function renderTools() {
+      var component = selectedComponent();
+      var textSelected = editMode && component && component.kind === "text";
+      var imageSelected = editMode && component && component.kind === "image";
+      var boldButton = document.querySelector("[data-bold]");
+      boldButton.disabled = !textSelected || component.render === "latex";
+      boldButton.setAttribute("aria-pressed", String(Boolean(textSelected && (component.marks || []).some(function(mark) {
+        return mark.bold;
+      }))));
+      document.querySelectorAll("[data-font-delta], [data-color]").forEach(function(button) {
+        button.disabled = !textSelected;
+      });
+      document.querySelectorAll("[data-image-delta]").forEach(function(button) {
+        button.disabled = !imageSelected;
+      });
+      var objectSelected = Boolean(editMode && selected && selected.visualObject);
+      document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected)) || Boolean(selected && ((state.textBoxes || {})[selected.slideId] || {})[selected.componentId]);
+      var hideButton = document.querySelector("[data-hide-component]");
+      hideButton.disabled = !(editMode && component);
+      hideButton.textContent = component && component.hidden ? "Show" : "Hide";
+      var tableSelected = Boolean(editMode && selected && selected.tableCell);
+      document.querySelectorAll("[data-table-action]").forEach(function(button) {
+        var action = button.getAttribute("data-table-action");
+        var cell = selected && selected.tableCell;
+        var disabled = !tableSelected;
+        if (cell && action.indexOf("row-") === 0 && cell.header) disabled = true;
+        if (cell && action === "column-delete" && cell.columnIndex === 0) disabled = true;
+        if (cell && (action === "column-left" || action === "column-right") && cell.columnIndex === 0) disabled = true;
+        button.disabled = disabled;
+      });
+      document.querySelector("[data-table-tools]").hidden = !tableSelected;
+      selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId + (textSelected ? " \xB7 drag top edge \xB7 resize corner" : "") : objectSelected ? selected.slideId + " @ " + selected.objectId + " \xB7 " + selected.objectKind : "Select a component or visual object in edit mode";
+    }
+    function render() {
+      var generation = ++renderGeneration;
+      if (previews) previews.pause();
+      clearTimeout(prefetchTimer);
+      var canvas = stage.querySelector(".slide-canvas");
+      if (!canvas || canvas.dataset.slideId !== currentId || loadedSlides.get(currentId) !== state.slideRevisions[currentId])
+        clearStage("Loading slide\u2026");
+      renderThumbs();
+      ensureSlide(currentId).then(prepareSlide).then(function() {
+        if (generation !== renderGeneration) return;
+        renderStage();
+        renderTools();
+        if (focusTextBox) {
+          var added = stage.querySelector('[data-component-id="' + focusTextBox + '"]');
+          focusTextBox = null;
+          if (added) {
+            added.focus();
+            added.click();
+            var range = document.createRange();
+            range.selectNodeContents(added);
+            var selection = getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+        var readyDeadline = performance.now() + 18e3;
+        function afterUsefulPaint() {
+          if (generation !== renderGeneration) return;
+          var ready = document.fonts.status === "loaded" && Array.from(stage.querySelectorAll("img")).every(function(img) {
+            return img.complete && img.naturalWidth;
+          }) && Array.from(stage.querySelectorAll(".native-chart")).every(function(chart) {
+            return chart.dataset.chartReady === "true";
+          });
+          if (!ready) {
+            if (performance.now() < readyDeadline) setTimeout(afterUsefulPaint, 100);
+            return;
+          }
+          if (previewMode) parent.postMessage({ type: "slidekit-preview-ready", revision: state.sourceRevision }, location.origin);
+          else {
+            creator.warm();
+            previews.start();
+          }
+        }
+        requestAnimationFrame(function() {
+          requestAnimationFrame(afterUsefulPaint);
+        });
+        if (previewMode) return;
+        prefetchTimer = setTimeout(function() {
+          var next = state.order[currentIndex() + 1];
+          if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {
+          });
+        }, 1200);
+      }).catch(function(error) {
+        if (generation !== renderGeneration) return;
+        stage.textContent = error.message;
+        setStatus("Slide unavailable \xB7 reload", "error");
+      });
+      undoButton.disabled = !undoBase;
+      editToggle.textContent = editMode ? "Done editing" : "Enable edit";
+      editToggle.classList.toggle("active", editMode);
+      document.querySelector("[data-add-text]").hidden = !editMode;
+    }
+    function addTextBox(x, y) {
+      if (!editMode || !state || loadedSlides.get(currentId) !== state.slideRevisions[currentId]) return;
       beginChange();
-      updateOverlay(slideId, componentId, "chartLayout", value);
+      var id = "text-box-" + crypto.randomUUID();
+      if (!state.textBoxes) state.textBoxes = {};
+      if (!state.textBoxes[currentId]) state.textBoxes[currentId] = {};
+      state.textBoxes[currentId][id] = { text: "Type your text", region: {
+        x: Math.max(24, Math.min(1376, x)),
+        y: Math.max(24, Math.min(896, y)),
+        width: 520,
+        height: 160
+      } };
+      focusTextBox = id;
+      render();
       persist();
     }
-  });
-
-  function clearStage(message) {
-    clearFitObservers();
-    removeTextRegionFrame();
-    textRegionBindings.clear();
-    stage.querySelectorAll(".native-chart").forEach(function (chart) {
-      window.disposeScientificChart(chart);
+    document.querySelector("[data-add-text]").addEventListener("click", function() {
+      addTextBox(700, 450);
     });
-    stage.textContent = message;
-  }
-
-  function renderStage() {
-    // A save acknowledgment must not steal the caret from an active editor.
-    var active=document.activeElement, caret=null, selection=getSelection();
-    if (editMode && active && active.isContentEditable && stage.contains(active) && selection.rangeCount) {
-      var range=selection.getRangeAt(0);
-      if(active.contains(range.startContainer) && active.contains(range.endContainer)) {
-        var prefix=document.createRange();prefix.selectNodeContents(active);prefix.setEnd(range.startContainer,range.startOffset);
-        caret={slideId:active.closest('.slide-canvas').dataset.slideId,id:active.dataset.componentId,text:active.textContent,start:prefix.toString().length,length:range.toString().length};
-      }
-    }
-    var index = currentIndex();
-    currentId = state.order[index];
-    var slide = currentSlide();
-    clearStage('');
-    var canvas = slideShell(slide);
-    renderRecipe[slide.recipe](canvas, slide);
-    addFooter(canvas, slide);
-    renderRecipe.annotations(canvas,slide);
-    Object.keys((state.textBoxes || {})[slide.id] || {}).forEach(function(id) {
-      var text = editableText(slide,id,'div','slide-annotation-text');
-      canvas.appendChild(text);
-      bindTextRegion(slide,id,text,text,{alwaysFit:true});
+    stage.addEventListener("dblclick", function(event) {
+      if (!editMode || event.target.closest("[data-component-id], [data-visual-object-id], button, input, svg, canvas, .native-chart, [data-native-table], .text-region-frame")) return;
+      var canvas = event.target.closest(".slide-canvas");
+      if (!canvas) return;
+      event.preventDefault();
+      var box = canvas.getBoundingClientRect();
+      addTextBox((event.clientX - box.left) * 1920 / box.width, (event.clientY - box.top) * 1080 / box.height);
     });
-    stage.appendChild(canvas);
-    fitStage();
-    stage.classList.toggle("edit-mode", editMode);
-    applyAllTextRegions();
-    if(caret && caret.slideId===currentId) {
-      var replacement=stage.querySelector('[data-component-id="'+caret.id+'"]');
-      if(replacement && replacement.isContentEditable && replacement.textContent===caret.text) {
-        replacement.focus();
-        var walker=document.createTreeWalker(replacement,NodeFilter.SHOW_TEXT),node,offset=0,restored=document.createRange(),started=false;
-        while((node=walker.nextNode())) {
-          if(!started && caret.start<=offset+node.length) {restored.setStart(node,caret.start-offset);started=true;}
-          if(started && caret.start+caret.length<=offset+node.length) {restored.setEnd(node,caret.start+caret.length-offset);break;}
-          offset+=node.length;
-        }
-        if(started) {selection.removeAllRanges();selection.addRange(restored);}
-      }
-    }
-    if (window.ResizeObserver) {
-      var canvasObserver = new ResizeObserver(function () {
-        requestAnimationFrame(function () {
-          if (!canvas.isConnected) return;
-          applyAllTextRegions();
-          syncTextRegionFrame();
-        });
+    function selectComponent(slideId, componentId, element) {
+      selected = slideId ? { slideId, componentId } : null;
+      stage.querySelectorAll(".selected-visual-object").forEach(function(node) {
+        node.classList.remove("selected-visual-object");
       });
-      canvasObserver.observe(canvas);
-      fitObservers.push(canvasObserver);
-    }
-    position.textContent = (index + 1) + " / " + state.order.length;
-    document.querySelector('[data-layouts-link]').href = 'catalog.html#' + currentId;
-    document.querySelector("[data-prev]").disabled = index === 0;
-    document.querySelector("[data-next]").disabled = index === state.order.length - 1;
-    if (selected && !selected.visualObject && selected.slideId === currentId) {
-      var element = stage.querySelector('[data-component-id="' + selected.componentId + '"]');
-      if (element) {
-        element.classList.add("selected-component");
-        selected.tableCell = tableCell(slide, selected.componentId);
-        if (!selected.tableCell) delete selected.tableCell;
-      }
-    }
-    requestAnimationFrame(syncTextRegionFrame);
-    if (focusCreatedTitle === currentId) {
-      focusCreatedTitle = null;
-      var title = canvas.querySelector('[data-component-id="' + slide.headline + '"]');
-      title.focus(); selectComponent(slide.id, slide.headline, title);
-      var range = document.createRange(); range.selectNodeContents(title);
-      var selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
-    }
-  }
-
-  function renderThumbs() {
-    if (previewMode) return;
-    var existing = new Map(Array.from(thumbList.children).map(function(card) {return [card.dataset.id,card];}));
-    count.textContent = String(state.order.length);
-    state.order.forEach(function (id, index) {
-      var slide = slideById(id);
-      var key = JSON.stringify([state.slideRevisions[id],state.overlays[id],(state.tables||{})[id],
-        (state.objects||{})[id],(state.textBoxes||{})[id],state.hidden.includes(id)]);
-      var retained = existing.get(id);
-      if (retained && retained.dataset.previewKey === key) {
-        retained.classList.toggle('current', id === currentId);
-        retained.querySelector('.thumb-index').textContent = String(index + 1).padStart(2,'0');
-        retained.querySelectorAll('[data-action="move"]').forEach(function(button) {
-          var target = index + Number(button.dataset.delta);
-          button.disabled = target < 0 || target >= state.order.length;
-        });
-        if (thumbList.children[index] !== retained) thumbList.insertBefore(retained,thumbList.children[index] || null);
-        existing.delete(id);
-        return;
-      }
-      if (retained) {retained.remove(); existing.delete(id);}
-      var card = document.createElement("article");
-      card.dataset.previewKey = key;
-      card.className = "thumb" + (id === currentId ? " current" : "") +
-        (state.hidden.indexOf(id) >= 0 ? " hidden" : "");
-      card.setAttribute("data-id", id);
-      var number = document.createElement("div");
-      number.className = "thumb-index";
-      number.textContent = String(index + 1).padStart(2, "0");
-      card.appendChild(number);
-      var inner = document.createElement("div");
-      inner.className = "thumb-card";
-      var art = document.createElement("div");
-      art.className = "thumb-art";
-      art.style.setProperty("--thumb-accent", (slide.theme||{}).accent||"#2f6fed");
-      var kicker = document.createElement("div");
-      kicker.className = "thumb-kicker";
-      kicker.textContent = slide.recipe.replaceAll("-", " ");
-      var title = document.createElement("div");
-      title.className = "thumb-title";
-      title.textContent = effectiveHeadline(slide);
-      art.appendChild(kicker);
-      art.appendChild(title);
-      inner.appendChild(art);
-      var actions = document.createElement("div");
-      actions.className = "thumb-actions";
-      [["↑", "move", -1, "Move earlier"], ["↓", "move", 1, "Move later"],
-       [state.hidden.indexOf(id) >= 0 ? "Show" : "Hide", "visibility", null,
-        state.hidden.indexOf(id) >= 0 ? "Show slide" : "Hide slide"]].forEach(function (item) {
-        var button = document.createElement("button");
-        button.className = "thumb-action " + item[1];
-        button.type = "button";
-        button.textContent = item[0];
-        button.setAttribute("aria-label", item[3]);
-        button.title = item[3];
-        if (item[1] === 'move') button.disabled = index + item[2] < 0 || index + item[2] >= state.order.length;
-        button.setAttribute("data-action", item[1]);
-        if (item[2] !== null) button.setAttribute("data-delta", item[2]);
-        actions.appendChild(button);
+      stage.querySelectorAll(".accessibility-object-frame, .accessibility-line-controls").forEach(function(node) {
+        node.hidden = true;
       });
-      inner.appendChild(actions);
-      card.appendChild(inner);
-      thumbList.insertBefore(card,thumbList.children[index] || null);
-    });
-    existing.forEach(function(card) {card.remove();});
-    // Follow navigation/reload, never reset the curator's manual rail browsing
-    // during saves, text edits, or thumbnail arrival.
-    if (focusedThumb !== currentId) {
-      focusedThumb = currentId;
-      var focused = Array.from(thumbList.children).find(function(card) {return card.dataset.id === currentId;});
-      if (focused) focused.scrollIntoView({block:'nearest',inline:'nearest',behavior:'instant'});
-    }
-    previews.sync();
-  }
-
-  function selectedComponent() {
-    if (!selected || selected.visualObject || !state.slides[selected.slideId]) return null;
-    return effectiveComponent(state.slides[selected.slideId], selected.componentId);
-  }
-
-  function renderTools() {
-    var component = selectedComponent();
-    var textSelected = editMode && component && component.kind === "text";
-    var imageSelected = editMode && component && component.kind === "image";
-    var boldButton = document.querySelector('[data-bold]');
-    boldButton.disabled = !textSelected || component.render === 'latex';
-    boldButton.setAttribute('aria-pressed', String(Boolean(textSelected && (component.marks || []).some(function(mark) {return mark.bold;}))));
-    document.querySelectorAll("[data-font-delta], [data-color]").forEach(function (button) { button.disabled = !textSelected; });
-    document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
-    var objectSelected = Boolean(editMode && selected && selected.visualObject);
-    document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected)) || Boolean(selected && ((state.textBoxes || {})[selected.slideId] || {})[selected.componentId]);
-    var hideButton=document.querySelector('[data-hide-component]');
-    hideButton.disabled=!(editMode && component);
-    hideButton.textContent=component && component.hidden ? 'Show' : 'Hide';
-    var tableSelected = Boolean(editMode && selected && selected.tableCell);
-    document.querySelectorAll("[data-table-action]").forEach(function (button) {
-      var action = button.getAttribute("data-table-action");
-      var cell = selected && selected.tableCell;
-      var disabled = !tableSelected;
-      if (cell && action.indexOf("row-") === 0 && cell.header) disabled = true;
-      if (cell && action === "column-delete" && cell.columnIndex === 0) disabled = true;
-      if (cell && (action === "column-left" || action === "column-right") && cell.columnIndex === 0) disabled = true;
-      button.disabled = disabled;
-    });
-    document.querySelector("[data-table-tools]").hidden = !tableSelected;
-    selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId +
-      (textSelected ? " · drag top edge · resize corner" : "") :
-      (objectSelected ? selected.slideId + " @ " + selected.objectId + " · " + selected.objectKind :
-        "Select a component or visual object in edit mode");
-  }
-
-  function render() {
-    var generation = ++renderGeneration;
-    if (previews) previews.pause();
-    clearTimeout(prefetchTimer);
-    // Never leave an old slide editable while a new route is loading.
-    var canvas = stage.querySelector('.slide-canvas');
-    if (!canvas || canvas.dataset.slideId !== currentId || loadedSlides.get(currentId) !== state.slideRevisions[currentId])
-      clearStage('Loading slide…');
-    renderThumbs();
-    ensureSlide(currentId).then(prepareSlide).then(function() {
-      if (generation !== renderGeneration) return;
-      renderStage(); renderTools();
-      if (focusTextBox) {
-        var added = stage.querySelector('[data-component-id="'+focusTextBox+'"]');
-        focusTextBox = null;
-        if (added) {
-          added.focus(); added.click();
-          var range=document.createRange(); range.selectNodeContents(added);
-          var selection=getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      if (selected && element) {
+        var cell = element.closest("[data-table-cell]");
+        if (cell) {
+          selected.tableCell = {
+            tableKey: cell.closest("[data-native-table]").dataset.nativeTable,
+            header: cell.dataset.tableRowId === "table-header",
+            rowIndex: Number(cell.dataset.tableRowIndex),
+            columnIndex: Number(cell.dataset.tableColumnIndex),
+            rowId: cell.dataset.tableRowId,
+            columnId: cell.dataset.tableColumnId
+          };
         }
       }
-      // Give the main slide its first useful paint before background previews.
-      var readyDeadline = performance.now() + 18000;
-      function afterUsefulPaint() {
-        if (generation !== renderGeneration) return;
-        var ready = document.fonts.status === 'loaded' &&
-          Array.from(stage.querySelectorAll('img')).every(function(img) {return img.complete && img.naturalWidth;}) &&
-          Array.from(stage.querySelectorAll('.native-chart')).every(function(chart) {return chart.dataset.chartReady === 'true';});
-        if (!ready) {if(performance.now() < readyDeadline) setTimeout(afterUsefulPaint,100); return;}
-        if (previewMode) parent.postMessage({type:'slidekit-preview-ready', revision:state.sourceRevision},location.origin);
-        else {creator.warm(); previews.start();}
-      }
-      requestAnimationFrame(function() {requestAnimationFrame(afterUsefulPaint);});
-      // Only the next source, only after paint, and never large image pages.
-      if (previewMode) return;
-      prefetchTimer = setTimeout(function() {
-        var next = state.order[currentIndex() + 1];
-        if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {});
-      }, 1200);
-    }).catch(function(error) {
-      if (generation !== renderGeneration) return;
-      stage.textContent = error.message;
-      setStatus('Slide unavailable · reload', 'error');
-    });
-    undoButton.disabled = !undoBase;
-    editToggle.textContent = editMode ? "Done editing" : "Enable edit";
-    editToggle.classList.toggle("active", editMode);
-    document.querySelector('[data-add-text]').hidden = !editMode;
-  }
-
-  function addTextBox(x, y) {
-    if (!editMode || !state || loadedSlides.get(currentId) !== state.slideRevisions[currentId]) return;
-    beginChange();
-    var id='text-box-'+crypto.randomUUID();
-    if (!state.textBoxes) state.textBoxes={};
-    if (!state.textBoxes[currentId]) state.textBoxes[currentId]={};
-    state.textBoxes[currentId][id]={text:'Type your text', region:{
-      x:Math.max(24,Math.min(1376,x)), y:Math.max(24,Math.min(896,y)), width:520, height:160}};
-    focusTextBox=id;
-    render(); persist();
-  }
-
-  document.querySelector('[data-add-text]').addEventListener('click',function() {addTextBox(700,450);});
-  stage.addEventListener('dblclick',function(event) {
-    if (!editMode || event.target.closest('[data-component-id], [data-visual-object-id], button, input, svg, canvas, .native-chart, [data-native-table], .text-region-frame')) return;
-    var canvas=event.target.closest('.slide-canvas');
-    if (!canvas) return;
-    event.preventDefault();
-    var box=canvas.getBoundingClientRect();
-    addTextBox((event.clientX-box.left)*1920/box.width,(event.clientY-box.top)*1080/box.height);
-  });
-
-  function selectComponent(slideId, componentId, element) {
-    selected = slideId ? {slideId: slideId, componentId: componentId} : null;
-    stage.querySelectorAll(".selected-visual-object").forEach(function (node) {
-      node.classList.remove("selected-visual-object");
-    });
-    stage.querySelectorAll(".accessibility-object-frame, .accessibility-line-controls").forEach(function (node) {
-      node.hidden = true;
-    });
-    if (selected && element) {
-      var cell = element.closest("[data-table-cell]");
-      if (cell) {
-        selected.tableCell = {
-          tableKey:cell.closest('[data-native-table]').dataset.nativeTable,
-          header: cell.dataset.tableRowId === "table-header",
-          rowIndex: Number(cell.dataset.tableRowIndex),
-          columnIndex: Number(cell.dataset.tableColumnIndex),
-          rowId: cell.dataset.tableRowId,
-          columnId: cell.dataset.tableColumnId
-        };
-      }
+      stage.querySelectorAll(".selected-component").forEach(function(node) {
+        node.classList.remove("selected-component");
+      });
+      if (element) element.classList.add("selected-component");
+      renderTools();
+      requestAnimationFrame(syncTextRegionFrame);
     }
-    stage.querySelectorAll(".selected-component").forEach(function (node) { node.classList.remove("selected-component"); });
-    if (element) element.classList.add("selected-component");
-    renderTools();
-    requestAnimationFrame(syncTextRegionFrame);
-  }
-
-  function mutateOrder(id, delta) {
-    var index = state.order.indexOf(id);
-    var target = index + delta;
-    if (index < 0 || target < 0 || target >= state.order.length) return;
-    beginChange();
-    state.order.splice(target, 0, state.order.splice(index, 1)[0]);
-    currentId = id;
-    render();
-    persist();
-  }
-
-  function toggleHidden(id) {
-    if (state.order.indexOf(id) < 0) return;
-    beginChange();
-    var index = state.hidden.indexOf(id);
-    if (index >= 0) state.hidden.splice(index, 1);
-    else state.hidden.push(id);
-    render();
-    persist();
-    showToast(index < 0 ? 'Slide hidden.' : 'Slide shown.');
-  }
-
-  function selectSlide(id) {
-    if (state.order.indexOf(id) < 0) return;
-    // Selection is navigation, not a command to destroy/recreate the chart.
-    if (id === currentId) return;
-    currentId = id;
-    selected = null;
-    history.replaceState(null, "", "#" + id);
-    render();
-  }
-
-  function step(delta) {
-    var next = Math.max(0, Math.min(state.order.length - 1, currentIndex() + delta));
-    selectSlide(state.order[next]);
-  }
-
-  function undo() {
-    if (!undoBase) return;
-    state = copy(undoBase);
-    currentId = state.order[0];
-    selected = null;
-    undoBase = null;
-    render();
-    persist();
-    showToast("Reverted the last edit burst.");
-  }
-
-  thumbList.addEventListener("click", function (event) {
-    var card = event.target.closest("[data-id]");
-    if (!card) return;
-    var id = card.getAttribute("data-id");
-    var action = event.target.closest("[data-action]");
-    if (!action) { selectSlide(id); return; }
-    event.preventDefault();
-    if (action.getAttribute("data-action") === "move") mutateOrder(id, Number(action.getAttribute("data-delta")));
-    else toggleHidden(id);
-  });
-
-  document.querySelector("[data-prev]").addEventListener("click", function () { step(-1); });
-  document.querySelector("[data-next]").addEventListener("click", function () { step(1); });
-  editToggle.addEventListener("click", function () {
-    editMode = !editMode;
-    selected = null;
-    render();
-    if (editMode) showToast("Edit mode on — select text, tables, shapes, lines, or gallery images.");
-  });
-  fullscreenToggle.addEventListener("click", toggleFullscreenPresentation);
-  presentationExit.addEventListener("click", exitFullscreenPresentation);
-  document.addEventListener("pointermove", function (event) {
-    if (event.clientY < 110 && event.clientX > window.innerWidth - 360) revealPresentationExit();
-  });
-  document.addEventListener("fullscreenchange", function () {
-    if (!document.fullscreenElement && document.body.classList.contains("present-only") &&
-        !enteredFromPresentationUrl) setPresentationMode(false);
-  });
-  undoButton.addEventListener("click", undo);
-  document.querySelector('[data-bold]').addEventListener('pointerdown', function(event) {event.preventDefault();});
-  document.querySelector('[data-bold]').addEventListener('click', function() {
-    if (!selected) return;
-    toggleTextBold(selected.slideId, selected.componentId,
-      stage.querySelector('[data-component-id="' + selected.componentId + '"]'));
-  });
-
-  document.querySelectorAll("[data-font-delta]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      var component = selectedComponent();
-      if (!component || component.kind !== "text") return;
+    function mutateOrder(id, delta) {
+      var index = state.order.indexOf(id);
+      var target = index + delta;
+      if (index < 0 || target < 0 || target >= state.order.length) return;
       beginChange();
-      var next = Math.max(.7, Math.min(1.5, (component.fontScale || 1) + Number(button.getAttribute("data-font-delta"))));
-      updateOverlay(selected.slideId, selected.componentId, "fontScale", Math.round(next * 10) / 10);
-      render(); persist();
-    });
-  });
-  document.querySelectorAll("[data-color]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      var component = selectedComponent();
-      if (!component || component.kind !== "text") return;
+      state.order.splice(target, 0, state.order.splice(index, 1)[0]);
+      currentId = id;
+      render();
+      persist();
+    }
+    function toggleHidden(id) {
+      if (state.order.indexOf(id) < 0) return;
       beginChange();
-      updateOverlay(selected.slideId, selected.componentId, "color", button.getAttribute("data-color"));
-      render(); persist();
-    });
-  });
-  document.querySelectorAll("[data-image-delta]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      var component = selectedComponent();
-      if (!component || component.kind !== "image") return;
-      beginChange();
-      var next = Math.max(.65, Math.min(1.35, (component.imageScale || 1) + Number(button.getAttribute("data-image-delta"))));
-      updateOverlay(selected.slideId, selected.componentId, "imageScale", Math.round(next * 20) / 20);
-      render(); persist();
-    });
-  });
-  document.querySelector("[data-reset-component]").addEventListener("click", function () {
-    if (!selected) return;
-    beginChange();
-    if (selected.visualObject) {
-      cleanVisualObject(selected.slideId, selected.objectId);
-    } else {
-      if (state.overlays[selected.slideId]) delete state.overlays[selected.slideId][selected.componentId];
-      cleanOverlay(selected.slideId, selected.componentId);
+      var index = state.hidden.indexOf(id);
+      if (index >= 0) state.hidden.splice(index, 1);
+      else state.hidden.push(id);
+      render();
+      persist();
+      showToast(index < 0 ? "Slide hidden." : "Slide shown.");
     }
-    render(); persist();
-  });
-  document.querySelector('[data-hide-component]').addEventListener('click',function(){
-    var component=selectedComponent();if(!editMode || !component)return;
-    beginChange();updateOverlay(selected.slideId,selected.componentId,'hidden',!component.hidden);
-    render();persist();
-  });
-  document.querySelectorAll("[data-table-action]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      mutateSelectedTable(button.getAttribute("data-table-action"));
-    });
-  });
-
-  document.addEventListener("keydown", function (event) {
-    if (document.querySelector('dialog[open]')) return;
-    if (event.target && event.target.isContentEditable) return;
-    if (event.key === "ArrowLeft") step(-1);
-    if (event.key === "ArrowRight") step(1);
-    if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();
-    if (event.key === "Escape" && document.body.classList.contains("present-only")) {
-      exitFullscreenPresentation();
-    }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-      event.preventDefault(); undo();
-    }
-  });
-  function resolveRoute(requested) {
-    if(state.order.indexOf(requested)>=0)return requested;
-    for(var id of state.order) {
-      var route=(state.slides[id].routes||[]).find(function(item){return item.id===requested;});
-      if(route) {
-        localStorage.setItem('online-slide.chart-views.'+id,JSON.stringify(route.selection));
-        return id;
-      }
-    }
-    return null;
-  }
-  window.addEventListener("hashchange", function () {
-    if (!state) return;
-    var requested = resolveRoute(location.hash.slice(1));
-    if (requested) {
-      currentId = requested;
+    function selectSlide(id) {
+      if (state.order.indexOf(id) < 0) return;
+      if (id === currentId) return;
+      currentId = id;
       selected = null;
+      history.replaceState(null, "", "#" + id);
       render();
     }
-  });
-
-  if (window.ResizeObserver) {
-    new ResizeObserver(fitStage).observe(stageWrap);
-  } else {
-    window.addEventListener("resize", fitStage);
-  }
-
-  window.addEventListener('beforeunload', function() {
-    if (state && accepted && !sameSnapshot(state, accepted)) retainDraft('Unsaved local changes retained.');
-  });
-  window.addEventListener('slidekit-runtime-changed', function() {
-    if (state && accepted && (pending || inFlight || !sameSnapshot(state, accepted))) {
-      retainDraft('Renderer updated. Reload after downloading unsaved edits.');
-      setStatus('Renderer updated · reload; draft retained', 'error');
-      showToast('Renderer updated. Your unsaved edits are retained on this device; download them before reloading.');
-    } else if (!previewMode) location.reload();
-  });
-  function checkRuntime() {
-    if (!previewMode && !document.hidden)
-      window.slidekitRequest('api/runtime', {cache:'no-store'}).catch(function() {});
-  }
-  window.addEventListener('focus', checkRuntime);
-  if (!previewMode) setInterval(checkRuntime, 30000);
-  window.slidekitBoot.then(function (payload) {
-    accepted = acceptPayload(payload);
-    state = copy(payload);
-    var requested = resolveRoute(location.hash.slice(1));
-    currentId = requested || state.order[0];
-    render();
-    if (previewMode) {
-      // A bounded preview host can render many payloads without another page
-      // load. Generation fencing in render() rejects late library work.
-      window.addEventListener('message', function(event) {
-        if (event.origin !== location.origin || event.source !== parent || event.data?.type !== 'slidekit-preview-update') return;
-        accepted = acceptPayload(event.data.payload); state = copy(accepted);
-        currentId = state.order[0]; selected = null; render();
+    function step(delta) {
+      var next = Math.max(0, Math.min(state.order.length - 1, currentIndex() + delta));
+      selectSlide(state.order[next]);
+    }
+    function undo() {
+      if (!undoBase) return;
+      state = copy(undoBase);
+      currentId = state.order[0];
+      selected = null;
+      undoBase = null;
+      render();
+      persist();
+      showToast("Reverted the last edit burst.");
+    }
+    thumbList.addEventListener("click", function(event) {
+      var card = event.target.closest("[data-id]");
+      if (!card) return;
+      var id = card.getAttribute("data-id");
+      var action = event.target.closest("[data-action]");
+      if (!action) {
+        selectSlide(id);
+        return;
+      }
+      event.preventDefault();
+      if (action.getAttribute("data-action") === "move") mutateOrder(id, Number(action.getAttribute("data-delta")));
+      else toggleHidden(id);
+    });
+    document.querySelector("[data-prev]").addEventListener("click", function() {
+      step(-1);
+    });
+    document.querySelector("[data-next]").addEventListener("click", function() {
+      step(1);
+    });
+    editToggle.addEventListener("click", function() {
+      editMode = !editMode;
+      selected = null;
+      render();
+      if (editMode) showToast("Edit mode on \u2014 select text, tables, shapes, lines, or gallery images.");
+    });
+    fullscreenToggle.addEventListener("click", toggleFullscreenPresentation);
+    presentationExit.addEventListener("click", exitFullscreenPresentation);
+    document.addEventListener("pointermove", function(event) {
+      if (event.clientY < 110 && event.clientX > window.innerWidth - 360) revealPresentationExit();
+    });
+    document.addEventListener("fullscreenchange", function() {
+      if (!document.fullscreenElement && document.body.classList.contains("present-only") && !enteredFromPresentationUrl) setPresentationMode(false);
+    });
+    undoButton.addEventListener("click", undo);
+    document.querySelector("[data-bold]").addEventListener("pointerdown", function(event) {
+      event.preventDefault();
+    });
+    document.querySelector("[data-bold]").addEventListener("click", function() {
+      if (!selected) return;
+      toggleTextBold(
+        selected.slideId,
+        selected.componentId,
+        stage.querySelector('[data-component-id="' + selected.componentId + '"]')
+      );
+    });
+    document.querySelectorAll("[data-font-delta]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        var component = selectedComponent();
+        if (!component || component.kind !== "text") return;
+        beginChange();
+        var next = Math.max(0.7, Math.min(1.5, (component.fontScale || 1) + Number(button.getAttribute("data-font-delta"))));
+        updateOverlay(selected.slideId, selected.componentId, "fontScale", Math.round(next * 10) / 10);
+        render();
+        persist();
       });
-      parent.postMessage({type:'slidekit-preview-initialized', revision:state.sourceRevision}, location.origin);
-      return;
+    });
+    document.querySelectorAll("[data-color]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        var component = selectedComponent();
+        if (!component || component.kind !== "text") return;
+        beginChange();
+        updateOverlay(selected.slideId, selected.componentId, "color", button.getAttribute("data-color"));
+        render();
+        persist();
+      });
+    });
+    document.querySelectorAll("[data-image-delta]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        var component = selectedComponent();
+        if (!component || component.kind !== "image") return;
+        beginChange();
+        var next = Math.max(0.65, Math.min(1.35, (component.imageScale || 1) + Number(button.getAttribute("data-image-delta"))));
+        updateOverlay(selected.slideId, selected.componentId, "imageScale", Math.round(next * 20) / 20);
+        render();
+        persist();
+      });
+    });
+    document.querySelector("[data-reset-component]").addEventListener("click", function() {
+      if (!selected) return;
+      beginChange();
+      if (selected.visualObject) {
+        cleanVisualObject(selected.slideId, selected.objectId);
+      } else {
+        if (state.overlays[selected.slideId]) delete state.overlays[selected.slideId][selected.componentId];
+        cleanOverlay(selected.slideId, selected.componentId);
+      }
+      render();
+      persist();
+    });
+    document.querySelector("[data-hide-component]").addEventListener("click", function() {
+      var component = selectedComponent();
+      if (!editMode || !component) return;
+      beginChange();
+      updateOverlay(selected.slideId, selected.componentId, "hidden", !component.hidden);
+      render();
+      persist();
+    });
+    document.querySelectorAll("[data-table-action]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        mutateSelectedTable(button.getAttribute("data-table-action"));
+      });
+    });
+    document.addEventListener("keydown", function(event) {
+      if (document.querySelector("dialog[open]")) return;
+      if (event.target && event.target.isContentEditable) return;
+      if (event.key === "ArrowLeft") step(-1);
+      if (event.key === "ArrowRight") step(1);
+      if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();
+      if (event.key === "Escape" && document.body.classList.contains("present-only")) {
+        exitFullscreenPresentation();
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        undo();
+      }
+    });
+    function resolveRoute(requested) {
+      if (state.order.indexOf(requested) >= 0) return requested;
+      for (var id of state.order) {
+        var route = (state.slides[id].routes || []).find(function(item) {
+          return item.id === requested;
+        });
+        if (route) {
+          localStorage.setItem("online-slide.chart-views." + id, JSON.stringify(route.selection));
+          return id;
+        }
+      }
+      return null;
     }
-    creator.refresh();
-    var starter = new URLSearchParams(location.search).get('new');
-    if (starter) {
-      var cleanUrl = new URL(location.href); cleanUrl.searchParams.delete('new');
-      history.replaceState(null, '', cleanUrl);
-      creator.show(starter);
+    window.addEventListener("hashchange", function() {
+      if (!state) return;
+      var requested = resolveRoute(location.hash.slice(1));
+      if (requested) {
+        currentId = requested;
+        selected = null;
+        render();
+      }
+    });
+    if (window.ResizeObserver) {
+      new ResizeObserver(fitStage).observe(stageWrap);
+    } else {
+      window.addEventListener("resize", fitStage);
     }
-    try {
-      var draft = JSON.parse(localStorage.getItem(draftKey));
-      if (draft) retainDraft(draft.message, draft);
-    } catch (_) {}
-  }).catch(function (error) {
-    if (window.slidekitRuntimeStale() && !previewMode && !state) {location.reload(); return;}
-    setStatus("Load failed", "error");
-    stage.textContent = error.message;
-  });
-  if (enteredFromPresentationUrl) revealPresentationExit();
-}());
+    window.addEventListener("beforeunload", function() {
+      if (state && accepted && !sameSnapshot(state, accepted)) retainDraft("Unsaved local changes retained.");
+    });
+    window.addEventListener("slidekit-runtime-changed", function() {
+      if (state && accepted && (saves.pending || saves.inFlight || !sameSnapshot(state, accepted))) {
+        retainDraft("Renderer updated. Reload after downloading unsaved edits.");
+        setStatus("Renderer updated \xB7 reload; draft retained", "error");
+        showToast("Renderer updated. Your unsaved edits are retained on this device; download them before reloading.");
+      } else if (!previewMode) location.reload();
+    });
+    function checkRuntime() {
+      if (!previewMode && !document.hidden)
+        window.slidekitRequest("api/runtime", { cache: "no-store" }).catch(function() {
+        });
+    }
+    window.addEventListener("focus", checkRuntime);
+    if (!previewMode) setInterval(checkRuntime, 3e4);
+    window.slidekitBoot.then(function(payload) {
+      accepted = acceptPayload(payload);
+      state = copy(payload);
+      var requested = resolveRoute(location.hash.slice(1));
+      currentId = requested || state.order[0];
+      render();
+      if (previewMode) {
+        window.addEventListener("message", function(event) {
+          if (event.origin !== location.origin || event.source !== parent || event.data?.type !== "slidekit-preview-update") return;
+          accepted = acceptPayload(event.data.payload);
+          state = copy(accepted);
+          currentId = state.order[0];
+          selected = null;
+          render();
+        });
+        parent.postMessage({ type: "slidekit-preview-initialized", revision: state.sourceRevision }, location.origin);
+        return;
+      }
+      creator.refresh();
+      var starter = new URLSearchParams(location.search).get("new");
+      if (starter) {
+        var cleanUrl = new URL(location.href);
+        cleanUrl.searchParams.delete("new");
+        history.replaceState(null, "", cleanUrl);
+        creator.show(starter);
+      }
+      try {
+        var draft = JSON.parse(localStorage.getItem(draftKey));
+        if (draft) retainDraft(draft.message, draft);
+      } catch (_) {
+      }
+    }).catch(function(error) {
+      if (window.slidekitRuntimeStale() && !previewMode && !state) {
+        location.reload();
+        return;
+      }
+      setStatus("Load failed", "error");
+      stage.textContent = error.message;
+    });
+    if (enteredFromPresentationUrl) revealPresentationExit();
+  })();
+})();

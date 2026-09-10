@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Physical chart edit, persistence and source insertion proof in disposable state."""
 import copy
 import json

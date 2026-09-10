@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Exercise the real browser editor and capture every recipe at 1920x1080.
 
 Playwright is an optional acceptance dependency; the server and ordinary test
@@ -438,10 +439,10 @@ def main() -> int:
                     page.locator("[data-edit-toggle]").click()
                 elif page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                     page.locator("[data-edit-toggle]").click()
-                page.wait_for_selector('g[model-id="student-node"]')
+                page.wait_for_selector('g.joint-element[model-id="student-node"]')
                 if page.locator(".joint-paper").get_attribute("data-diagram-measurement") != "untransformed-slide-coordinates":
                     findings.append("diagram nodes were not measured in stable slide coordinates")
-                node = page.locator('g[model-id="student-node"]')
+                node = page.locator('g.joint-element[model-id="student-node"]')
                 link = page.locator('g[model-id="student-to-prediction"] path[joint-selector="line"]')
                 if node.count() != 1 or link.count() != 1:
                     findings.append("JointJS semantic node/link DOM was not rendered")
@@ -510,7 +511,7 @@ def main() -> int:
                         findings.append(f"editor-sized diagram split readable words: {split_words}")
                     before = link.get_attribute("d")
                     drag_point = page.evaluate("""() => {
-                      const node=document.querySelector('g[model-id="student-node"]');
+                      const node=document.querySelector('g.joint-element[model-id="student-node"]');
                       const box=node.getBoundingClientRect();
                       const candidates=[
                         {x:box.right-4,y:box.top+box.height/2},
@@ -539,7 +540,7 @@ def main() -> int:
                     # transient canvas transform. It must survive reload and
                     # source sibling insertion/reorder.
                     page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
-                    moved_box = page.locator('g[model-id="student-node"]').bounding_box()
+                    moved_box = page.locator('g.joint-element[model-id="student-node"]').bounding_box()
                     object_state = page.evaluate(
                         "() => fetch('/api/deck-state',{cache:'no-store'}).then(r=>r.json()).then(x=>x.objects)"
                     )
@@ -547,7 +548,7 @@ def main() -> int:
                     if not student_geometry or student_geometry.get("kind") != "diagram-node":
                         findings.append("JointJS node movement did not persist by semantic object id")
                     page.reload(wait_until="networkidle")
-                    persisted_box = page.locator('g[model-id="student-node"]').bounding_box()
+                    persisted_box = page.locator('g.joint-element[model-id="student-node"]').bounding_box()
                     if abs(persisted_box["y"] - moved_box["y"]) > 3:
                         findings.append("semantic node position did not survive reload")
 
@@ -561,7 +562,7 @@ def main() -> int:
                     mechanism_source["data"]["nodes"] = list(reversed(mechanism_source["data"]["nodes"]))
                     mechanism_path.write_text(json.dumps(mechanism_source, indent=2) + "\n", encoding="utf-8")
                     page.reload(wait_until="networkidle")
-                    reordered_box = page.locator('g[model-id="student-node"]').bounding_box()
+                    reordered_box = page.locator('g.joint-element[model-id="student-node"]').bounding_box()
                     if abs(reordered_box["y"] - moved_box["y"]) > 3:
                         findings.append("source node insertion/reorder retargeted a human node edit")
                     mechanism_path.write_text(mechanism_original, encoding="utf-8")
@@ -571,7 +572,7 @@ def main() -> int:
                     # the semantic text leaves then wrap/refit inside it.
                     if page.locator("[data-edit-toggle]").text_content() == "Enable edit":
                         page.locator("[data-edit-toggle]").click()
-                    teacher_svg = page.locator('g[model-id="teacher-node"]')
+                    teacher_svg = page.locator('g.joint-element[model-id="teacher-node"]')
                     teacher_box = teacher_svg.bounding_box()
                     page.mouse.click(teacher_box["x"] + 3, teacher_box["y"] + teacher_box["height"] / 2)
                     if "teacher-node" not in page.locator("[data-selected-component]").text_content():
@@ -586,7 +587,7 @@ def main() -> int:
                                     handle_box["y"] + handle_box["height"] / 2 + 58, steps=8)
                     page.mouse.up()
                     page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
-                    resized_box = page.locator('g[model-id="teacher-node"]').bounding_box()
+                    resized_box = page.locator('g.joint-element[model-id="teacher-node"]').bounding_box()
                     if resized_box["width"] <= teacher_box["width"] + 50 or resized_box["height"] <= teacher_box["height"] + 25:
                         findings.append("JointJS corner handle did not resize the selected node")
                     if page.locator('[data-diagram-node-id="teacher-node"] .diagram-node-content').get_attribute("data-fit-overflow") == "true":

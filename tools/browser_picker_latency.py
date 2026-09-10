@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Measure a distant layout picker and prove switching needs no page reload."""
 import json
 from pathlib import Path

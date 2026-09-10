@@ -1,4 +1,5 @@
 """Physical annotation gestures over a real plot; all writes are disposable."""
+# browser-check: scratch-output
 import argparse,json,shutil,sys,tempfile,threading
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]

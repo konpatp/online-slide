@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Physical create/preview/type/save/reload + uncertain-ACK retry in scratch."""
 import json
 from pathlib import Path

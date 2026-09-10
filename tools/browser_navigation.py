@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: read-only-probe
 """Read-only physical sidebar lifecycle proof against a served chart deck."""
 import argparse
 import json

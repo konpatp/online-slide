@@ -1,4 +1,5 @@
 """Real pointer/save/reload proof for independently owned native tables."""
+# browser-check: scratch-output
 import argparse
 import json
 from pathlib import Path

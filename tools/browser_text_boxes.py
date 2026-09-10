@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Real pointer insertion, typing, formatting, resize and reload; scratch only."""
 import json, sys, tempfile, threading
 from pathlib import Path

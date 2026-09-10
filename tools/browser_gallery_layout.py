@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: read-only-probe
 """Read-only gallery transition check: options cannot move controls or image slots."""
 import argparse
 import itertools

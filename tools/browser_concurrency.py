@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# browser-check: scratch
 """Real two-editor/two-contributor acceptance; all writes use a scratch deck."""
 from __future__ import annotations
 import json

@@ -1,10 +1,12 @@
 """An open tab crosses a renderer release without mixed tables or lost edits."""
+# browser-check: scratch-output
 import argparse
 import json
 from pathlib import Path
 import shutil
 import sys
 import multiprocessing
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
@@ -26,7 +28,9 @@ def main():
     path = old / 'recipes.js'
     # Simulate the pre-selector capability; versioning must prevent this renderer
     # from accepting a future release's source, even though both parse as tables.
-    path.write_text(path.read_text().replace('var selector=slide.data.tableSelector;', 'var selector=null;'))
+    source, replaced = re.subn(r'var selector\s*=\s*slide\.data\.tableSelector;', 'var selector = null;', path.read_text())
+    assert replaced == 1, 'runtime fixture must actually disable the table selector'
+    path.write_text(source)
     state = args.output / 'state.json'
     def start(public, port=0):
         http = server.make_server(public, sources, ROOT / 'data/seed-state.json', state, port=port)
