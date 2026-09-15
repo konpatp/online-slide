@@ -20,6 +20,7 @@ def main():
     with tempfile.TemporaryDirectory() as temp:
         root=Path(temp);sources=root/'slides';shutil.copytree(ROOT/'slides',sources)
         spec=fixture();spec['components']['secondary-visibility']['hidden']=True
+        spec['data']['heatmap']={'label':'headline','domain':[0,30]}
         path=sources/'99-two-tables.json';path.write_text(json.dumps(spec))
         index={'schema':'online-slide/slide@1','id':'index-proof','recipe':'slide-index','createdAt':'2026-09-06',
                'headline':'headline','components':{'headline':{'kind':'text','text':'Browse comparisons'},
@@ -37,8 +38,13 @@ def main():
                 page.goto('http://%s:%s/#two-tables'%http.server_address,wait_until='networkidle')
                 assert not page.locator('[data-table-panel-id="secondary"]').is_visible()
                 page.locator('[data-edit-toggle]').click()
-                cell=page.locator('[data-component-id="secondary-cell"]');cell.click();cell.fill('17')
+                cell=page.locator('[data-component-id="secondary-cell"]')
+                original_color=cell.evaluate('(el)=>getComputedStyle(el.parentElement).backgroundColor')
+                cell.click();cell.fill('17')
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                changed_color=cell.evaluate('(el)=>getComputedStyle(el.parentElement).backgroundColor')
+                assert original_color!=changed_color
+                assert cell.evaluate('(el)=>el.parentElement.dataset.heatmapValue')=='17'
                 assert page.locator('[data-component-id="primary-cell"]').text_content()=='12'
                 page.locator('[data-table-action="row-add"]').click()
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
@@ -48,6 +54,7 @@ def main():
                 page.reload(wait_until='networkidle')
                 page.locator('[data-edit-toggle]').click()
                 assert page.locator('[data-component-id="secondary-cell"]').text_content()=='17'
+                assert page.locator('[data-component-id="secondary-cell"]').evaluate('(el)=>getComputedStyle(el.parentElement).backgroundColor')==changed_color
                 assert page.locator('[data-table-panel-id="secondary"] tbody tr').count()==2
                 control=page.locator('[data-component-id="secondary-visibility"]');control.click()
                 page.locator('[data-hide-component]').click()
@@ -85,8 +92,20 @@ def main():
                 page.locator('.gallery-option-row button',has_text='primary').click()
                 assert page.locator('[data-component-id="primary-cell"]').text_content()=='12'
                 page.screenshot(path=str(args.output/'table-checkpoint-selector.png'))
+                del spec['data']['heatmap']['domain']
+                path.write_text(json.dumps(spec))
+                page.goto('http://%s:%s/#two-tables'%http.server_address,wait_until='networkidle')
+                page.locator('[data-edit-toggle]').click()
+                auto_cell=page.locator('[data-component-id="primary-cell"]')
+                auto_cell.click();auto_cell.fill('20')
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert json.loads(page.locator('[data-heatmap-domain]').get_attribute('data-heatmap-domain'))==[17,20]
+                auto_cell.fill('—')
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert auto_cell.evaluate('(el)=>el.parentElement.dataset.heatmapValue')==''
+                assert json.loads(page.locator('[data-heatmap-domain]').get_attribute('data-heatmap-domain'))==[17,17]
                 (args.output/'receipt.json').write_text(json.dumps({'ok':True,'findings':[],
-                    'proofs':['real secondary-cell edit; primary unchanged','secondary row insertion remains table-local',
+                    'proofs':['heatmap follows edited numeric value and survives reload','real secondary-cell edit; primary unchanged','secondary row insertion remains table-local',
                               'source panel reorder preserves cell and structure','hidden table remains editable and show survives reload',
                               'index route clicks navigate; section visibility saves and survives reload',
                               'checkpoint buttons display exactly one table; selection and independent edits survive reload'],

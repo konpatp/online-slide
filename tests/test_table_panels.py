@@ -24,6 +24,23 @@ def logical(panel):
             'components':{}}
 
 class TablePanelTests(unittest.TestCase):
+    def test_new_table_starter_defaults_to_heatmap(self):
+        from slide_templates import make_starter
+        spec=make_starter('evidence-table','new-results','2026-09-15')
+        self.assertIn('heatmap',spec['data'])
+        self.assertIn(spec['data']['heatmap']['label'],spec['components'])
+        validate_slide_spec(spec)
+
+    def test_heatmap_requires_a_visible_label_and_a_real_numeric_scale(self):
+        spec=fixture()
+        spec['data']['heatmap']={'label':'headline','domain':[10,100]}
+        validate_slide_spec(spec)
+        for domain in ([10,10],[100,10],[False,10],[0,float('inf')],[0]):
+            spec['data']['heatmap']['domain']=domain
+            with self.assertRaisesRegex(ContractError,'domain'):validate_slide_spec(spec)
+        spec['data']['heatmap']={'label':'missing'}
+        with self.assertRaises(ContractError):validate_slide_spec(spec)
+
     def test_many_selectable_views_keep_simultaneous_layout_bounded(self):
         spec=fixture();spec['data']['tables']=[];spec['components']={'headline':spec['components']['headline']}
         for i in range(8):

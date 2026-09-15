@@ -145,6 +145,36 @@
     return slideIndex;
   }
 
+  // src/recipes/tableHeatmap.ts
+  var HEAT_COLORS = ["#168b80", "#f2cf62", "#c94f35"];
+  function numericCell(text) {
+    const value = String(text).trim();
+    return /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value) && Number.isFinite(Number(value)) ? Number(value) : null;
+  }
+  function heatDomain(values) {
+    const numbers = values.filter((value) => value !== null && Number.isFinite(value));
+    return numbers.length ? [Math.min(...numbers), Math.max(...numbers)] : null;
+  }
+  function heatColor(value, domain) {
+    if (value === null || !Number.isFinite(value) || !domain) return null;
+    const t = domain[1] === domain[0] ? 0.5 : Math.max(0, Math.min(1, (value - domain[0]) / (domain[1] - domain[0])));
+    const index = t <= 0.5 ? 0 : 1, f = t <= 0.5 ? t * 2 : (t - 0.5) * 2;
+    const rgb = HEAT_COLORS.slice(index, index + 2).map((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)));
+    const mixed = rgb[0].map((n, i) => Math.round(n + (rgb[1][i] - n) * f));
+    const linear = mixed.map((n) => {
+      const s = n / 255;
+      return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+    const white = 1.05 / (luminance + 0.05), black = (luminance + 0.05) / 0.05;
+    return {
+      background: "rgb(" + mixed.join(", ") + ")",
+      foreground: white > black ? "#ffffff" : "#000000",
+      contrast: Math.max(white, black),
+      value
+    };
+  }
+
   // src/recipes/evidenceTable.js
   function createEvidenceTable(api) {
     const global = window;
@@ -153,6 +183,16 @@
       if (slide.data.tables) {
         let renderTables2 = function() {
           collection.textContent = "";
+          var sharedHeat = slide.data.heatmap;
+          if (sharedHeat && !sharedHeat.domain) {
+            var values = function(editedId, editedText) {
+              return slide.data.tables.flatMap(function(data) {
+                var context = Object.assign({}, slide, { data, _tableKey: slide.id + "::table::" + data.id });
+                return effectiveTable(context).rows.flatMap((row) => row.cells.map((id) => numericCell(id === editedId ? editedText : effectiveComponent(context, id).text)));
+              });
+            };
+            sharedHeat = Object.assign({}, sharedHeat, { values });
+          }
           if (selector) {
             var controls = document.createElement("div");
             global.renderScientificFacetControls(controls, slide, [Object.assign({ id: "table" }, selector)], { table: active }, function(_, value) {
@@ -170,7 +210,7 @@
           }).forEach(function(data) {
             if (data.heading) collection.appendChild(editableText(slide, data.heading, "div", "table-panel-heading"));
             if (data.visibility) collection.appendChild(editableText(slide, data.visibility, "div", "table-panel-control"));
-            evidenceTable(collection, Object.assign({}, slide, { data, _tableKey: slide.id + "::table::" + data.id }));
+            evidenceTable(collection, Object.assign({}, slide, { data: Object.assign({}, data, { heatmap: data.heatmap || sharedHeat }), _tableKey: slide.id + "::table::" + data.id }));
           });
         };
         var renderTables = renderTables2;
@@ -194,10 +234,31 @@
         return;
       }
       var model = effectiveTable(slide);
+      var heat = slide.data.heatmap;
+      function resolveDomain(editedId, editedText) {
+        return heat && (heat.domain || heatDomain(heat.values ? heat.values(editedId, editedText) : model.rows.flatMap((row) => row.cells.map((id) => numericCell(id === editedId ? editedText : effectiveComponent(slide, id).text)))));
+      }
+      var domain = resolveDomain();
       var body = document.createElement("div");
       body.className = "recipe-body table-body";
       if (slide.data.visibility && effectiveComponent(slide, slide.data.visibility).hidden) body.classList.add("curator-hidden-component");
       body.setAttribute("data-table-panel-id", slide.data.id || "main");
+      if (heat) {
+        body.classList.add("heatmap-table-body");
+        var legend = document.createElement("div");
+        legend.className = "table-heatmap-legend";
+        legend.appendChild(editableText(slide, heat.label, "span", "table-heatmap-label"));
+        var low = document.createElement("span");
+        legend.appendChild(low);
+        var ramp = document.createElement("span");
+        ramp.className = "table-heatmap-ramp";
+        ramp.style.background = "linear-gradient(90deg, " + HEAT_COLORS.join(", ") + ")";
+        ramp.setAttribute("aria-hidden", "true");
+        legend.appendChild(ramp);
+        var high = document.createElement("span");
+        legend.appendChild(high);
+        body.appendChild(legend);
+      }
       var table = document.createElement("table");
       table.className = "evidence-table";
       table.setAttribute("data-native-table", slide._tableKey || slide.id);
@@ -257,7 +318,22 @@
           td.setAttribute("data-table-column-index", String(index + 1));
           if (componentId === row.best) td.classList.add("row-best");
           if (componentId === row.globalBest) td.classList.add("global-best");
-          td.appendChild(editableText(slide, componentId, "div", "table-value"));
+          var content = editableText(slide, componentId, "div", "table-value");
+          td.appendChild(content);
+          if (heat) {
+            td.classList.add("heatmap-cell");
+            td._paintHeat = function() {
+              var style = heatColor(numericCell(content.textContent), domain);
+              td.style.backgroundColor = style ? style.background : "";
+              td.style.color = style ? style.foreground : "";
+              td.dataset.heatmapValue = style ? String(style.value) : "";
+            };
+            content.addEventListener("input", function() {
+              canvas.querySelectorAll(".heatmap-table-body").forEach(function(panel) {
+                panel._refreshHeat(componentId, content.textContent);
+              });
+            });
+          }
           tr.appendChild(td);
         });
         tbody.appendChild(tr);
@@ -265,6 +341,18 @@
       table.appendChild(tbody);
       body.appendChild(table);
       canvas.appendChild(body);
+      if (heat) {
+        body._refreshHeat = function(editedId, editedText) {
+          domain = resolveDomain(editedId, editedText);
+          low.textContent = domain ? String(domain[0]) : "\u2014";
+          high.textContent = domain ? String(domain[1]) : "\u2014";
+          legend.dataset.heatmapDomain = JSON.stringify(domain);
+          body.querySelectorAll(".heatmap-cell").forEach(function(cell) {
+            cell._paintHeat();
+          });
+        };
+        body._refreshHeat();
+      }
       fitGroupInRegion(table, body, {
         mode: "evidence-table-region",
         property: "--table-fit-scale",

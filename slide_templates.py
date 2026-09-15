@@ -37,7 +37,8 @@ def make_starter(recipe, slide_id, created_at, after=None):
     if recipe == "section-divider":
         data["centered"] = True
     elif recipe == "evidence-table":
-        data.update(columns=[text("column-name", "Comparison"), text("column-first", "First"), text("column-second", "Second")],
+        data.update(heatmap={"label":text("heatmap-label","Value · low → high")},
+                    columns=[text("column-name", "Comparison"), text("column-first", "First"), text("column-second", "Second")],
                     rows=[{"label": text(f"row-{name}", f"{name.title()} item"),
                            "cells": [text(f"{name}-first", "—"), text(f"{name}-second", "—")]}
                           for name in ("first", "second", "third")])

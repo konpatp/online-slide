@@ -175,6 +175,10 @@ body.resizing-text-region [contenteditable="true"], body.moving-text-region [con
 .evidence-table tbody tr:last-child th, .evidence-table tbody tr:last-child td { border-bottom: 0; }
 .table-heading, .table-row-label, .table-value { font-size: calc(1em * var(--component-scale, 1)); }
 .row-best { color: #116b52; background: #edf9f4; font-weight: 850; }
+.heatmap-table-body { display:flex; flex-direction:column; justify-content:center; gap:26px; }
+.table-heatmap-legend { display:flex; align-items:center; gap:16px; font-size:28px; color:#53657c; }
+.table-heatmap-ramp { display:inline-block; width:260px; height:22px; border-radius:4px; }
+.heatmap-cell { background:transparent; }
 .global-best { color: #173e8c; background: #eaf1ff; box-shadow: inset 0 0 0 2px rgba(47, 111, 237, .38); }
 .table-column-resizer { display: none; position: absolute; z-index: 8; top: 8%; right: 0; width: 12px; height: 84%; margin: 0; padding: 0; border: 0; border-radius: 99px; background: transparent; cursor: col-resize; }
 .edit-mode .table-column-resizer { display: block; }

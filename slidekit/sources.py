@@ -250,6 +250,15 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                          all(isinstance(v, (int, float)) for v in point) for point in points),
                      f"{source}: series {index} points must be [x,y]")
     elif recipe == "evidence-table":
+        if 'heatmap' in data:
+            heat=data['heatmap']
+            _require(isinstance(heat,dict),f'{source}: heatmap must be an object')
+            ref(heat.get('label'),'heatmap.label')
+            if 'domain' in heat:
+                domain=heat['domain']
+                _require(isinstance(domain,list) and len(domain)==2 and
+                         all(_finite_number(v) for v in domain) and domain[0]<domain[1],
+                         f'{source}: heatmap domain must be finite and increasing')
         if 'tables' in data:
             panels=data['tables']
             # Selectable views occupy one table region; the three-table spatial
@@ -545,4 +554,3 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             _require(components[caption]["kind"] == "text",
                      f"{source}: image caption {caption!r} must reference text")
     return spec
-
