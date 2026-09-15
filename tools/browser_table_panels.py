@@ -20,7 +20,7 @@ def main():
     with tempfile.TemporaryDirectory() as temp:
         root=Path(temp);sources=root/'slides';shutil.copytree(ROOT/'slides',sources)
         spec=fixture();spec['components']['secondary-visibility']['hidden']=True
-        spec['data']['heatmap']={'label':'headline','domain':[0,30]}
+        spec['data']['heatmap']={'label':'headline','domain':[1,30]}
         path=sources/'99-two-tables.json';path.write_text(json.dumps(spec))
         index={'schema':'online-slide/slide@1','id':'index-proof','recipe':'slide-index','createdAt':'2026-09-06',
                'headline':'headline','components':{'headline':{'kind':'text','text':'Browse comparisons'},

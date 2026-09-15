@@ -48,7 +48,7 @@ function evidenceTable(canvas, slide) {
   var heat=slide.data.heatmap;
   function resolveDomain(editedId,editedText) {
     return heat && (heat.domain || heatDomain(heat.values ? heat.values(editedId,editedText) :
-      model.rows.flatMap(row=>row.cells.map(id=>numericCell(id===editedId?editedText:effectiveComponent(slide,id).text)))));
+      model.rows.flatMap(row=>row.cells.map(id=>numericCell(id===editedId?editedText:effectiveComponent(slide,id).text))),heat.scale));
   }
   var domain=resolveDomain();
   var body = document.createElement("div");
@@ -65,6 +65,9 @@ function evidenceTable(canvas, slide) {
     ramp.style.background='linear-gradient(90deg, '+HEAT_COLORS.join(', ')+')';
     ramp.setAttribute('aria-hidden','true');legend.appendChild(ramp);
     var high=document.createElement('span');legend.appendChild(high);
+    var policy=document.createElement('span');
+    policy.textContent=(heat.scale==='linear'?'Linear':'Log')+' color · '+(heat.domain?'fixed bounds':'outlier-clipped');
+    legend.appendChild(policy);
     body.appendChild(legend);
   }
   var table = document.createElement("table");
@@ -129,7 +132,7 @@ function evidenceTable(canvas, slide) {
       if(heat) {
         td.classList.add('heatmap-cell');
         td._paintHeat=function() {
-          var style=heatColor(numericCell(content.textContent),domain);
+          var style=heatColor(numericCell(content.textContent),domain,heat.scale);
           td.style.backgroundColor=style?style.background:'';
           td.style.color=style?style.foreground:'';
           td.dataset.heatmapValue=style?String(style.value):'';
@@ -150,8 +153,8 @@ function evidenceTable(canvas, slide) {
   if(heat) {
     body._refreshHeat=function(editedId,editedText) {
       domain=resolveDomain(editedId,editedText);
-      low.textContent=domain?String(domain[0]):'—';
-      high.textContent=domain?String(domain[1]):'—';
+      low.textContent=domain?'≤ '+Number(domain[0].toPrecision(4)):'—';
+      high.textContent=domain?'≥ '+Number(domain[1].toPrecision(4)):'—';
       legend.dataset.heatmapDomain=JSON.stringify(domain);
       body.querySelectorAll('.heatmap-cell').forEach(function(cell){cell._paintHeat();});
     };

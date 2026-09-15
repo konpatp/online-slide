@@ -167,7 +167,7 @@ slide id plus stable semantic component ids.
 | `chart-panels` | One to three source-native Plotly figures, including log axes and bars | Bounded panels, shared axes/legend, automatic axis margins, semantic annotation edits, hover and export |
 | `section-divider` | One change of question or method | A bounded, vertically centered title; optional eyebrow and protocol |
 | `hero-equation` | One organizing relation and local definitions | A padded, fitted LaTeX region and aligned decoders |
-| `evidence-table` | Row-wise minima and one global best cell | Projector-scale table, alignment, emphasis, numeric spacing, whole-table region fit |
+| `evidence-table` | Numeric comparisons with robust logarithmic heatmaps | Projector-scale table, alignment, emphasis, numeric spacing, whole-table region fit |
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
 | `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors/arcs, explicit label regions, KaTeX equations |
 | `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, persistent view state, snug non-cropping images, fitted caption regions |
@@ -200,6 +200,18 @@ and endpoint labels rather than packing them into one editable string. Text
 and image components support reversible Hide/Show overlays, retained across
 reloads; hidden content remains discoverable in edit mode. LaTeX is never
 capitalized by heading or table-label typography.
+
+Numeric heatmaps default to logarithmic color interpolation, with automatic
+Tukey 1.5-IQR outlier rejection in log space when at least four numeric cells
+exist. Outliers keep their exact displayed values and saturate at the endpoint
+colors; only the color domain excludes them. A visible legend names the scale
+and clipped endpoints. Missing, non-finite and non-positive log values stay
+uncolored. Equal values use the midpoint; a constant inlier domain still
+saturates outliers. Selector-linked panels share the domain across every view
+and current edited values. Use `heatmap.scale: "linear"` for signed or additive
+metrics, or an explicit positive `heatmap.domain` for deliberate fixed log
+bounds. FID tables should normally omit fixed min/max bounds, which otherwise
+allow failed runs to flatten useful low-FID distinctions.
 
 For two or three independent tables on one slide, use `evidence-table` with
 `data.tables`: each item has a semantic `id` and its own `columns`, `rows`, and

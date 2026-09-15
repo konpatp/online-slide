@@ -40,6 +40,12 @@ class TablePanelTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError,'domain'):validate_slide_spec(spec)
         spec['data']['heatmap']={'label':'missing'}
         with self.assertRaises(ContractError):validate_slide_spec(spec)
+        spec['data']['heatmap']={'label':'headline','domain':[0,30]}
+        with self.assertRaisesRegex(ContractError,'positive'):validate_slide_spec(spec)
+        spec['data']['heatmap']['scale']='linear'
+        validate_slide_spec(spec)
+        spec['data']['heatmap']['scale']='banana'
+        with self.assertRaisesRegex(ContractError,'scale'):validate_slide_spec(spec)
 
     def test_many_selectable_views_keep_simultaneous_layout_bounded(self):
         spec=fixture();spec['data']['tables']=[];spec['components']={'headline':spec['components']['headline']}

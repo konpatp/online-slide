@@ -151,13 +151,25 @@
     const value = String(text).trim();
     return /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(value) && Number.isFinite(Number(value)) ? Number(value) : null;
   }
-  function heatDomain(values) {
-    const numbers = values.filter((value) => value !== null && Number.isFinite(value));
-    return numbers.length ? [Math.min(...numbers), Math.max(...numbers)] : null;
+  function heatDomain(values, scale = "log") {
+    const numbers = values.filter((value) => value !== null && Number.isFinite(value) && (scale === "linear" || value > 0)).sort((a, b) => a - b);
+    if (!numbers.length) return null;
+    const transformed = numbers.map((v) => scale === "log" ? Math.log(v) : v);
+    const quantile = (p) => {
+      const position = (transformed.length - 1) * p, i = Math.floor(position), f = position - i;
+      return transformed[i] + (transformed[Math.min(i + 1, transformed.length - 1)] - transformed[i]) * f;
+    };
+    if (numbers.length >= 4) {
+      const q1 = quantile(0.25), q3 = quantile(0.75), iqr = q3 - q1;
+      const kept = numbers.filter((_, i) => transformed[i] >= q1 - 1.5 * iqr && transformed[i] <= q3 + 1.5 * iqr);
+      if (kept.length) return [kept[0], kept[kept.length - 1]];
+    }
+    return [numbers[0], numbers[numbers.length - 1]];
   }
-  function heatColor(value, domain) {
-    if (value === null || !Number.isFinite(value) || !domain) return null;
-    const t = domain[1] === domain[0] ? 0.5 : Math.max(0, Math.min(1, (value - domain[0]) / (domain[1] - domain[0])));
+  function heatColor(value, domain, scale = "log") {
+    if (value === null || !Number.isFinite(value) || !domain || scale === "log" && (value <= 0 || domain[0] <= 0)) return null;
+    const transform = (v) => scale === "log" ? Math.log(v) : v;
+    const t = domain[1] === domain[0] ? value < domain[0] ? 0 : value > domain[1] ? 1 : 0.5 : Math.max(0, Math.min(1, (transform(value) - transform(domain[0])) / (transform(domain[1]) - transform(domain[0]))));
     const index = t <= 0.5 ? 0 : 1, f = t <= 0.5 ? t * 2 : (t - 0.5) * 2;
     const rgb = HEAT_COLORS.slice(index, index + 2).map((hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)));
     const mixed = rgb[0].map((n, i) => Math.round(n + (rgb[1][i] - n) * f));
@@ -236,7 +248,7 @@
       var model = effectiveTable(slide);
       var heat = slide.data.heatmap;
       function resolveDomain(editedId, editedText) {
-        return heat && (heat.domain || heatDomain(heat.values ? heat.values(editedId, editedText) : model.rows.flatMap((row) => row.cells.map((id) => numericCell(id === editedId ? editedText : effectiveComponent(slide, id).text)))));
+        return heat && (heat.domain || heatDomain(heat.values ? heat.values(editedId, editedText) : model.rows.flatMap((row) => row.cells.map((id) => numericCell(id === editedId ? editedText : effectiveComponent(slide, id).text))), heat.scale));
       }
       var domain = resolveDomain();
       var body = document.createElement("div");
@@ -257,6 +269,9 @@
         legend.appendChild(ramp);
         var high = document.createElement("span");
         legend.appendChild(high);
+        var policy = document.createElement("span");
+        policy.textContent = (heat.scale === "linear" ? "Linear" : "Log") + " color \xB7 " + (heat.domain ? "fixed bounds" : "outlier-clipped");
+        legend.appendChild(policy);
         body.appendChild(legend);
       }
       var table = document.createElement("table");
@@ -323,7 +338,7 @@
           if (heat) {
             td.classList.add("heatmap-cell");
             td._paintHeat = function() {
-              var style = heatColor(numericCell(content.textContent), domain);
+              var style = heatColor(numericCell(content.textContent), domain, heat.scale);
               td.style.backgroundColor = style ? style.background : "";
               td.style.color = style ? style.foreground : "";
               td.dataset.heatmapValue = style ? String(style.value) : "";
@@ -344,8 +359,8 @@
       if (heat) {
         body._refreshHeat = function(editedId, editedText) {
           domain = resolveDomain(editedId, editedText);
-          low.textContent = domain ? String(domain[0]) : "\u2014";
-          high.textContent = domain ? String(domain[1]) : "\u2014";
+          low.textContent = domain ? "\u2264 " + Number(domain[0].toPrecision(4)) : "\u2014";
+          high.textContent = domain ? "\u2265 " + Number(domain[1].toPrecision(4)) : "\u2014";
           legend.dataset.heatmapDomain = JSON.stringify(domain);
           body.querySelectorAll(".heatmap-cell").forEach(function(cell) {
             cell._paintHeat();

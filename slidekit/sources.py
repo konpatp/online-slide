@@ -254,11 +254,14 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             heat=data['heatmap']
             _require(isinstance(heat,dict),f'{source}: heatmap must be an object')
             ref(heat.get('label'),'heatmap.label')
+            _require(heat.get('scale','log') in ('log','linear'),f'{source}: heatmap scale must be log or linear')
             if 'domain' in heat:
                 domain=heat['domain']
                 _require(isinstance(domain,list) and len(domain)==2 and
                          all(_finite_number(v) for v in domain) and domain[0]<domain[1],
                          f'{source}: heatmap domain must be finite and increasing')
+                _require(heat.get('scale','log')=='linear' or domain[0]>0,
+                         f'{source}: log heatmap domain must be positive')
         if 'tables' in data:
             panels=data['tables']
             # Selectable views occupy one table region; the three-table spatial
