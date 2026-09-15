@@ -1,6 +1,7 @@
 """Independent native tables retain source and curator identities."""
 # test-tier: every-time
 import copy
+import json
 import unittest
 from slidekit import (ContractError, EditConflict, validate_slide_spec, validate_tables,
                       empty_state, reconcile_state, source_revisions, merge_state_snapshot)
@@ -23,6 +24,23 @@ def logical(panel):
             'components':{}}
 
 class TablePanelTests(unittest.TestCase):
+    def test_many_selectable_views_keep_simultaneous_layout_bounded(self):
+        spec=fixture();spec['data']['tables']=[];spec['components']={'headline':spec['components']['headline']}
+        for i in range(8):
+            original=fixture();prefix=f'view{i}'
+            panel=original['data']['tables'][0]
+            panel=json.loads(json.dumps(panel).replace('primary',prefix))
+            spec['data']['tables'].append(panel)
+            spec['components'].update({k.replace('primary',prefix):v for k,v in original['components'].items() if k.startswith('primary')})
+        with self.assertRaisesRegex(ContractError,'1–3'):validate_slide_spec(spec)
+        spec['data']['tableSelector']={'label':'headline','options':[
+            {'value':p['id'],'label':p['heading']} for p in spec['data']['tables']]}
+        validate_slide_spec(spec)
+        state={'two-tables::table::view7':logical(spec['data']['tables'][7])}
+        validate_tables(state,{'two-tables':spec})
+        spec['data']['tables']*=5
+        with self.assertRaisesRegex(ContractError,'1–32'):validate_slide_spec(spec)
+
     def test_table_selector_covers_exact_native_table_identities(self):
         spec=fixture()
         spec['data']['tableSelector']={'label':'headline','options':[

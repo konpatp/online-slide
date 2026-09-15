@@ -252,7 +252,11 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
     elif recipe == "evidence-table":
         if 'tables' in data:
             panels=data['tables']
-            _require(isinstance(panels,list) and 1<=len(panels)<=3,f'{source}: one to three independent tables required')
+            # Selectable views occupy one table region; the three-table spatial
+            # budget applies only when all panels are rendered simultaneously.
+            limit = 32 if 'tableSelector' in data else 3
+            _require(isinstance(panels,list) and 1<=len(panels)<=limit,
+                     f'{source}: expected 1–{limit} independent table views')
             ids=set();leaves=set()
             for panel in panels:
                 key=panel.get('id')
@@ -541,5 +545,4 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             _require(components[caption]["kind"] == "text",
                      f"{source}: image caption {caption!r} must reference text")
     return spec
-
 
