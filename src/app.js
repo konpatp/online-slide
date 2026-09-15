@@ -3,6 +3,8 @@ import {createTextRegions} from './editor/regions';
 import {createTableEditor} from './editor/tables';
 import {copy, snapshot, sameSnapshot} from './editor/snapshot';
 import {SaveQueue} from './editor/save-queue';
+import {moveBefore} from './editor/order';
+import {createSidebarOrder} from './editor/sidebar-order';
 import {textEdit, toggleBold, renderMarkedText, readMarkedText, insertPlainText} from './editor/text';
 import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} from './editor/fit';
 /* ScientificSlideKit pilot: declarative recipes plus a bundled diagram engine. */
@@ -690,7 +692,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   function renderThumbs() {
-    if (previewMode) return;
+    if (previewMode || (sidebarOrder && sidebarOrder.active())) return;
     var existing = new Map(Array.from(thumbList.children).map(function(card) {return [card.dataset.id,card];}));
     count.textContent = String(state.order.length);
     state.order.forEach(function (id, index) {
@@ -715,6 +717,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       card.className = "thumb" + (id === currentId ? " current" : "") +
         (state.hidden.indexOf(id) >= 0 ? " hidden" : "");
       card.setAttribute("data-id", id);
+      card.title = 'Drag to reorder · click to open';
       var number = document.createElement("div");
       number.className = "thumb-index";
       number.textContent = String(index + 1).padStart(2, "0");
@@ -903,12 +906,23 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     var index = state.order.indexOf(id);
     var target = index + delta;
     if (index < 0 || target < 0 || target >= state.order.length) return;
-    beginChange();
-    state.order.splice(target, 0, state.order.splice(index, 1)[0]);
-    currentId = id;
-    render();
-    persist();
+    commitOrder(id, state.order[target + (delta > 0 ? 1 : 0)] || null);
   }
+
+  function commitOrder(id, before) {
+    var next = moveBefore(state.order, id, before);
+    if (JSON.stringify(next) === JSON.stringify(state.order)) return;
+    beginChange(); state.order = next;
+    // Reordering is not navigation: keep the current canvas, editor and hash.
+    position.textContent = (currentIndex() + 1) + ' / ' + state.order.length;
+    renderThumbs(); persist();
+    showToast('Slide moved to position ' + (next.indexOf(id) + 1) + '.');
+  }
+
+  var sidebarOrder = previewMode ? null : createSidebarOrder(thumbList, {
+    order: function() {return state ? state.order : [];},
+    move: commitOrder, refresh: renderThumbs, announce: showToast
+  });
 
   function toggleHidden(id) {
     if (state.order.indexOf(id) < 0) return;

@@ -67,6 +67,9 @@ editable placeholders after the current slide. **Section break** creates just
 a centered title. Table, image/plot, process, gallery and equation starters
 reuse the existing recipes. Quantitative interactive plots remain agent-authored
 SlideSpecs: this picker does not pretend to provide a chart-data editor.
+Drag a sidebar thumbnail to reorder slides; the list scrolls at its edges.
+On touch screens, hold briefly before dragging. Escape cancels the move when
+you release. The current slide stays open and rapid moves save in order.
 Sidebar move arrows and the labelled Hide/Show button work directly, even with
 text editing off; they save through the same revision-checked state. Impossible
 boundary moves are visibly disabled rather than silently ignored.

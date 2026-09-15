@@ -22,6 +22,7 @@ Strict TypeScript owns the editing behavior:
 | `editor/regions.ts` | Bounded regions and canonical-coordinate gestures |
 | `editor/fit.ts` | Fitting and observer lifetime |
 | `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
+| `editor/order.ts`, `editor/sidebar-order.ts` | Identity-based reorder commands and SortableJS gesture adapter |
 
 Acknowledging our own save does not reconstruct unchanged slide DOM. Only
 changed remote content/source requires rendering. The browser keeps the active
