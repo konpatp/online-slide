@@ -462,6 +462,9 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         views = data.get("views")
         page_sets = data.get("pageSets")
         _require(isinstance(columns, list) and columns, f"{source}: gallery needs columns")
+        if data.get("paired"):
+            _require(data["paired"] is True and len(columns) % 2 == 0,
+                     f"{source}: paired gallery requires an even number of columns")
         _require(isinstance(selectors, list), f"{source}: gallery selectors must be a list")
         _require(isinstance(views, list) and views, f"{source}: gallery needs views")
         _require(isinstance(page_sets, dict) and page_sets, f"{source}: gallery needs pageSets")
@@ -506,6 +509,9 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                     images = row.get("images")
                     _require(isinstance(images, list) and 0 < len(images) <= len(columns),
                              f"{source}: gallery row {row_index} must fit the declared columns")
+                    if data.get("paired"):
+                        _require(len(images) % 2 == 0,
+                                 f"{source}: paired gallery cannot leave an unmatched image")
                     _require(len(images) == len(columns) or row_index == len(rows) - 1,
                              f"{source}: only the final gallery row may be partial")
                     for cell_index, component_id in enumerate(images):

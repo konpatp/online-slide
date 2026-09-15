@@ -384,6 +384,32 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .static-gallery { display:block; }
 .static-gallery .gallery-summary,.static-gallery .gallery-controls { display:none; }
 .static-gallery .hierarchical-gallery-view { height:100%; }
+
+/* Paired comparison: compact controls, adjacent conditions, column-major seeds.
+   Opt-in preserves ordinary gallery geometry and semantic image identities. */
+.hierarchical-gallery-body.paired-gallery { top:15%; bottom:9%; grid-template-rows:56px minmax(0,1fr); gap:12px 24px; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+.paired-gallery .gallery-controls { align-items:center; }
+.paired-gallery .gallery-selector { display:flex; align-items:center; gap:12px; }
+.paired-gallery .gallery-summary { display:flex; align-items:center; justify-content:flex-end; gap:24px; }
+.paired-gallery .gallery-class-name { width:auto; font-size:26px; white-space:nowrap; }
+.paired-gallery .gallery-metric { width:auto; font-size:26px; white-space:nowrap; letter-spacing:0; }
+.paired-gallery-wall { height:100%; display:grid; grid-template-columns:repeat(var(--pair-columns),minmax(0,1fr)); gap:30px; }
+.paired-gallery-group { min-width:0; min-height:0; display:grid; grid-template-rows:38px repeat(var(--pair-rows),minmax(0,1fr)); gap:6px; }
+.paired-gallery-headings { display:grid; grid-template-columns:1fr 1fr; gap:6px; max-width:280px; width:100%; justify-self:center; }
+.paired-gallery-headings .gallery-heading { font-size:30px; }
+.gallery-pair { min-height:0; min-width:0; display:grid; grid-template-rows:minmax(0,1fr) 25px; justify-items:center; gap:2px; }
+.gallery-pair-pictures { display:flex; gap:6px; min-height:0; height:100%; cursor:zoom-in; }
+.gallery-pair .gallery-cell { height:100%; width:auto; border:0; border-radius:0; box-shadow:none; background:white; }
+.gallery-pair-caption-frame { width:100%; height:25px; text-align:center; }
+.gallery-pair-caption { font-size:24px; line-height:1.05; color:#334b68; font-weight:650; }
+.gallery-pair-dialog { width:min(1500px,94vw); height:min(950px,92vh); box-sizing:border-box; border:0; padding:30px; color:#14233b; background:white; }
+.gallery-pair-dialog::backdrop { background:rgba(10,20,35,.75); }
+.gallery-pair-dialog>button { float:right; padding:10px 20px; font-size:24px; cursor:pointer; }
+.gallery-pair-dialog h2 { margin:0 0 24px; font-size:36px; }
+.gallery-pair-enlarged { display:grid; grid-template-columns:1fr 1fr; gap:20px; height:calc(100% - 70px); }
+.gallery-pair-enlarged figure { margin:0; min-height:0; display:grid; grid-template-rows:45px minmax(0,1fr); }
+.gallery-pair-enlarged figcaption { text-align:center; font-size:32px; font-weight:750; }
+.gallery-pair-enlarged img { width:100%; height:100%; min-height:0; object-fit:contain; }
 .recipe-section-divider .recipe-header { top:30%; bottom:30%; display:flex; flex-direction:column; justify-content:center; }
 .hero-equation-body { display:grid; grid-template-rows:minmax(0,1fr) auto; gap:28px; text-align:center; }
 .hero-equation-body.with-question { grid-template-rows:auto minmax(0,1fr) auto; }

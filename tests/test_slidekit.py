@@ -19,6 +19,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SlideKitContractTests(unittest.TestCase):
+    def test_paired_gallery_refuses_unmatched_images(self):
+        spec = json.loads((ROOT / 'slides/04-matched-gallery.json').read_text())
+        spec['data']['columns'] = spec['data']['columns'][:2]
+        for pages in spec['data']['pageSets'].values():
+            for page in pages:
+                for row in page['rows']:
+                    row['images'] = row['images'][:2]
+        spec['data']['paired'] = True
+        validate_slide_spec(spec)
+        broken = copy.deepcopy(spec)
+        broken['data']['columns'] = broken['data']['columns'][:-1]
+        with self.assertRaisesRegex(ContractError, 'even number'):
+            validate_slide_spec(broken)
+        broken = copy.deepcopy(spec)
+        next(iter(broken['data']['pageSets'].values()))[0]['rows'][-1]['images'].pop()
+        with self.assertRaisesRegex(ContractError, 'unmatched image'):
+            validate_slide_spec(broken)
+
     def test_index_routes_are_source_bound_and_unique(self):
         target=copy.deepcopy(next(iter(self.catalog.values())))
         index={'schema':'online-slide/slide@1','id':'contents-proof','recipe':'slide-index',

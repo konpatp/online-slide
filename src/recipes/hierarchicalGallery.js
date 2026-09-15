@@ -5,6 +5,7 @@ const {editableText,bindTextRegion,galleryImage,effectiveComponent} = api;
 function hierarchicalGallery(canvas, slide) {
   var body = document.createElement("div");
   body.className = "recipe-body hierarchical-gallery-body";
+  if (slide.data.paired) body.classList.add("paired-gallery");
   if (!slide.data.selectors.length && Object.values(slide.data.pageSets).every(function (pages) { return pages.length === 1; })) body.classList.add("static-gallery");
   var controls = document.createElement("div");
   controls.className = "gallery-controls";
@@ -62,9 +63,76 @@ function hierarchicalGallery(canvas, slide) {
       });
       pages.appendChild(button);
     });
-    summary.appendChild(pages);
+    if (viewPages.length > 1 || !slide.data.paired) summary.appendChild(pages);
 
     viewHost.textContent = "";
+    if (slide.data.paired) {
+      var wall = document.createElement("div");
+      wall.className = "paired-gallery-wall";
+      wall.style.setProperty("--pair-columns", String(columns.length / 2));
+      wall.style.setProperty("--pair-rows", String(page.rows.length));
+      for (let column = 0; column < columns.length; column += 2) {
+        var group = document.createElement("div"); group.className = "paired-gallery-group";
+        var headings = document.createElement("div"); headings.className = "paired-gallery-headings";
+        [column, column + 1].forEach(function (index) {
+          headings.appendChild(editableText(slide, columns[index], "div", "gallery-heading"));
+        });
+        group.appendChild(headings);
+        page.rows.forEach(function (row) {
+          var ids = row.images.slice(column, column + 2);
+          if (!ids.length) return;
+          var pair = document.createElement("div"); pair.className = "gallery-pair";
+          var pictures = document.createElement("div"); pictures.className = "gallery-pair-pictures";
+          ids.forEach(function (id) {
+            var cell = galleryImage(slide, id);
+            cell.querySelector(".gallery-caption-frame")?.remove();
+            pictures.appendChild(cell);
+          });
+          pair.appendChild(pictures);
+          var captionId = effectiveComponent(slide, ids[0]).caption;
+          var captionFrame = document.createElement("div"); captionFrame.className = "gallery-pair-caption-frame";
+          if (captionId) {
+            var caption = editableText(slide, captionId, "div", "gallery-pair-caption");
+            captionFrame.appendChild(caption);
+            bindTextRegion(slide, captionId, caption, captionFrame, {alwaysFit:true, minSize:18, fitMode:"pair-caption"});
+          }
+          pair.appendChild(captionFrame);
+          pictures.setAttribute("role", "button"); pictures.tabIndex = 0;
+          pictures.setAttribute("aria-label", "Enlarge matched pair: " + (captionId ? componentText(captionId) : effectiveComponent(slide, ids[0]).alt));
+          function enlarge(event) {
+            if (canvas.closest(".edit-mode")) return;
+            event.stopPropagation();
+            var dialog = document.createElement("dialog"); dialog.className = "gallery-pair-dialog";
+            var close = document.createElement("button"); close.textContent = "Close ×";
+            close.addEventListener("click", function () { dialog.close(); });
+            dialog.appendChild(close);
+            var title = document.createElement("h2");
+            title.textContent = captionId ? componentText(captionId) : "Matched pair";
+            dialog.appendChild(title);
+            var images = document.createElement("div"); images.className = "gallery-pair-enlarged";
+            ids.forEach(function (id, index) {
+              var figure = document.createElement("figure");
+              var label = document.createElement("figcaption"); label.textContent = componentText(columns[column + index]);
+              var img = document.createElement("img"); var source = effectiveComponent(slide, id);
+              img.src = source.src; img.alt = source.alt;
+              figure.appendChild(label); figure.appendChild(img); images.appendChild(figure);
+            });
+            dialog.appendChild(images); canvas.appendChild(dialog);
+            dialog.addEventListener("keydown", function (e) { e.stopPropagation(); });
+            dialog.addEventListener("close", function () { dialog.remove(); pictures.focus(); });
+            dialog.showModal();
+          }
+          pictures.addEventListener("click", enlarge);
+          pictures.addEventListener("keydown", function (event) {
+            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); enlarge(event); }
+          });
+          group.appendChild(pair);
+        });
+        wall.appendChild(group);
+      }
+      viewHost.appendChild(wall);
+      return;
+    }
     var grid = document.createElement("div");
     grid.className = "hierarchical-gallery-grid";
     if (columns.every(function (key) { return !componentText(key).trim(); })) grid.classList.add("without-column-labels");

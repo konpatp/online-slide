@@ -168,6 +168,15 @@ slide id plus stable semantic component ids.
 | `mechanism-pipeline` | A shared query forks and rejoins | JointJS/Dagre ranks, semantic nodes, orthogonal routing, proportional arrowheads, live rerouting |
 | `vector-geometry` | Projection, tangent direction, rotation, and equal norm | JSXGraph equal-aspect coordinates, bounded vectors/arcs, explicit label regions, KaTeX equations |
 | `hierarchical-gallery` | Faceted classes, methods, doses, and identity pages | Compact controls, changing metric, persistent view state, snug non-cropping images, fitted caption regions |
+
+For dense matched comparisons, set gallery `data.paired: true`. Adjacent
+image columns form a pair, with independent pairs grouped into vertical
+columns. Supply an even number of images and headings; the left image's
+caption labels the pair. Existing facet/page state and semantic image IDs are
+preserved. Clicking or keyboard-activating a pair opens both original display
+sources together in a native dialog; Escape returns to the unchanged wall.
+The renderer never selects or reorders scientific samples. Authors must verify
+the matched identities and disclose any ranked selection.
 | `target-accessibility` | Two qualitative target decompositions with nested B4/R3 reach | Aligned component bars, stable reach spans, one shared legend, KaTeX decomposition |
 
 The source gives scientific intent and data. The recipe owns repeated spatial
