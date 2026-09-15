@@ -4,6 +4,11 @@ const global = window;
 const {objectsForSlide,selectedObjectId,selectVisualObject,updateVisualObject} = api;
 function wireVisualObjects(slide,records) {
   var objectState=api.objectsForSlide(slide);
+  records=records.filter(function(record) {
+    var deleted=api.objectDeleted(slide,record.id);
+    record.element.classList.toggle('curator-deleted',deleted);
+    return !deleted;
+  });
   function rounded(value) { return Math.round(value * 10000) / 10000; }
 
   function rectGeometry(record) {

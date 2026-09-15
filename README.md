@@ -70,6 +70,17 @@ SlideSpecs: this picker does not pretend to provide a chart-data editor.
 Drag a sidebar thumbnail to reorder slides; the list scrolls at its edges.
 On touch screens, hold briefly before dragging. Escape cancels the move when
 you release. The current slide stays open and rapid moves save in order.
+In edit mode, select a whole object and press **Delete** or **Backspace** to
+remove it. For text, click its move handle or press **Escape** to leave typing
+and select the box; character deletion while typing stays ordinary text editing.
+**Undo** or **Cmd/Ctrl+Z** restores deletions, moves, resizing and edits, even
+after autosave. History retains the last 100 actions in the current tab session;
+refresh starts a new history. Undo never overwrites a conflicting remote edit.
+Deleting a diagram node also hides its attached connectors; Undo restores both.
+Presentation/fullscreen mode shows only visible slides. Arrow navigation,
+slide counts, refresh and direct links all use that same filtered sequence.
+Hidden slides stay available in the editing sidebar; an all-hidden deck cannot
+enter presentation mode.
 Sidebar move arrows and the labelled Hide/Show button work directly, even with
 text editing off; they save through the same revision-checked state. Impossible
 boundary moves are visibly disabled rather than silently ignored.

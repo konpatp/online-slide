@@ -50,6 +50,12 @@ def main():
                 bound = json.loads(state_path.read_text())['overlays'][sid]['random-mid']
                 assert bound['text'] == original_text
                 assert bound['marks'] == [{'start':0,'end':len(original_text),'bold':True}]
+                page.locator('[data-undo]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert cell.locator('[data-text-bold="true"]').count()==0
+                assert sibling.text_content()==original_sibling
+                cell.click();page.locator('[data-bold]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
                 page.reload(); cell.wait_for()
                 assert cell.locator('[data-text-bold="true"]').text_content() == original_text
                 if page.locator('[data-edit-toggle]').text_content() == 'Enable edit':

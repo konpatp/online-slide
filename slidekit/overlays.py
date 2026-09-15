@@ -46,12 +46,14 @@ def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
                      isinstance(component.get("text"), str) and len(component["text"]) <= 800,
                      f"inserted table component must be text: {slide_id}@{component_id}")
             _require(set(component) <= {
-                "kind", "text", "role", "render", "display", "color", "fontScale", "region", "hidden", "marks",
+                "kind", "text", "role", "render", "display", "color", "fontScale", "region", "hidden", "deleted", "marks",
             }, f"unsupported inserted table component fields: {slide_id}@{component_id}")
             if 'marks' in component:
                 validate_text_marks(component['marks'], component)
             if 'hidden' in component:
                 _require(isinstance(component['hidden'],bool), 'inserted component hidden state must be boolean')
+            if 'deleted' in component:
+                _require(isinstance(component['deleted'],bool), 'inserted component deletion must be boolean')
             _require(isinstance(component.get("role", "table-value"), str),
                      f"inserted table component role is invalid: {slide_id}@{component_id}")
             _require(component.get("render", "plain") in {"plain", "latex"},
@@ -153,6 +155,11 @@ def validate_objects(objects: Any, catalog: dict[str, dict[str, Any]]) -> None:
             kind = known[object_id]
             _require(geometry.get("kind") == kind,
                      f"visual object kind changed: {slide_id}@{object_id}")
+            if 'deleted' in geometry:
+                _require(isinstance(geometry['deleted'], bool), 'object deletion must be boolean')
+                geometry = {key: value for key, value in geometry.items() if key != 'deleted'}
+                if set(geometry) == {'kind'}:
+                    continue
             if kind in {"diagram-node", "accessibility-target", "annotation-rect", "recipe-frame"}:
                 _require(set(geometry) == {"kind", "x", "y", "width", "height"},
                          f"{kind} geometry is invalid: {slide_id}@{object_id}")
@@ -209,7 +216,7 @@ def validate_text_boxes(boxes: Any, catalog: dict[str, dict[str, Any]]) -> None:
                      key.startswith('text-box-') and key not in catalog[sid]['components'] and
                      key not in _visual_objects(catalog[sid]), "text box identity collides or is invalid")
             _require(isinstance(value, dict) and {'text', 'region'} <= set(value) and
-                     set(value) <= {'text', 'region', 'marks', 'color', 'fontScale', 'hidden'},
+                     set(value) <= {'text', 'region', 'marks', 'color', 'fontScale', 'hidden', 'deleted'},
                      "text box needs bounded text and supported formatting")
             validate_overlays({sid:{key:value}}, {sid:{'components':{key:{'kind':'text','text':''}}}})
 
@@ -234,6 +241,8 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
                 _require(False, 'replacement text must explicitly replace its authored marks')
             if 'hidden' in overlay:
                 _require(isinstance(overlay['hidden'],bool), 'component hidden state must be boolean')
+            if 'deleted' in overlay:
+                _require(isinstance(overlay['deleted'],bool), 'component deletion must be boolean')
             if "chartLayout" in overlay:
                 _require(component["kind"] == "chart", "chartLayout must target a chart")
                 validate_chart_layout(overlay["chartLayout"], component)
@@ -310,5 +319,3 @@ def validate_chart_layout(value: Any, component: dict) -> None:
             else:
                 _require(isinstance(item, (int, float)) and abs(item) < 1e12,
                          "invalid annotation position")
-
-

@@ -17,6 +17,7 @@ function mechanismPipeline(canvas, slide) {
     var block = document.createElement("div");
     block.className = "diagram-node-copy tone-" + (node.tone || "quiet");
     block.setAttribute("data-diagram-node-id", node.id);
+    block.classList.toggle('curator-deleted',api.objectDeleted(slide,node.id));
     var content = document.createElement("div");
     content.className = "diagram-node-content";
     content.appendChild(editableText(slide, node.label, "div", "node-label"));
@@ -37,6 +38,7 @@ function mechanismPipeline(canvas, slide) {
     if (!edge.label) return;
     var label = editableText(slide, edge.label, "div", "edge-label");
     label.setAttribute("data-diagram-edge-id", edge.id);
+    label.classList.toggle('curator-deleted',api.objectDeleted(slide,edge.id));
     edgeLabels[edge.id] = label;
     plane.appendChild(label);
   });
@@ -102,6 +104,7 @@ function mechanismPipeline(canvas, slide) {
     var diagram = window.ScientificDiagramRuntime.renderPipeline(paperHost, runtimeData, {
       interactive: api.isEditMode(),
       objects: objectsForSlide(slide),
+      isDeleted: function(id) {return api.objectDeleted(slide,id);},
       selectedId: selectedObjectId(slide),
       onSelect: function (kind, id) {
         selectVisualObject(slide.id, id, kind);

@@ -9,6 +9,7 @@ function vectorGeometry(canvas, slide) {
   plane.className = "vector-geometry-plane";
   var board = document.createElement("div");
   board.className = "jsxgraph-host";
+  board.addEventListener('click',function(event){if(api.isEditMode()) event.stopPropagation();});
   board.id = "jsxgraph-" + slide.id;
   plane.appendChild(board);
   var worldLabels=[];
@@ -45,6 +46,7 @@ function vectorGeometry(canvas, slide) {
     var geometry=window.ScientificGeometryRuntime.renderVectorPlane(board, slide.data, {
       interactive: api.isEditMode(),
       objects: objectsForSlide(slide),
+      isDeleted: function(id) {return api.objectDeleted(slide,id);},
       selectedId: selectedObjectId(slide),
       onSelect: function (kind, id) {
         selectVisualObject(slide.id, id, kind);

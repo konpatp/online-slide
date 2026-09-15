@@ -254,6 +254,7 @@
       var body = document.createElement("div");
       body.className = "recipe-body table-body";
       if (slide.data.visibility && effectiveComponent(slide, slide.data.visibility).hidden) body.classList.add("curator-hidden-component");
+      if (slide.data.visibility && effectiveComponent(slide, slide.data.visibility).deleted) body.classList.add("curator-deleted");
       body.setAttribute("data-table-panel-id", slide.data.id || "main");
       if (heat) {
         body.classList.add("heatmap-table-body");
@@ -496,6 +497,11 @@
     const { objectsForSlide, selectedObjectId, selectVisualObject, updateVisualObject } = api;
     function wireVisualObjects(slide, records) {
       var objectState = api.objectsForSlide(slide);
+      records = records.filter(function(record) {
+        var deleted = api.objectDeleted(slide, record.id);
+        record.element.classList.toggle("curator-deleted", deleted);
+        return !deleted;
+      });
       function rounded(value) {
         return Math.round(value * 1e4) / 1e4;
       }
@@ -812,6 +818,7 @@
         var block = document.createElement("div");
         block.className = "diagram-node-copy tone-" + (node.tone || "quiet");
         block.setAttribute("data-diagram-node-id", node.id);
+        block.classList.toggle("curator-deleted", api.objectDeleted(slide, node.id));
         var content = document.createElement("div");
         content.className = "diagram-node-content";
         content.appendChild(editableText(slide, node.label, "div", "node-label"));
@@ -832,6 +839,7 @@
         if (!edge.label) return;
         var label = editableText(slide, edge.label, "div", "edge-label");
         label.setAttribute("data-diagram-edge-id", edge.id);
+        label.classList.toggle("curator-deleted", api.objectDeleted(slide, edge.id));
         edgeLabels[edge.id] = label;
         plane.appendChild(label);
       });
@@ -884,6 +892,9 @@
         var diagram = window.ScientificDiagramRuntime.renderPipeline(paperHost, runtimeData, {
           interactive: api.isEditMode(),
           objects: objectsForSlide(slide),
+          isDeleted: function(id) {
+            return api.objectDeleted(slide, id);
+          },
           selectedId: selectedObjectId(slide),
           onSelect: function(kind, id) {
             selectVisualObject(slide.id, id, kind);
@@ -946,6 +957,9 @@
       plane.className = "vector-geometry-plane";
       var board = document.createElement("div");
       board.className = "jsxgraph-host";
+      board.addEventListener("click", function(event) {
+        if (api.isEditMode()) event.stopPropagation();
+      });
       board.id = "jsxgraph-" + slide.id;
       plane.appendChild(board);
       var worldLabels = [];
@@ -982,6 +996,9 @@
         var geometry = window.ScientificGeometryRuntime.renderVectorPlane(board, slide.data, {
           interactive: api.isEditMode(),
           objects: objectsForSlide(slide),
+          isDeleted: function(id) {
+            return api.objectDeleted(slide, id);
+          },
           selectedId: selectedObjectId(slide),
           onSelect: function(kind, id) {
             selectVisualObject(slide.id, id, kind);

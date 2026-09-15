@@ -76,6 +76,7 @@ function renderVectorPlane(host, spec, options = {}) {
   }
 
   function createEditableLinear(item, kind, arrow) {
+    if(options.isDeleted && options.isDeleted(item.id)) return;
     const persisted = (options.objects || {})[item.id];
     const from = persisted && persisted.kind === kind ? persisted.from : item.from;
     const to = persisted && persisted.kind === kind ? persisted.to : item.to;

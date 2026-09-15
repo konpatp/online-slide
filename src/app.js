@@ -5,6 +5,9 @@ import {copy, snapshot, sameSnapshot} from './editor/snapshot';
 import {SaveQueue} from './editor/save-queue';
 import {moveBefore} from './editor/order';
 import {createSidebarOrder} from './editor/sidebar-order';
+import {EditHistory} from './editor/history';
+import {deletionKey, typingTarget} from './editor/keyboard';
+import {navigationOrder,visibleDestination} from './editor/navigation';
 import {textEdit, toggleBold, renderMarkedText, readMarkedText, insertPlainText} from './editor/text';
 import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} from './editor/fit';
 /* ScientificSlideKit pilot: declarative recipes plus a bundled diagram engine. */
@@ -37,7 +40,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var currentId = null;
   var selected = null;
   var editMode = false;
-  var undoBase = null;
+  var editHistory = new EditHistory();
   var inputTimer = null;
   var toastTimer = null;
   var loadedSlides = new Map();
@@ -54,7 +57,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     currentId: function() {return currentId;},
     created: function(payload) {
       accepted = acceptPayload(payload); state = copy(accepted);
-      currentId = payload.loadedSlides[0]; selected = null; undoBase = null;
+      currentId = payload.loadedSlides[0]; selected = null; editHistory.clear();
       editMode = true; focusCreatedTitle = currentId;
       history.replaceState(null, '', '#' + currentId);
       render(); setStatus('Saved', 'saved');
@@ -156,13 +159,18 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation} = createViewport({
     stage, stageWrap, presentationExit, fullscreenToggle,
     applyAllTextRegions: function() {applyAllTextRegions();},
-    syncTextRegionFrame: function() {syncTextRegionFrame();}, showToast
+    syncTextRegionFrame: function() {syncTextRegionFrame();}, showToast,
+    canPresent: function() {return Boolean(state && navigationOrder(state.order,state.hidden,true).length);},
+    modeChanged: function() {if(state) {selected=null;editMode=false;render();}}
   });
 
   function slideById(id) { return state.slides[id]; }
   function currentSlide() { return slideById(currentId); }
+  function activeOrder() {
+    return navigationOrder(state.order,state.hidden,!previewMode && document.body.classList.contains('present-only'));
+  }
   function currentIndex() {
-    var index = state.order.indexOf(currentId);
+    var index = activeOrder().indexOf(currentId);
     return index < 0 ? 0 : index;
   }
 
@@ -189,13 +197,26 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   function objectsForSlide(slide) {
-    return copy((state.objects || {})[slide.id] || {});
+    var objects=copy((state.objects || {})[slide.id] || {});
+    // Tombstones are presentation state, never geometry sent to a layout engine.
+    Object.keys(objects).forEach(function(id) {
+      delete objects[id].deleted;
+      if(Object.keys(objects[id]).length===1) delete objects[id];
+    });
+    return objects;
+  }
+
+  function objectDeleted(slide, id) {
+    var objects=(state.objects || {})[slide.id] || {};
+    if(objects[id]?.deleted) return true;
+    var edge=(slide.data.edges || []).find(function(edge){return edge.id===id;});
+    return Boolean(edge && (objects[edge.from]?.deleted || objects[edge.to]?.deleted));
   }
 
   function updateVisualObject(slideId, objectId, kind, geometry, commit) {
     if (!state.objects) state.objects = {};
     if (!state.objects[slideId]) state.objects[slideId] = {};
-    beginChange();
+    beginChange('object:'+slideId+':'+objectId);
     state.objects[slideId][objectId] = Object.assign({kind: kind}, copy(geometry));
     if (commit) persist();
   }
@@ -257,14 +278,16 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     isEditMode: function() {return editMode;}, stage, beginChange, render, persist, effectiveComponent, updateOverlay
   });
 
-  function beginChange() {
-    if (!undoBase) undoBase = copy(accepted);
+  function beginChange(group) {
+    editHistory.begin(state, group);
     undoButton.disabled = false;
     setStatus("Saving…", "saving");
   }
 
   function persist() {
     if (previewMode) return;
+    editHistory.commit(state);
+    undoButton.disabled = !editHistory.available();
     retainDraft('Changes saved on this device; awaiting server acknowledgement.');
     setStatus("Saving…", "saving");
     saves.enqueue();
@@ -286,11 +309,11 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     acceptedResult: function(remote, current, clean) {
       // Acknowledging our own edit is not a reason to destroy live editor DOM.
       deferredRemoteRender = deferredRemoteRender || !sameSnapshot(state,current) || accepted.sourceRevision !== remote.sourceRevision;
+      if (accepted.sourceRevision !== remote.sourceRevision) editHistory.clear();
       state = current; accepted = remote;
       if (clean) {
-        undoBase = null;
         if (deferredRemoteRender) {deferredRemoteRender = false; render();}
-        else {renderThumbs(); renderTools(); undoButton.disabled = true;}
+        else {renderThumbs(); renderTools(); undoButton.disabled = !editHistory.available();}
         setStatus('Saved','saved');
         try {localStorage.removeItem(draftKey);} catch (_) {}
         draftButton.hidden = true;
@@ -299,7 +322,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     conflict: function(remote,message) {
       deferredRemoteRender = false;
       retainDraft(message);
-      accepted = remote; state = copy(remote); undoBase = null; selected = null;
+      accepted = remote; state = copy(remote); editHistory.clear(); selected = null;
       render(); setStatus('Conflict · draft retained','error');
       showToast(message + '. Your unsaved changes are available to download.');
     },
@@ -375,6 +398,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     element.contentEditable = editMode && !isLatex ? "true" : "false";
     applyComponentStyle(element, component);
     if (component.hidden) element.classList.add('curator-hidden-component');
+    if (component.deleted) element.classList.add('curator-deleted');
     element.addEventListener("click", function (event) {
       if (!editMode) return;
       event.stopPropagation();
@@ -383,8 +407,8 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     element.addEventListener("input", function () {
       if (!editMode || isLatex) return;
       var value = readMarkedText(element);
+      beginChange('text:'+slide.id+':'+componentId);
       updateText(slide.id, componentId, value);
-      beginChange();
       clearTimeout(inputTimer);
       inputTimer = setTimeout(persist, 260);
     });
@@ -437,7 +461,9 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     getSelected: function() {return selected;}, isEditMode: function() {return editMode;},
     beginChange,persist,updateOverlay,
     resizeChart: function(host) {
-      if(host._fullLayout && window.Plotly && (host.layout.width!==host.clientWidth || host.layout.height!==host.clientHeight))
+      // newPlot exposes partial layout internals before its promise resolves.
+      // Region fitting must not relayout that half-initialized chart.
+      if(host.isConnected && host.dataset.chartReady==='true' && host._fullLayout && host.layout && window.Plotly && (host.layout.width!==host.clientWidth || host.layout.height!==host.clientHeight))
         window.Plotly.relayout(host,{width:host.clientWidth,height:host.clientHeight});
     }
   });
@@ -521,6 +547,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     var cell = document.createElement("div");
     cell.className = "gallery-cell semantic-component";
     if(component.hidden) cell.classList.add('curator-hidden-component');
+    if(component.deleted) cell.classList.add('curator-deleted');
     cell.setAttribute("data-component-id", componentId);
     cell.setAttribute("data-component-kind", "image");
     cell.setAttribute("aria-label", component.alt);
@@ -589,10 +616,12 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       render();persist();
     },
     objectsForSlide: objectsForSlide,
+    objectDeleted: objectDeleted,
     selectedObjectId: function (slide) {
       return selected && selected.visualObject && selected.slideId === slide.id ? selected.objectId : null;
     },
     selectVisualObject: function (slideId, objectId, objectKind) {
+      stage.tabIndex=-1; stage.focus({preventScroll:true});
       selected = {slideId: slideId, objectId: objectId, objectKind: objectKind, visualObject: true};
       stage.querySelectorAll(".selected-component").forEach(function (node) {
         node.classList.remove("selected-component");
@@ -629,7 +658,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       }
     }
     var index = currentIndex();
-    currentId = state.order[index];
+    currentId = activeOrder()[index];
     var slide = currentSlide();
     clearStage('');
     var canvas = slideShell(slide);
@@ -669,10 +698,10 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       canvasObserver.observe(canvas);
       trackFitObserver(canvasObserver);
     }
-    position.textContent = (index + 1) + " / " + state.order.length;
+    position.textContent = (index + 1) + " / " + activeOrder().length;
     document.querySelector('[data-layouts-link]').href = 'catalog.html#' + currentId;
     document.querySelector("[data-prev]").disabled = index === 0;
-    document.querySelector("[data-next]").disabled = index === state.order.length - 1;
+    document.querySelector("[data-next]").disabled = index === activeOrder().length - 1;
     if (selected && !selected.visualObject && selected.slideId === currentId) {
       var element = stage.querySelector('[data-component-id="' + selected.componentId + '"]');
       if (element) {
@@ -804,6 +833,11 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   function render() {
+    if(!previewMode && document.body.classList.contains('present-only')) {
+      var destination=visibleDestination(state.order,activeOrder(),currentId);
+      if(!destination) {exitFullscreenPresentation();showToast('No visible slides. Show a slide before presenting.');return;}
+      if(destination!==currentId) {currentId=destination;selected=null;history.replaceState(null,'','#'+currentId);}
+    }
     var generation = ++renderGeneration;
     if (previews) previews.pause();
     clearTimeout(prefetchTimer);
@@ -839,7 +873,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       // Only the next source, only after paint, and never large image pages.
       if (previewMode) return;
       prefetchTimer = setTimeout(function() {
-        var next = state.order[currentIndex() + 1];
+        var next = activeOrder()[currentIndex() + 1];
         if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {});
       }, 1200);
     }).catch(function(error) {
@@ -847,7 +881,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       stage.textContent = error.message;
       setStatus('Slide unavailable · reload', 'error');
     });
-    undoButton.disabled = !undoBase;
+    undoButton.disabled = !editHistory.available();
     editToggle.textContent = editMode ? "Done editing" : "Enable edit";
     editToggle.classList.toggle("active", editMode);
     document.querySelector('[data-add-text]').hidden = !editMode;
@@ -876,6 +910,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   });
 
   function selectComponent(slideId, componentId, element) {
+    if(element && !element.isContentEditable) {stage.tabIndex=-1;stage.focus({preventScroll:true});}
     selected = slideId ? {slideId: slideId, componentId: componentId} : null;
     stage.querySelectorAll(".selected-visual-object").forEach(function (node) {
       node.classList.remove("selected-visual-object");
@@ -946,19 +981,35 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   function step(delta) {
-    var next = Math.max(0, Math.min(state.order.length - 1, currentIndex() + delta));
-    selectSlide(state.order[next]);
+    var order=activeOrder();
+    var next = Math.max(0, Math.min(order.length - 1, currentIndex() + delta));
+    if(order[next]) selectSlide(order[next]);
   }
 
   function undo() {
-    if (!undoBase) return;
-    state = copy(undoBase);
-    currentId = state.order[0];
+    clearTimeout(inputTimer);
+    var next;
+    try {next=editHistory.undo(state);} catch(error) {showToast(error.message);return;}
+    if (!next) return;
+    state = next;
     selected = null;
-    undoBase = null;
     render();
     persist();
-    showToast("Reverted the last edit burst.");
+    showToast("Undid the last change.");
+  }
+
+  function deleteSelectedObject() {
+    if (!editMode || !selected || selected.slideId !== currentId) return false;
+    beginChange();
+    if(selected.visualObject) {
+      if(!state.objects[currentId]) state.objects[currentId]={};
+      state.objects[currentId][selected.objectId]=Object.assign({},state.objects[currentId][selected.objectId],
+        {kind:selected.objectKind,deleted:true});
+    } else updateOverlay(currentId,selected.componentId,'deleted',true);
+    selected=null;
+    stage.tabIndex=-1; stage.focus({preventScroll:true});
+    render(); persist(); showToast('Object deleted. Undo restores it.');
+    return true;
   }
 
   thumbList.addEventListener("click", function (event) {
@@ -1050,17 +1101,25 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
 
   document.addEventListener("keydown", function (event) {
     if (document.querySelector('dialog[open]')) return;
-    if (event.target && event.target.isContentEditable) return;
+    if(event.isComposing) return;
+    if((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase()==='z' &&
+      (!typingTarget(event.target) || stage.contains(event.target))) {
+      event.preventDefault(); event.stopPropagation(); undo(); return;
+    }
+    // Canvas libraries can return focus to body after a pointer gesture. The
+    // semantic selection still owns canvas keys, but never a toolbar/input.
+    if((stage.contains(event.target) || event.target===document.body) && deletionKey(event) && deleteSelectedObject()) {event.preventDefault();event.stopPropagation();return;}
+    if(event.key==='Escape' && editMode && selected && typingTarget(event.target)) {
+      event.preventDefault();stage.tabIndex=-1;stage.focus({preventScroll:true});return;
+    }
+    if (typingTarget(event.target)) return;
     if (event.key === "ArrowLeft") step(-1);
     if (event.key === "ArrowRight") step(1);
     if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();
     if (event.key === "Escape" && document.body.classList.contains("present-only")) {
       exitFullscreenPresentation();
     }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-      event.preventDefault(); undo();
-    }
-  });
+  }, true);
   function resolveRoute(requested) {
     if(state.order.indexOf(requested)>=0)return requested;
     for(var id of state.order) {

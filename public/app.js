@@ -5,7 +5,7 @@
   var CANONICAL_SLIDE_WIDTH = 1920;
   var CANONICAL_SLIDE_HEIGHT = 1080;
   var EDITOR_MAX_SLIDE_WIDTH = 1280;
-  function createViewport({ stage, stageWrap, presentationExit, fullscreenToggle, applyAllTextRegions, syncTextRegionFrame, showToast }) {
+  function createViewport({ stage, stageWrap, presentationExit, fullscreenToggle, applyAllTextRegions, syncTextRegionFrame, showToast, canPresent, modeChanged }) {
     let presentationExitTimer;
     function stageContentBox() {
       var style = getComputedStyle(stageWrap);
@@ -45,6 +45,11 @@
       history.replaceState(null, "", url.pathname + url.search + url.hash);
     }
     function setPresentationMode(enabled) {
+      if (enabled && !canPresent()) {
+        showToast("No visible slides. Show a slide before presenting.");
+        return false;
+      }
+      const changed2 = document.body.classList.contains("present-only") !== enabled;
       document.body.classList.toggle("present-only", enabled);
       fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
       requestAnimationFrame(fitStage);
@@ -53,6 +58,8 @@
         clearTimeout(presentationExitTimer);
         presentationExit.classList.remove("visible");
       }
+      if (changed2) modeChanged();
+      return true;
     }
     function exitFullscreenPresentation() {
       removePresentationQuery();
@@ -68,7 +75,7 @@
         exitFullscreenPresentation();
         return;
       }
-      setPresentationMode(true);
+      if (!setPresentationMode(true)) return;
       var request = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
       if (request && request.catch) {
         request.catch(function() {
@@ -264,6 +271,7 @@
       if (!canvas) return;
       var component = getComponent(binding.slideId, binding.componentId);
       if (!component) return;
+      binding.host.classList.toggle("curator-deleted", Boolean(component.deleted));
       var region = component.region;
       if (!region) {
         if (binding.alwaysFit) ensureTextRegionFit(binding);
@@ -294,7 +302,7 @@
       const selected = getSelected();
       if (!selected || !isEditMode()) return null;
       var component = getComponent(selected.slideId, selected.componentId);
-      if (!component || !["text", "chart"].includes(component.kind)) return null;
+      if (!component || component.deleted || !["text", "chart"].includes(component.kind)) return null;
       return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
     }
     function removeTextRegionFrame() {
@@ -326,6 +334,7 @@
         removeTextRegionFrame();
         textRegionFrame = document.createElement("div");
         textRegionFrame.className = "text-region-frame";
+        textRegionFrame.addEventListener("click", (event) => event.stopPropagation());
         textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
         var move = document.createElement("button");
         move.type = "button";
@@ -365,6 +374,7 @@
       if (!binding) return;
       event.preventDefault();
       event.stopPropagation();
+      event.currentTarget.focus({ preventScroll: true });
       var canvas = binding.host.closest(".slide-canvas");
       if (!canvas) return;
       var canvasRect = canvas.getBoundingClientRect();
@@ -3151,6 +3161,70 @@
     };
   }
 
+  // src/editor/history.ts
+  var EditHistory = class {
+    constructor(limit = 100) {
+      this.limit = limit;
+      this.entries = [];
+      this.pending = null;
+    }
+    begin(state, group) {
+      if (this.pending && group && this.pending.group === group) return;
+      this.commit(state);
+      this.pending = { before: snapshot(state), group };
+    }
+    commit(state) {
+      if (!this.pending) return;
+      const { before, group } = this.pending;
+      this.pending = null;
+      if (sameSnapshot(before, state)) return;
+      const last = this.entries[this.entries.length - 1], time = Date.now();
+      if (group?.startsWith("text:") && last?.group === group && time - last.time < 750 && sameSnapshot(last.after, before)) {
+        last.after = snapshot(state);
+        last.time = time;
+      } else this.entries.push({ before, after: snapshot(state), group, time });
+      if (this.entries.length > this.limit) this.entries.shift();
+    }
+    available() {
+      return Boolean(this.pending || this.entries.length);
+    }
+    clear() {
+      this.entries = [];
+      this.pending = null;
+    }
+    undo(current) {
+      this.commit(current);
+      const entry = this.entries[this.entries.length - 1];
+      if (!entry) return null;
+      if (!sameSnapshot(carryForward(entry.before, entry.after, current), current))
+        throw new Error("Cannot undo: this object changed in another editor. Your current edits were kept.");
+      const next = carryForward(entry.after, entry.before, current);
+      this.entries.pop();
+      const previous = this.entries[this.entries.length - 1];
+      if (previous) previous.group = void 0;
+      return next;
+    }
+  };
+
+  // src/editor/keyboard.ts
+  function typingTarget(target) {
+    return target instanceof Element && Boolean(target.closest('input, textarea, select, [role="textbox"]') || target.isContentEditable);
+  }
+  function deletionKey(event) {
+    return !event.defaultPrevented && !event.isComposing && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && ["Delete", "Backspace"].includes(event.key) && !typingTarget(event.target);
+  }
+
+  // src/editor/navigation.ts
+  function navigationOrder(order, hidden, presenting) {
+    const excluded = new Set(hidden);
+    return order.filter((id) => !presenting || !excluded.has(id));
+  }
+  function visibleDestination(order, visible, requested) {
+    if (visible.includes(requested)) return requested;
+    const allowed = new Set(visible);
+    return order.slice(Math.max(0, order.indexOf(requested))).find((id) => allowed.has(id)) || visible[visible.length - 1] || null;
+  }
+
   // src/editor/text.ts
   function textEdit(value) {
     return { text: value.text, marks: value.marks.map((mark) => ({ ...mark })) };
@@ -3247,7 +3321,7 @@
     var currentId = null;
     var selected = null;
     var editMode = false;
-    var undoBase = null;
+    var editHistory = new EditHistory();
     var inputTimer = null;
     var toastTimer = null;
     var loadedSlides = /* @__PURE__ */ new Map();
@@ -3270,7 +3344,7 @@
         state = copy(accepted);
         currentId = payload.loadedSlides[0];
         selected = null;
-        undoBase = null;
+        editHistory.clear();
         editMode = true;
         focusCreatedTitle = currentId;
         history.replaceState(null, "", "#" + currentId);
@@ -3403,7 +3477,17 @@
       syncTextRegionFrame: function() {
         syncTextRegionFrame();
       },
-      showToast
+      showToast,
+      canPresent: function() {
+        return Boolean(state && navigationOrder(state.order, state.hidden, true).length);
+      },
+      modeChanged: function() {
+        if (state) {
+          selected = null;
+          editMode = false;
+          render();
+        }
+      }
     });
     function slideById(id) {
       return state.slides[id];
@@ -3411,8 +3495,11 @@
     function currentSlide() {
       return slideById(currentId);
     }
+    function activeOrder() {
+      return navigationOrder(state.order, state.hidden, !previewMode && document.body.classList.contains("present-only"));
+    }
     function currentIndex() {
-      var index2 = state.order.indexOf(currentId);
+      var index2 = activeOrder().indexOf(currentId);
       return index2 < 0 ? 0 : index2;
     }
     function overlayFor(slideId, componentId, create) {
@@ -3436,12 +3523,25 @@
       return Object.assign({}, source, overlay);
     }
     function objectsForSlide(slide) {
-      return copy((state.objects || {})[slide.id] || {});
+      var objects = copy((state.objects || {})[slide.id] || {});
+      Object.keys(objects).forEach(function(id) {
+        delete objects[id].deleted;
+        if (Object.keys(objects[id]).length === 1) delete objects[id];
+      });
+      return objects;
+    }
+    function objectDeleted(slide, id) {
+      var objects = (state.objects || {})[slide.id] || {};
+      if (objects[id]?.deleted) return true;
+      var edge = (slide.data.edges || []).find(function(edge2) {
+        return edge2.id === id;
+      });
+      return Boolean(edge && (objects[edge.from]?.deleted || objects[edge.to]?.deleted));
     }
     function updateVisualObject(slideId, objectId, kind, geometry, commit) {
       if (!state.objects) state.objects = {};
       if (!state.objects[slideId]) state.objects[slideId] = {};
-      beginChange();
+      beginChange("object:" + slideId + ":" + objectId);
       state.objects[slideId][objectId] = Object.assign({ kind }, copy(geometry));
       if (commit) persist();
     }
@@ -3509,13 +3609,15 @@
       effectiveComponent,
       updateOverlay
     });
-    function beginChange() {
-      if (!undoBase) undoBase = copy(accepted);
+    function beginChange(group) {
+      editHistory.begin(state, group);
       undoButton.disabled = false;
       setStatus("Saving\u2026", "saving");
     }
     function persist() {
       if (previewMode) return;
+      editHistory.commit(state);
+      undoButton.disabled = !editHistory.available();
       retainDraft("Changes saved on this device; awaiting server acknowledgement.");
       setStatus("Saving\u2026", "saving");
       saves.enqueue();
@@ -3545,17 +3647,17 @@
       },
       acceptedResult: function(remote, current, clean) {
         deferredRemoteRender = deferredRemoteRender || !sameSnapshot(state, current) || accepted.sourceRevision !== remote.sourceRevision;
+        if (accepted.sourceRevision !== remote.sourceRevision) editHistory.clear();
         state = current;
         accepted = remote;
         if (clean) {
-          undoBase = null;
           if (deferredRemoteRender) {
             deferredRemoteRender = false;
             render();
           } else {
             renderThumbs();
             renderTools();
-            undoButton.disabled = true;
+            undoButton.disabled = !editHistory.available();
           }
           setStatus("Saved", "saved");
           try {
@@ -3570,7 +3672,7 @@
         retainDraft(message);
         accepted = remote;
         state = copy(remote);
-        undoBase = null;
+        editHistory.clear();
         selected = null;
         render();
         setStatus("Conflict \xB7 draft retained", "error");
@@ -3659,6 +3761,7 @@
       element.contentEditable = editMode && !isLatex ? "true" : "false";
       applyComponentStyle(element, component);
       if (component.hidden) element.classList.add("curator-hidden-component");
+      if (component.deleted) element.classList.add("curator-deleted");
       element.addEventListener("click", function(event) {
         if (!editMode) return;
         event.stopPropagation();
@@ -3667,8 +3770,8 @@
       element.addEventListener("input", function() {
         if (!editMode || isLatex) return;
         var value = readMarkedText(element);
+        beginChange("text:" + slide.id + ":" + componentId);
         updateText(slide.id, componentId, value);
-        beginChange();
         clearTimeout(inputTimer);
         inputTimer = setTimeout(persist, 260);
       });
@@ -3734,7 +3837,7 @@
       persist,
       updateOverlay,
       resizeChart: function(host) {
-        if (host._fullLayout && window.Plotly && (host.layout.width !== host.clientWidth || host.layout.height !== host.clientHeight))
+        if (host.isConnected && host.dataset.chartReady === "true" && host._fullLayout && host.layout && window.Plotly && (host.layout.width !== host.clientWidth || host.layout.height !== host.clientHeight))
           window.Plotly.relayout(host, { width: host.clientWidth, height: host.clientHeight });
       }
     });
@@ -3816,6 +3919,7 @@
       var cell = document.createElement("div");
       cell.className = "gallery-cell semantic-component";
       if (component.hidden) cell.classList.add("curator-hidden-component");
+      if (component.deleted) cell.classList.add("curator-deleted");
       cell.setAttribute("data-component-id", componentId);
       cell.setAttribute("data-component-kind", "image");
       cell.setAttribute("aria-label", component.alt);
@@ -3894,10 +3998,13 @@
         persist();
       },
       objectsForSlide,
+      objectDeleted,
       selectedObjectId: function(slide) {
         return selected && selected.visualObject && selected.slideId === slide.id ? selected.objectId : null;
       },
       selectVisualObject: function(slideId, objectId, objectKind) {
+        stage.tabIndex = -1;
+        stage.focus({ preventScroll: true });
         selected = { slideId, objectId, objectKind, visualObject: true };
         stage.querySelectorAll(".selected-component").forEach(function(node) {
           node.classList.remove("selected-component");
@@ -3933,7 +4040,7 @@
         }
       }
       var index2 = currentIndex();
-      currentId = state.order[index2];
+      currentId = activeOrder()[index2];
       var slide = currentSlide();
       clearStage("");
       var canvas = slideShell(slide);
@@ -3982,10 +4089,10 @@
         canvasObserver.observe(canvas);
         trackFitObserver(canvasObserver);
       }
-      position.textContent = index2 + 1 + " / " + state.order.length;
+      position.textContent = index2 + 1 + " / " + activeOrder().length;
       document.querySelector("[data-layouts-link]").href = "catalog.html#" + currentId;
       document.querySelector("[data-prev]").disabled = index2 === 0;
-      document.querySelector("[data-next]").disabled = index2 === state.order.length - 1;
+      document.querySelector("[data-next]").disabled = index2 === activeOrder().length - 1;
       if (selected && !selected.visualObject && selected.slideId === currentId) {
         var element = stage.querySelector('[data-component-id="' + selected.componentId + '"]');
         if (element) {
@@ -4139,6 +4246,19 @@
       selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId + (textSelected ? " \xB7 drag top edge \xB7 resize corner" : "") : objectSelected ? selected.slideId + " @ " + selected.objectId + " \xB7 " + selected.objectKind : "Select a component or visual object in edit mode";
     }
     function render() {
+      if (!previewMode && document.body.classList.contains("present-only")) {
+        var destination = visibleDestination(state.order, activeOrder(), currentId);
+        if (!destination) {
+          exitFullscreenPresentation();
+          showToast("No visible slides. Show a slide before presenting.");
+          return;
+        }
+        if (destination !== currentId) {
+          currentId = destination;
+          selected = null;
+          history.replaceState(null, "", "#" + currentId);
+        }
+      }
       var generation = ++renderGeneration;
       if (previews) previews.pause();
       clearTimeout(prefetchTimer);
@@ -4186,7 +4306,7 @@
         });
         if (previewMode) return;
         prefetchTimer = setTimeout(function() {
-          var next = state.order[currentIndex() + 1];
+          var next = activeOrder()[currentIndex() + 1];
           if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {
           });
         }, 1200);
@@ -4195,7 +4315,7 @@
         stage.textContent = error.message;
         setStatus("Slide unavailable \xB7 reload", "error");
       });
-      undoButton.disabled = !undoBase;
+      undoButton.disabled = !editHistory.available();
       editToggle.textContent = editMode ? "Done editing" : "Enable edit";
       editToggle.classList.toggle("active", editMode);
       document.querySelector("[data-add-text]").hidden = !editMode;
@@ -4228,6 +4348,10 @@
       addTextBox((event.clientX - box.left) * 1920 / box.width, (event.clientY - box.top) * 1080 / box.height);
     });
     function selectComponent(slideId, componentId, element) {
+      if (element && !element.isContentEditable) {
+        stage.tabIndex = -1;
+        stage.focus({ preventScroll: true });
+      }
       selected = slideId ? { slideId, componentId } : null;
       stage.querySelectorAll(".selected-visual-object").forEach(function(node) {
         node.classList.remove("selected-visual-object");
@@ -4298,18 +4422,44 @@
       render();
     }
     function step(delta) {
-      var next = Math.max(0, Math.min(state.order.length - 1, currentIndex() + delta));
-      selectSlide(state.order[next]);
+      var order = activeOrder();
+      var next = Math.max(0, Math.min(order.length - 1, currentIndex() + delta));
+      if (order[next]) selectSlide(order[next]);
     }
     function undo() {
-      if (!undoBase) return;
-      state = copy(undoBase);
-      currentId = state.order[0];
+      clearTimeout(inputTimer);
+      var next;
+      try {
+        next = editHistory.undo(state);
+      } catch (error) {
+        showToast(error.message);
+        return;
+      }
+      if (!next) return;
+      state = next;
       selected = null;
-      undoBase = null;
       render();
       persist();
-      showToast("Reverted the last edit burst.");
+      showToast("Undid the last change.");
+    }
+    function deleteSelectedObject() {
+      if (!editMode || !selected || selected.slideId !== currentId) return false;
+      beginChange();
+      if (selected.visualObject) {
+        if (!state.objects[currentId]) state.objects[currentId] = {};
+        state.objects[currentId][selected.objectId] = Object.assign(
+          {},
+          state.objects[currentId][selected.objectId],
+          { kind: selected.objectKind, deleted: true }
+        );
+      } else updateOverlay(currentId, selected.componentId, "deleted", true);
+      selected = null;
+      stage.tabIndex = -1;
+      stage.focus({ preventScroll: true });
+      render();
+      persist();
+      showToast("Object deleted. Undo restores it.");
+      return true;
     }
     thumbList.addEventListener("click", function(event) {
       var card = event.target.closest("[data-id]");
@@ -4415,18 +4565,32 @@
     });
     document.addEventListener("keydown", function(event) {
       if (document.querySelector("dialog[open]")) return;
-      if (event.target && event.target.isContentEditable) return;
+      if (event.isComposing) return;
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z" && (!typingTarget(event.target) || stage.contains(event.target))) {
+        event.preventDefault();
+        event.stopPropagation();
+        undo();
+        return;
+      }
+      if ((stage.contains(event.target) || event.target === document.body) && deletionKey(event) && deleteSelectedObject()) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (event.key === "Escape" && editMode && selected && typingTarget(event.target)) {
+        event.preventDefault();
+        stage.tabIndex = -1;
+        stage.focus({ preventScroll: true });
+        return;
+      }
+      if (typingTarget(event.target)) return;
       if (event.key === "ArrowLeft") step(-1);
       if (event.key === "ArrowRight") step(1);
       if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();
       if (event.key === "Escape" && document.body.classList.contains("present-only")) {
         exitFullscreenPresentation();
       }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        undo();
-      }
-    });
+    }, true);
     function resolveRoute(requested) {
       if (state.order.indexOf(requested) >= 0) return requested;
       for (var id of state.order) {

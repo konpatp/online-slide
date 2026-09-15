@@ -52,6 +52,14 @@ def main():
                 assert before['objects'][spec['id']]['human-highlight']['x']>.6
                 assert before['objects'][spec['id']]['human-highlight']['width']>.19
                 assert before['objects'][spec['id']]['human-pointer']['to']!=[.73,.54]
+                arrow.click()
+                page.keyboard.press('Delete')
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert not arrow.is_visible()
+                page.locator('[data-undo]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert arrow.is_visible()
+                assert before['objects']==page.evaluate("fetch('api/deck-state').then(r=>r.json()).then(s=>s.objects)")
                 spec['annotations'].reverse();path.write_text(json.dumps(spec));page.reload(wait_until='networkidle')
                 after=page.evaluate("fetch('api/deck-state').then(r=>r.json())")
                 assert before['objects']==after['objects'] and before['overlays']==after['overlays']

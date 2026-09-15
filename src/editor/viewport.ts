@@ -3,8 +3,9 @@ const EDITOR_MAX_SLIDE_WIDTH = 1280;
 interface ViewportHost {
  stage:HTMLElement; stageWrap:HTMLElement; presentationExit:HTMLElement; fullscreenToggle:HTMLElement;
  applyAllTextRegions():void; syncTextRegionFrame():void; showToast(message:string):void;
+ canPresent():boolean; modeChanged():void;
 }
-export function createViewport({stage,stageWrap,presentationExit,fullscreenToggle,applyAllTextRegions,syncTextRegionFrame,showToast}:ViewportHost) {
+export function createViewport({stage,stageWrap,presentationExit,fullscreenToggle,applyAllTextRegions,syncTextRegionFrame,showToast,canPresent,modeChanged}:ViewportHost) {
 let presentationExitTimer: ReturnType<typeof setTimeout> | undefined;
 function stageContentBox() {
   var style = getComputedStyle(stageWrap);
@@ -49,6 +50,8 @@ function removePresentationQuery() {
 }
 
 function setPresentationMode(enabled: boolean) {
+  if(enabled && !canPresent()) {showToast('No visible slides. Show a slide before presenting.');return false;}
+  const changed=document.body.classList.contains('present-only')!==enabled;
   document.body.classList.toggle("present-only", enabled);
   fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
   requestAnimationFrame(fitStage);
@@ -57,6 +60,8 @@ function setPresentationMode(enabled: boolean) {
     clearTimeout(presentationExitTimer);
     presentationExit.classList.remove("visible");
   }
+  if(changed) modeChanged();
+  return true;
 }
 
 function exitFullscreenPresentation() {
@@ -73,7 +78,7 @@ function toggleFullscreenPresentation() {
     exitFullscreenPresentation();
     return;
   }
-  setPresentationMode(true);
+  if(!setPresentationMode(true)) return;
   var request = document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
   if (request && request.catch) {
     request.catch(function () {

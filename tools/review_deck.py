@@ -52,7 +52,7 @@ def main():
     with serving(args) as base, sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1920, "height": 1080})
-        page.on("pageerror", lambda error: findings.append(str(error)))
+        page.on("pageerror", lambda error: findings.append(f"{page.url}: {error.stack or error}"))
         page.goto(base + "/?present=1", wait_until="networkidle")
         state = page.evaluate("fetch('api/deck-state').then(r => r.json())")
         order = state["order"]
@@ -71,6 +71,11 @@ def main():
         # of the preceding chart, nor late work from an abandoned renderer.
         transitions=[]
         for key in sequence + sequence[:1]:
+            # Hidden slides are authoring-only. Review them in the editor,
+            # never add a production bypass to the audience visibility rule.
+            presenting=page.locator('body').evaluate("el=>el.classList.contains('present-only')")
+            if presenting != (key not in state['hidden']):
+                page.locator('[data-presentation-exit]' if presenting else '[data-fullscreen-toggle]').click(force=True)
             page.evaluate("id => {location.hash=id}",key)
             try:
                 page.wait_for_function("""id => document.fonts.status === 'loaded' &&

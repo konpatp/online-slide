@@ -6,7 +6,7 @@ export type JsonMap = { [key: string]: Json };
 export interface TextMark { start: number; end: number; bold: boolean }
 export interface RichText { text: string; marks: TextMark[] }
 export interface Region { x: number; y: number; width: number; height: number }
-export interface TextStyle { color?: string; fontScale?: number; hidden?: boolean; region?: Region }
+export interface TextStyle { color?: string; fontScale?: number; hidden?: boolean; deleted?: boolean; region?: Region }
 // Marks are offsets into THIS text, never an independent property command.
 export type TextOverlay = TextStyle & ({ text: string; marks?: TextMark[] } | { text?: never; marks?: never });
 export interface TextBox extends TextStyle { text: string; marks?: TextMark[]; region: Region }

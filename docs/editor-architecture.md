@@ -22,11 +22,19 @@ Strict TypeScript owns the editing behavior:
 | `editor/regions.ts` | Bounded regions and canonical-coordinate gestures |
 | `editor/fit.ts` | Fitting and observer lifetime |
 | `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
+| `editor/navigation.ts` | Visible-only audience sequence, counters, and hidden-route resolution |
 | `editor/order.ts`, `editor/sidebar-order.ts` | Identity-based reorder commands and SortableJS gesture adapter |
+| `editor/history.ts`, `editor/keyboard.ts` | Bounded semantic undo history and text-versus-object shortcut ownership |
 
 Acknowledging our own save does not reconstruct unchanged slide DOM. Only
 changed remote content/source requires rendering. The browser keeps the active
 editing node and caret; `browser_save_lifecycle.py` exercises delayed ACKs.
+Autosave does not clear undo history. An inverse edit is replayed over current
+state only if its affected values still match; unrelated remote changes survive.
+Explicit source changes and conflicts reset session history rather than allowing
+stale inverses. Deletion is a source-bound `deleted` tombstone on a component or
+visual object, not removal of scientific source. Renderers preserve layout and
+hide the deleted object in both editor and presentation modes.
 
 Each recipe has a module under `src/recipes/`. Recipes own spatial decisions,
 not persistence. JointJS, JSXGraph, KaTeX and Plotly retain native rendering

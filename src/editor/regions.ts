@@ -5,7 +5,7 @@ interface RegionOptions {minSize?:number; fitMode?:string; alwaysFit?:boolean; f
 interface Binding {key:string; slideId:string; componentId:string; element:HTMLElement; host:HTMLElement; minSize:number; fitMode:string; alwaysFit:boolean; fitRegistered:boolean}
 interface Gesture {kind:'move'|'resize';binding:Binding;canvas:HTMLElement;canvasRect:DOMRect;hostRect:DOMRect;startX:number;startY:number;region:Region}
 interface RegionHost {
-  getComponent(slideId:string,componentId:string): {kind:string; region?:Region} | null;
+  getComponent(slideId:string,componentId:string): {kind:string; region?:Region; deleted?:boolean} | null;
   getSelected(): {slideId:string;componentId:string} | null;
   isEditMode(): boolean;
   beginChange(): void; persist(): void;
@@ -73,6 +73,7 @@ function applyTextRegion(binding: Binding) {
   if (!canvas) return;
   var component = getComponent(binding.slideId,binding.componentId);
   if (!component) return;
+  binding.host.classList.toggle('curator-deleted', Boolean(component.deleted));
   var region = component.region;
   if (!region) {
     if (binding.alwaysFit) ensureTextRegionFit(binding);
@@ -106,7 +107,7 @@ function currentTextRegionBinding() {
   const selected = getSelected();
   if (!selected || !isEditMode()) return null;
   var component = getComponent(selected.slideId,selected.componentId);
-  if (!component || !['text','chart'].includes(component.kind)) return null;
+  if (!component || component.deleted || !['text','chart'].includes(component.kind)) return null;
   return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
 }
 
@@ -141,6 +142,7 @@ function syncTextRegionFrame() {
     removeTextRegionFrame();
     textRegionFrame = document.createElement("div");
     textRegionFrame.className = "text-region-frame";
+    textRegionFrame.addEventListener('click', event => event.stopPropagation());
     textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
     var move = document.createElement("button");
     move.type = "button";
@@ -181,6 +183,7 @@ function startTextRegionGesture(kind: 'move' | 'resize', event: PointerEvent) {
   if (!binding) return;
   event.preventDefault();
   event.stopPropagation();
+  (event.currentTarget as HTMLElement).focus({preventScroll:true});
   var canvas = binding.host.closest<HTMLElement>(".slide-canvas");
   if (!canvas) return;
   var canvasRect = canvas.getBoundingClientRect();

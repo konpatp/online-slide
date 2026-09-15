@@ -54,6 +54,7 @@ function evidenceTable(canvas, slide) {
   var body = document.createElement("div");
   body.className = "recipe-body table-body";
   if(slide.data.visibility && effectiveComponent(slide,slide.data.visibility).hidden) body.classList.add('curator-hidden-component');
+  if(slide.data.visibility && effectiveComponent(slide,slide.data.visibility).deleted) body.classList.add('curator-deleted');
   body.setAttribute('data-table-panel-id',slide.data.id || 'main');
   if(heat) {
     body.classList.add('heatmap-table-body');

@@ -230,6 +230,10 @@ function renderPipeline(host, spec, options = {}) {
   });
 
   function publishPositions() {
+    graph.getCells().forEach((model) => {
+      const view=paper.findViewByModel(model);
+      if(view) view.el.classList.toggle('curator-deleted', Boolean(options.isDeleted && options.isDeleted(String(model.id))));
+    });
     if (options.onNodePosition) {
       nodeModels.forEach((model, id) => options.onNodePosition(
         id, model.getBBox(), { width, height, scale },
