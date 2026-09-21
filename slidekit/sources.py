@@ -284,6 +284,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             if 'tableSelector' in data:
                 selector=data['tableSelector']
                 _require(isinstance(selector,dict),f'{source}: tableSelector must be an object')
+                _require(selector.get('control','slider') in ('slider','buttons'),f'{source}: tableSelector control must be slider or buttons')
                 ref(selector.get('label'),'tableSelector.label')
                 options=selector.get('options')
                 _require(isinstance(options,list) and len(options)==len(ids),f'{source}: table selector must cover every table')

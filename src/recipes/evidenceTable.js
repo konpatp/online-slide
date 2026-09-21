@@ -27,7 +27,7 @@ function evidenceTable(canvas, slide) {
       }
       if(selector) {
         var controls=document.createElement('div');
-        global.renderScientificFacetControls(controls,slide,[Object.assign({id:'table'},selector)],{table:active},function(_,value){
+        global.renderScientificFacetControls(controls,slide,[Object.assign({id:'table',control:'slider'},selector)],{table:active},function(_,value){
           active=value;
           try {localStorage.setItem(storageKey,value);} catch (_) {}
           renderTables();

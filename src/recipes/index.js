@@ -19,6 +19,35 @@ global.renderScientificFacetControls = function (host, slide, selectors, selecti
     var group = document.createElement("div"); group.className = "gallery-selector";
     group.appendChild(editableText(slide, selector.label, "span", "gallery-selector-label"));
     var options = document.createElement("div"); options.className = "gallery-option-row";
+    if (selector.control === 'slider') {
+      var input=document.createElement('input'); input.type='range';
+      input.min='0'; input.max=String(selector.options.length-1); input.step='1';
+      input.value=String(Math.max(0,selector.options.findIndex(option=>option.value===selection[selector.id])));
+      input.setAttribute('aria-label',effectiveComponent(slide,selector.label).text);
+      input.style.width='600px'; input.style.maxWidth='70vw'; input.style.accentColor='#2f6fed';
+      var output=document.createElement('output');
+      function showValue() {
+        var option=selector.options[Number(input.value)];
+        output.textContent=effectiveComponent(slide,option.label).text;
+        input.setAttribute('aria-valuetext',output.textContent);
+      }
+      showValue();
+      input.addEventListener('input',showValue);
+      input.addEventListener('keydown',event=>event.stopPropagation());
+      input.addEventListener('click',event=>event.stopPropagation());
+      input.addEventListener('change',function(event) {
+        event.stopPropagation();
+        var focused=document.activeElement===input;
+        onChange(selector.id,selector.options[Number(input.value)].value);
+        if(focused) {
+          var replacement=document.querySelector('[data-selector-slide="'+slide.id+'"] input[type="range"]');
+          if(replacement) replacement.focus({preventScroll:true});
+        }
+      });
+      group.setAttribute('data-selector-slide',slide.id);
+      options.appendChild(input); options.appendChild(output);
+      group.appendChild(options);host.appendChild(group);return;
+    }
     selector.options.forEach(function (option) {
       var button = document.createElement("button"); button.type = "button";
       button.textContent = effectiveComponent(slide, option.label).text;

@@ -70,6 +70,11 @@ class TablePanelTests(unittest.TestCase):
             {'value':p['id'],'label':p['heading']} for p in spec['data']['tables']]}
         spec['data']['initialTable']='secondary'
         validate_slide_spec(spec)
+        for control in ('slider','buttons'):
+            spec['data']['tableSelector']['control']=control
+            validate_slide_spec(spec)
+        bad=copy.deepcopy(spec);bad['data']['tableSelector']['control']='unknown'
+        with self.assertRaisesRegex(ContractError,'control'):validate_slide_spec(bad)
         bad=copy.deepcopy(spec);bad['data']['tableSelector']['options'].pop()
         with self.assertRaisesRegex(ContractError,'cover every table'):validate_slide_spec(bad)
         bad=copy.deepcopy(spec);bad['data']['tableSelector']['options'][1]['value']='primary'
