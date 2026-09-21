@@ -1,4 +1,5 @@
 """Checkpoint control uses discrete options and keeps keyboard operation local."""
+# test-tier: maintenance
 import unittest
 from pathlib import Path
 from playwright.sync_api import sync_playwright
