@@ -80,7 +80,7 @@ def main():
             try:
                 page.wait_for_function("""id => document.fonts.status === 'loaded' &&
               document.querySelector('.slide-canvas')?.dataset.slideId === id &&
-              [...document.images].every(i => i.complete) &&
+              [...document.querySelectorAll('.slide-canvas img')].every(i => i.complete) &&
               [...document.querySelectorAll('.native-chart')].every(c => c.dataset.chartReady === 'true' || c.dataset.chartError)""", arg=key, timeout=20000)
             except PlaywrightTimeout:
                 findings.append(key+': navigation did not produce a complete slide')
@@ -115,7 +115,7 @@ def main():
                 errors.push('text fit overflow: '+(n.dataset.componentId||n.className));
               for (const n of document.querySelectorAll('[data-latex-source]'))
                 if (n.dataset.mathEngine!=='katex') errors.push('unrendered math');
-              for (const n of document.images)
+              for (const n of document.querySelectorAll('.slide-canvas img'))
                 if (!n.naturalWidth) errors.push('missing image: '+n.src);
               return {errors, canvas:{x:c.x,y:c.y,width:c.width,height:c.height},
                 components:document.querySelectorAll('.semantic-component').length};

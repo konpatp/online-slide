@@ -463,7 +463,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     resizeChart: function(host) {
       // newPlot exposes partial layout internals before its promise resolves.
       // Region fitting must not relayout that half-initialized chart.
-      if(host.isConnected && host.dataset.chartReady==='true' && host._fullLayout && host.layout && window.Plotly && (host.layout.width!==host.clientWidth || host.layout.height!==host.clientHeight))
+      if(host.isConnected && host.clientWidth>0 && host.clientHeight>0 && host.dataset.chartReady==='true' && host._fullLayout && host.layout && window.Plotly && (host.layout.width!==host.clientWidth || host.layout.height!==host.clientHeight))
         window.Plotly.relayout(host,{width:host.clientWidth,height:host.clientHeight});
     }
   });

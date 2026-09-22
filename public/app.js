@@ -4378,7 +4378,7 @@
       persist,
       updateOverlay,
       resizeChart: function(host) {
-        if (host.isConnected && host.dataset.chartReady === "true" && host._fullLayout && host.layout && window.Plotly && (host.layout.width !== host.clientWidth || host.layout.height !== host.clientHeight))
+        if (host.isConnected && host.clientWidth > 0 && host.clientHeight > 0 && host.dataset.chartReady === "true" && host._fullLayout && host.layout && window.Plotly && (host.layout.width !== host.clientWidth || host.layout.height !== host.clientHeight))
           window.Plotly.relayout(host, { width: host.clientWidth, height: host.clientHeight });
       }
     });
