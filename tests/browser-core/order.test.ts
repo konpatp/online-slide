@@ -1,6 +1,15 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {moveBefore} from '../../src/editor/order';
+import {moveBefore, moveManyBefore} from '../../src/editor/order';
+
+test('group move preserves deck ordering and rejects stale identities', () => {
+  const order = ['a','hidden','b','c','d'];
+  assert.deepEqual(moveManyBefore(order,['b','a'],null), ['hidden','c','d','a','b']);
+  assert.deepEqual(moveManyBefore(order,['c','d'],'a'), ['c','d','a','hidden','b']);
+  assert.deepEqual(moveManyBefore(order,['a','missing'],null), order);
+  assert.deepEqual(moveManyBefore(order,['a','b'],'b'), order);
+  assert.deepEqual(moveManyBefore(order,[],null), order);
+});
 
 test('relative moves preserve every identity and never mutate the source', () => {
   const order = ['a','hidden','b','created'];

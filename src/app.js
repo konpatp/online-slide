@@ -3,7 +3,7 @@ import {createTextRegions} from './editor/regions';
 import {createTableEditor} from './editor/tables';
 import {copy, snapshot, sameSnapshot} from './editor/snapshot';
 import {SaveQueue} from './editor/save-queue';
-import {moveBefore} from './editor/order';
+import {moveManyBefore} from './editor/order';
 import {createSidebarOrder} from './editor/sidebar-order';
 import {EditHistory} from './editor/history';
 import {deletionKey, typingTarget} from './editor/keyboard';
@@ -746,7 +746,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       card.className = "thumb" + (id === currentId ? " current" : "") +
         (state.hidden.indexOf(id) >= 0 ? " hidden" : "");
       card.setAttribute("data-id", id);
-      card.title = 'Drag to reorder · click to open';
+      card.title = 'Click to open · Shift-click to select a range · drag selection to reorder';
       var number = document.createElement("div");
       number.className = "thumb-index";
       number.textContent = String(index + 1).padStart(2, "0");
@@ -945,13 +945,14 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   function commitOrder(id, before) {
-    var next = moveBefore(state.order, id, before);
+    var ids = Array.isArray(id) ? id : [id];
+    var next = moveManyBefore(state.order, ids, before);
     if (JSON.stringify(next) === JSON.stringify(state.order)) return;
     beginChange(); state.order = next;
     // Reordering is not navigation: keep the current canvas, editor and hash.
     position.textContent = (currentIndex() + 1) + ' / ' + state.order.length;
     renderThumbs(); persist();
-    showToast('Slide moved to position ' + (next.indexOf(id) + 1) + '.');
+    showToast(ids.length > 1 ? ids.length + ' slides moved together.' : 'Slide moved to position ' + (next.indexOf(ids[0]) + 1) + '.');
   }
 
   var sidebarOrder = previewMode ? null : createSidebarOrder(thumbList, {

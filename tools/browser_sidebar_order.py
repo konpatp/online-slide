@@ -57,6 +57,9 @@ def main():
                     page.wait_for_timeout(80)
                     assert page.locator('.thumb-drag-copy .thumb-title').is_visible()
                     assert page.locator('.thumb-drag-copy iframe').count()==0
+                    # MultiDrag folds selected cards before positioning the group.
+                    page.wait_for_timeout(180)
+                    b=destination.bounding_box()
                     page.mouse.move(b['x']+70,b['y']+b['height']*(.8 if after else .2),steps=15)
                     page.wait_for_timeout(200)
                     if cancel: page.keyboard.press('Escape')
@@ -85,6 +88,31 @@ def main():
                 drag(expected[0],expected[2],cancel=True)
                 assert order()==expected
                 assert json.loads((root/'state.json').read_text())['revision']==revision
+                page.reload(wait_until='networkidle')
+                assert order()==expected
+                # Real Shift-click selection and MultiDrag: one save/Undo unit.
+                page.locator(f'.thumb[data-id="{expected[0]}"] .thumb-art').click()
+                page.locator(f'.thumb[data-id="{expected[1]}"] .thumb-art').click(modifiers=['Shift'])
+                assert page.locator('.thumb-selected').count()==2
+                active_before=page.locator('.slide-canvas').get_attribute('data-slide-id')
+                drag(expected[0],expected[3])
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                grouped=expected[2:4]+expected[:2]+expected[4:]
+                assert order()==grouped, (expected,grouped,order())
+                assert page.locator('.slide-canvas').get_attribute('data-slide-id')==active_before
+                group_saved=json.loads((root/'state.json').read_text())
+                assert group_saved['order']==grouped
+                reopened=browser.new_page()
+                reopened.goto(url,wait_until='networkidle')
+                assert reopened.locator('[data-thumb-list] > .thumb').evaluate_all('(ns)=>ns.map(n=>n.dataset.id)')==grouped
+                reopened.reload(wait_until='networkidle')
+                assert reopened.locator('[data-thumb-list] > .thumb').evaluate_all('(ns)=>ns.map(n=>n.dataset.id)')==grouped
+                reopened.close()
+                for field in ('hidden','overlays','tables','objects','textBoxes'):
+                    assert group_saved.get(field)==saved.get(field), field
+                page.locator('[data-undo]').click()
+                page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
+                assert order()==expected
                 page.reload(wait_until='networkidle')
                 assert order()==expected
                 # Normal clicking still opens one slide; buttons remain usable.
