@@ -32,18 +32,23 @@ global.renderScientificFacetControls = function (host, slide, selectors, selecti
         input.setAttribute('aria-valuetext',output.textContent);
       }
       showValue();
-      input.addEventListener('input',showValue);
+      var lastValue=input.value;
       input.addEventListener('keydown',event=>event.stopPropagation());
       input.addEventListener('click',event=>event.stopPropagation());
-      input.addEventListener('change',function(event) {
+      function selectValue(event) {
         event.stopPropagation();
+        showValue();
+        if(input.value===lastValue) return;
+        lastValue=input.value;
         var focused=document.activeElement===input;
         onChange(selector.id,selector.options[Number(input.value)].value);
         if(focused) {
           var replacement=document.querySelector('[data-selector-slide="'+slide.id+'"] input[type="range"]');
           if(replacement) replacement.focus({preventScroll:true});
         }
-      });
+      }
+      input.addEventListener('input',selectValue);
+      input.addEventListener('change',selectValue);
       group.setAttribute('data-selector-slide',slide.id);
       options.appendChild(input); options.appendChild(output);
       group.appendChild(options);host.appendChild(group);return;
@@ -52,7 +57,11 @@ global.renderScientificFacetControls = function (host, slide, selectors, selecti
       var button = document.createElement("button"); button.type = "button";
       button.textContent = effectiveComponent(slide, option.label).text;
       button.setAttribute("aria-pressed", String(selection[selector.id] === option.value));
-      button.addEventListener("click", function (event) { event.stopPropagation(); onChange(selector.id, option.value); });
+      button.addEventListener("click", function (event) {
+        event.stopPropagation();
+        options.querySelectorAll('button').forEach(other=>other.setAttribute('aria-pressed',String(other===button)));
+        onChange(selector.id, option.value);
+      });
       options.appendChild(button);
     });
     group.appendChild(options); host.appendChild(group);

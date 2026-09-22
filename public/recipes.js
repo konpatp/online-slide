@@ -194,7 +194,9 @@
     function evidenceTable(canvas, slide) {
       if (slide.data.tables) {
         let renderTables2 = function() {
-          collection.textContent = "";
+          Array.from(collection.children).forEach(function(child) {
+            if (child !== controls) child.remove();
+          });
           var sharedHeat = slide.data.heatmap;
           if (sharedHeat && !sharedHeat.domain) {
             var values = function(editedId, editedText) {
@@ -204,18 +206,6 @@
               });
             };
             sharedHeat = Object.assign({}, sharedHeat, { values });
-          }
-          if (selector) {
-            var controls = document.createElement("div");
-            global.renderScientificFacetControls(controls, slide, [Object.assign({ id: "table", control: "slider" }, selector)], { table: active }, function(_, value) {
-              active = value;
-              try {
-                localStorage.setItem(storageKey, value);
-              } catch (_2) {
-              }
-              renderTables2();
-            });
-            collection.appendChild(controls);
           }
           slide.data.tables.filter(function(table2) {
             return !selector || table2.id === active;
@@ -240,6 +230,19 @@
           if (!slide.data.tables.some(function(table2) {
             return table2.id === active;
           })) active = slide.data.tables[0].id;
+        }
+        var controls = null;
+        if (selector) {
+          controls = document.createElement("div");
+          global.renderScientificFacetControls(controls, slide, [Object.assign({ id: "table", control: "slider" }, selector)], { table: active }, function(_, value) {
+            active = value;
+            try {
+              localStorage.setItem(storageKey, value);
+            } catch (_2) {
+            }
+            renderTables2();
+          });
+          collection.appendChild(controls);
         }
         canvas.appendChild(collection);
         renderTables2();
@@ -1253,8 +1256,19 @@
             var option = selector.options[Number(input.value)];
             output.textContent = effectiveComponent(slide, option.label).text;
             input.setAttribute("aria-valuetext", output.textContent);
+          }, selectValue2 = function(event) {
+            event.stopPropagation();
+            showValue2();
+            if (input.value === lastValue) return;
+            lastValue = input.value;
+            var focused = document.activeElement === input;
+            onChange(selector.id, selector.options[Number(input.value)].value);
+            if (focused) {
+              var replacement = document.querySelector('[data-selector-slide="' + slide.id + '"] input[type="range"]');
+              if (replacement) replacement.focus({ preventScroll: true });
+            }
           };
-          var showValue = showValue2;
+          var showValue = showValue2, selectValue = selectValue2;
           var input = document.createElement("input");
           input.type = "range";
           input.min = "0";
@@ -1267,18 +1281,11 @@
           input.style.accentColor = "#2f6fed";
           var output = document.createElement("output");
           showValue2();
-          input.addEventListener("input", showValue2);
+          var lastValue = input.value;
           input.addEventListener("keydown", (event) => event.stopPropagation());
           input.addEventListener("click", (event) => event.stopPropagation());
-          input.addEventListener("change", function(event) {
-            event.stopPropagation();
-            var focused = document.activeElement === input;
-            onChange(selector.id, selector.options[Number(input.value)].value);
-            if (focused) {
-              var replacement = document.querySelector('[data-selector-slide="' + slide.id + '"] input[type="range"]');
-              if (replacement) replacement.focus({ preventScroll: true });
-            }
-          });
+          input.addEventListener("input", selectValue2);
+          input.addEventListener("change", selectValue2);
           group.setAttribute("data-selector-slide", slide.id);
           options.appendChild(input);
           options.appendChild(output);
@@ -1293,6 +1300,7 @@
           button.setAttribute("aria-pressed", String(selection[selector.id] === option.value));
           button.addEventListener("click", function(event) {
             event.stopPropagation();
+            options.querySelectorAll("button").forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
             onChange(selector.id, option.value);
           });
           options.appendChild(button);

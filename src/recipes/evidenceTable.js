@@ -15,8 +15,19 @@ function evidenceTable(canvas, slide) {
       try { active=localStorage.getItem(storageKey) || active; } catch (_) {}
       if(!slide.data.tables.some(function(table){return table.id===active;})) active=slide.data.tables[0].id;
     }
+    var controls=null;
+    if(selector) {
+      controls=document.createElement('div');
+      global.renderScientificFacetControls(controls,slide,[Object.assign({id:'table',control:'slider'},selector)],{table:active},function(_,value){
+        active=value;
+        try {localStorage.setItem(storageKey,value);} catch (_) {}
+        renderTables();
+      });
+      collection.appendChild(controls);
+    }
     function renderTables() {
-      collection.textContent='';
+      // Preserve the live range element and its pointer capture during a drag.
+      Array.from(collection.children).forEach(function(child){if(child!==controls) child.remove();});
       var sharedHeat=slide.data.heatmap;
       if(sharedHeat && !sharedHeat.domain) {
         var values=function(editedId,editedText) { return slide.data.tables.flatMap(function(data) {
@@ -24,15 +35,6 @@ function evidenceTable(canvas, slide) {
           return effectiveTable(context).rows.flatMap(row=>row.cells.map(id=>numericCell(id===editedId?editedText:effectiveComponent(context,id).text)));
         }); };
         sharedHeat=Object.assign({},sharedHeat,{values:values});
-      }
-      if(selector) {
-        var controls=document.createElement('div');
-        global.renderScientificFacetControls(controls,slide,[Object.assign({id:'table',control:'slider'},selector)],{table:active},function(_,value){
-          active=value;
-          try {localStorage.setItem(storageKey,value);} catch (_) {}
-          renderTables();
-        });
-        collection.appendChild(controls);
       }
       slide.data.tables.filter(function(table){return !selector || table.id===active;}).forEach(function(data) {
       if(data.heading) collection.appendChild(editableText(slide,data.heading,'div','table-panel-heading'));
