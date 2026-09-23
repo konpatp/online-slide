@@ -12,7 +12,7 @@ class EditConflict(ContractError):
 
 def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
                          catalog: dict[str, dict[str, Any]],
-                         base_sources: Any) -> dict[str, Any]:
+                         base_sources: Any, revisions: dict[str, str] | None = None) -> dict[str, Any]:
     """Three-way merge by semantic edit target, never last-writer-wins.
 
     Ordering is one conflict domain; visibility is per slide, overlays per
@@ -32,7 +32,7 @@ def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
     validate_state_snapshot(base, current, subset)
     validate_state_snapshot(candidate, current, subset)
     result = copy.deepcopy(current)
-    revisions = source_revisions(catalog)
+    revisions = revisions if revisions is not None else source_revisions(catalog)
     missing = object()
 
     def choose(old: Any, new: Any, remote: Any, path: tuple[str, ...]) -> Any:

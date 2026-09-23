@@ -5,13 +5,43 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="description" content="A declarative scientific slide recipe and live editing pilot">
     <title>ScientificSlideKit · online-slide</title>
-    <base href="/">
     <script>
-      document.querySelector("base").href = location.pathname.endsWith("/")
-        ? location.pathname : location.pathname + "/";
+      // Relative asset URLs resolve against the deck directory. A static
+      // root base element made the preload scanner fetch every asset from the
+      // site root (ten 404 round trips per page and per preview frame).
+      if (!location.pathname.endsWith("/")) {
+        var base = document.createElement("base");
+        base.href = location.pathname + "/";
+        document.head.appendChild(base);
+      }
       window.slidekitAssetRevision = "__ASSET_REVISION__";
     </script>
-    <script src="runtime-version.js?v=__ASSET_REVISION__"></script>
+    <script>
+      // Inline: a separate script would delay the bootstrap request by a round trip.
+      /* Never combine a running renderer with another release's source or ACK. */
+      (function () {
+        'use strict';
+        let stale = false;
+        window.slidekitRuntimeStale = () => stale;
+        window.slidekitRequest = async function (url, options) {
+          if (stale) throw new Error('Slide renderer updated. Reload to continue; local edits are retained.');
+          const headers = new Headers(options?.headers);
+          headers.set('X-Slidekit-Runtime', window.slidekitAssetRevision);
+          const requestUrl = new URL(url, document.baseURI);
+          // Immutable source-response caches must not carry an older runtime header
+          // into a newly loaded renderer, even when scientific source is unchanged.
+          requestUrl.searchParams.set('runtime', window.slidekitAssetRevision);
+          const response = await fetch(requestUrl, {...options, headers});
+          const revision = response.headers.get('X-Slidekit-Runtime');
+          if (revision && revision !== window.slidekitAssetRevision) {
+            stale = true;
+            dispatchEvent(new Event('slidekit-runtime-changed'));
+            throw new Error('Slide renderer updated. Reload to continue; local edits are retained.');
+          }
+          return response;
+        };
+      }());
+    </script>
     <script>
       // Start useful data while the small editor shell downloads, not afterward.
       window.slidekitPreview = new URLSearchParams(location.search).get('preview') === '1' && parent !== window;
@@ -61,7 +91,10 @@
           <span class="eyebrow">SIX RECIPE PILOT</span>
             <strong>Slides</strong>
           </div>
-          <span class="count" data-slide-count>0</span>
+          <span class="count" data-slide-count>…</span>
+        </div>
+        <div class="thumb-skeleton" data-thumb-skeleton aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i>
         </div>
         <div class="thumb-list" data-thumb-list></div>
         <p class="rail-help">Shift-click to select a range, then drag to move slides together. Escape clears selection. Changes save automatically.</p>
@@ -70,7 +103,7 @@
       <section class="workspace" aria-label="Presentation workspace">
         <div class="workspace-bar">
           <button class="icon-button" type="button" data-prev aria-label="Previous slide">←</button>
-          <span class="position" data-position>1 / 1</span>
+          <span class="position" data-position>– / –</span>
           <button class="icon-button" type="button" data-next aria-label="Next slide">→</button>
           <span class="workspace-hint" data-selected-component>Select text, a table cell, node, connector, or vector</span>
           <button class="tool-button" type="button" data-add-text hidden>Add text</button>
@@ -103,7 +136,16 @@
           </div>
         </div>
         <div class="stage-wrap">
-          <div class="stage" data-stage aria-live="polite"></div>
+          <div class="stage" data-stage aria-live="polite">
+            <div class="stage-loading" role="status">
+              <div class="stage-loading-sweep"></div>
+              <div class="sk sk-kicker"></div>
+              <div class="sk sk-title"></div>
+              <div class="sk sk-title sk-short"></div>
+              <div class="sk-panels"><div class="sk"></div><div class="sk"></div></div>
+              <p class="stage-loading-label" data-loading-label>Loading deck…</p>
+            </div>
+          </div>
         </div>
         <div class="workspace-footer">
           <span><i class="dot" aria-hidden="true"></i> Semantic overlays · optimistic saves</span>

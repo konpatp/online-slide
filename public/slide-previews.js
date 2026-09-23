@@ -2,7 +2,7 @@
  * No screenshot service, duplicate layout implementation, or eager deck fetch. */
 (function () {
   'use strict';
-  window.SlidePreviews = function (root, payloadFor) {
+  window.SlidePreviews = function (root, payloadFor, warm) {
     var records = new Map(), enabled = false, active = null;
     var observer = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
@@ -28,8 +28,12 @@
     }
     function pump() {
       if (!enabled || active || document.hidden) return;
-      var record = Array.from(records.values()).find(function(r) {return r.visible && !r.frame && !r.failed;});
+      var queued = Array.from(records.values()).filter(function(r) {return r.visible && !r.frame && !r.failed;});
+      var record = queued[0];
       if (!record) return;
+      // Frames render one at a time, but their sources download together:
+      // one multiplexed round trip instead of one per thumbnail.
+      if (warm) queued.slice(1, 7).forEach(function(r) {warm(r.id);});
       active = record;
       var frame = document.createElement('iframe');
       record.frame = frame;

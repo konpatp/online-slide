@@ -61,6 +61,57 @@ def source_revisions(catalog: dict[str, dict[str, Any]]) -> dict[str, str]:
     return {key: catalog_revision({key: spec}) for key, spec in catalog.items()}
 
 
+# Plotly's official "basic" partial bundle registers exactly these trace
+# types; every other trace needs the full distribution.
+BASIC_PLOTLY_TRACES = frozenset({"scatter", "bar", "pie"})
+
+
+def chart_runtime(catalog: dict[str, dict[str, Any]]) -> str:
+    """Smallest pinned Plotly bundle able to draw every chart in the catalog."""
+    for spec in catalog.values():
+        for component in spec["components"].values():
+            if component["kind"] == "chart" and any(
+                    trace.get("type", "scatter") not in BASIC_PLOTLY_TRACES
+                    for trace in component["figure"]["data"]):
+                return "plotly.min.js"
+    return "plotly-basic.min.js"
+
+
+class SourceCatalog:
+    """Validated slide sources, re-derived only when their inputs change.
+
+    Validation and fingerprints cost ~1 s for a large deck. Request paths
+    compare a stat signature of the source files plus the created-slide specs
+    instead, so unchanged sources are never re-read, re-validated or re-hashed.
+    """
+
+    def __init__(self, slides_dir: Path, created_slides=None):
+        self.slides_dir = Path(slides_dir)
+        self._signature: tuple | None = None
+        self.refresh(created_slides)
+
+    def _signature_for(self, created_slides) -> tuple:
+        files = []
+        for path in sorted(self.slides_dir.glob("*.json")):
+            stat = path.stat()
+            files.append((path.name, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+        return tuple(files), json.dumps(created_slides, sort_keys=True, separators=(",", ":"))
+
+    def refresh(self, created_slides=None) -> bool:
+        """Adopt changed sources; return whether the catalog revision changed."""
+        signature = self._signature_for(created_slides)
+        if signature == self._signature:
+            return False
+        catalog = load_catalog(self.slides_dir, created_slides)
+        revisions = source_revisions(catalog)
+        revision = catalog_revision(catalog)
+        changed = self._signature is None or revision != self.revision
+        self.catalog, self.revisions, self.revision = catalog, revisions, revision
+        self.chart_runtime = chart_runtime(catalog)
+        self._signature = signature
+        return changed
+
+
 def catalog_receipt(catalog: dict[str, dict[str, Any]]) -> dict[str, Any]:
     recipe_counts = {recipe: 0 for recipe in sorted(RECIPES)}
     component_counts = {"text": 0, "image": 0, "chart": 0}

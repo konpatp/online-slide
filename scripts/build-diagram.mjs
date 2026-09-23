@@ -39,3 +39,5 @@ await normalizeBundle(`public/${runtime}.js`);
 }
 await copyFile("node_modules/plotly.js-dist-min/plotly.min.js", "public/plotly.min.js");
 await copyFile("node_modules/plotly.js-dist-min/LICENSE", "public/plotly.LICENSE");
+// Decks whose charts use only scatter/bar/pie load this official partial bundle.
+await copyFile("node_modules/plotly.js-basic-dist-min/plotly-basic.min.js", "public/plotly-basic.min.js");

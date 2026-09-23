@@ -457,3 +457,24 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
 .recipe-section-divider.centered-section .recipe-header {text-align:center;}
 @media(max-width:650px) {.create-slide-body {grid-template-columns:1fr;gap:12px;}.create-slide-body nav {display:grid;grid-template-columns:1fr 1fr;}.create-slide-dialog {padding:16px;}.create-slide-dialog footer {gap:10px;}}
 .thumb.thumb-selected { box-shadow: inset 0 0 0 3px #2f6fed; background: #edf3ff; }
+
+/* Loading: one skeleton for first paint and slide-to-slide loads. It holds the
+   16:9 slide footprint before JavaScript fits the stage, so nothing jumps. */
+.stage:not([data-stage-fit]) { width: min(100%, 1280px, calc((100vh - 220px) * 16 / 9)); aspect-ratio: 16 / 9; }
+.stage-loading { position: absolute; inset: 0; overflow: hidden; padding: 5.1% 5.1% 4%; border-radius: 18px; background: white; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 3.2%; }
+.stage-loading-sweep { position: absolute; left: 0; right: 0; top: 0; height: 4px; overflow: hidden; background: #dfe7f5; }
+.stage-loading-sweep::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; border-radius: 4px; background: linear-gradient(90deg, rgba(47,111,237,0), var(--blue) 35%, #734ed0 70%, rgba(115,78,208,0)); animation: stage-sweep 1.25s cubic-bezier(.45,.05,.35,1) infinite; }
+.sk { border-radius: 10px; background: linear-gradient(100deg, #eef2f8 40%, #f8fafd 50%, #eef2f8 60%) 0 0 / 300% 100%; animation: sk-shimmer 1.6s linear infinite; }
+.sk-kicker { width: 14%; height: 2.2%; min-height: 6px; }
+.sk-title { width: 62%; height: 6.4%; min-height: 12px; }
+.sk-title.sk-short { width: 38%; margin-top: -1.4%; }
+.sk-panels { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 3%; margin-top: 2%; }
+.sk-panels .sk { border-radius: 14px; }
+.stage-loading-label { align-self: flex-end; margin: -1% 0 0; color: #8190a6; font-size: clamp(10px, 1.1vw, 13px); font-weight: 700; letter-spacing: .03em; line-height: 1; }
+.thumb-skeleton { display: grid; gap: 14px; padding: 2px 1px; }
+.thumb-skeleton i { display: block; aspect-ratio: 16 / 9; border-radius: 12px; border: 1px solid var(--line); background: linear-gradient(100deg, #eef2f8 40%, #f8fafd 50%, #eef2f8 60%) 0 0 / 300% 100%; animation: sk-shimmer 1.6s linear infinite; }
+.thumb-skeleton i:nth-child(n+2) { opacity: .8; } .thumb-skeleton i:nth-child(n+4) { opacity: .55; }
+body.preview-only .stage-loading { display: none; }
+@keyframes stage-sweep { from { transform: translateX(-100%); } to { transform: translateX(265%); } }
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .sk, .thumb-skeleton i, .stage-loading-sweep::after { animation: none; } }

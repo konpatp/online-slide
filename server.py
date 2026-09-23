@@ -35,12 +35,10 @@ from slidekit import (
     EditConflict,
     STATE_SCHEMA,
     catalog_receipt,
-    catalog_revision,
     empty_state,
-    load_catalog,
+    SourceCatalog,
     reconcile_state,
     merge_state_snapshot,
-    source_revisions,
     validate_state_snapshot,
 )
 from slide_templates import make_starter, starter_catalog
@@ -149,18 +147,17 @@ def make_server(
             display_map[f"uploads/{source.name}"] = f"uploads/{target.name}"
     display_revision = hashlib.sha256(json.dumps(display_map, sort_keys=True).encode()).hexdigest()
     runtime_assets = [
-        "index.html", "runtime-version.js",
+        "index.html",
         "styles.css", "app.js", "slide-previews.js", "new-slide.js", "recipes.js", "joint-diagram.js",
-        "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js",
+        "geometry-runtime.js", "geometry-runtime.css", "chart-panels.js", "plotly.min.js", "plotly-basic.min.js",
         "math-runtime.js", "math-runtime.css",
     ]
     asset_revision = hashlib.sha256(b"".join(
         (public_dir / name).read_bytes() for name in runtime_assets
     )).hexdigest()[:16]
     stored = load_state(seed_path, state_path)
-    catalog = load_catalog(slides_dir, stored.get("createdSlides"))
-    source_revision = catalog_revision(catalog)
-    state, changed = reconcile_state(stored, catalog)
+    sources = SourceCatalog(slides_dir, stored.get("createdSlides"))
+    state, changed = reconcile_state(stored, sources.catalog)
     if changed:
         atomic_write_json(state_path, state)
 
@@ -199,16 +196,12 @@ def make_server(
                    mimetypes.guess_type(path.name)[0] or "application/octet-stream", cache_control)
 
     def refresh_sources() -> None:
-        nonlocal catalog, source_revision, state
-        candidate = load_catalog(slides_dir, state.get("createdSlides"))
-        candidate_revision = catalog_revision(candidate)
-        if candidate_revision == source_revision:
+        nonlocal state
+        if not sources.refresh(state.get("createdSlides")):
             return
-        reconciled, reconciled_changed = reconcile_state(state, candidate)
+        reconciled, reconciled_changed = reconcile_state(state, sources.catalog)
         if reconciled_changed:
             atomic_write_json(state_path, reconciled)
-        catalog = candidate
-        source_revision = candidate_revision
         state = reconciled
 
     def deck_payload(compact=False) -> dict[str, Any]:
@@ -219,15 +212,17 @@ def make_server(
         payload["overlays"] = json.loads(json.dumps(state["overlays"]))
         payload["tables"] = json.loads(json.dumps(state.get("tables", {})))
         payload["objects"] = json.loads(json.dumps(state.get("objects", {})))
-        payload["sourceRevision"] = source_revision
+        payload["sourceRevision"] = sources.revision
         payload["runtimeRevision"] = asset_revision
         payload["displayRevision"] = display_revision
-        payload["slideRevisions"] = source_revisions(catalog)
+        payload["chartRuntime"] = sources.chart_runtime
+        payload["slideRevisions"] = sources.revisions
         if not compact:
-            payload["slides"] = catalog
+            payload["slides"] = sources.catalog
         return payload
 
     def bootstrap(requested):
+        catalog = sources.catalog
         payload = deck_payload(compact=True)
         # Enough for navigation and curator order/visibility, not unrelated evidence.
         payload['slides'] = {key: {field: slide[field] for field in
@@ -288,20 +283,20 @@ def make_server(
                         payload = starter_catalog()
                     elif route.startswith('/api/slides/'):
                         sid = unquote(route.removeprefix('/api/slides/'))
-                        if sid not in catalog:
+                        if sid not in sources.catalog:
                             response(self, 404, {'error': 'slide not found'})
                             return
-                        if query.get('revision', [''])[0] != source_revisions(catalog)[sid]:
+                        if query.get('revision', [''])[0] != sources.revisions[sid]:
                             response(self, 409, {'error': 'source revision changed; reload the deck'})
                             return
-                        payload = catalog[sid]
+                        payload = sources.catalog[sid]
                     else:
                         payload = None
                     if route == "/api/health":
                         response(self, 200, {
                             "ok": True,
                             "stateSchema": STATE_SCHEMA,
-                            "catalog": catalog_receipt(catalog),
+                            "catalog": catalog_receipt(sources.catalog),
                             "stateRevision": state["revision"],
                         })
                         return
@@ -387,17 +382,17 @@ def make_server(
                     response(self, 503, {"error": f"source contract failed: {exc}"})
                     return
                 if "baseSnapshot" not in body and (
-                    base_revision != int(state["revision"]) or base_source_revision != source_revision
+                    base_revision != int(state["revision"]) or base_source_revision != sources.revision
                 ):
                     response(self, 409, {"error": "revision conflict", "state": deck_payload()})
                     return
                 try:
                     if "baseSnapshot" in body:
                         candidate = merge_state_snapshot(
-                            body["baseSnapshot"], body.get("snapshot"), state, catalog,
-                            body.get("baseSlideRevisions"))
+                            body["baseSnapshot"], body.get("snapshot"), state, sources.catalog,
+                            body.get("baseSlideRevisions"), sources.revisions)
                     else:
-                        candidate = validate_state_snapshot(body.get("snapshot"), state, catalog)
+                        candidate = validate_state_snapshot(body.get("snapshot"), state, sources.catalog)
                     atomic_write_json(state_path, candidate)
                     state = candidate
                 except EditConflict as exc:
@@ -408,7 +403,7 @@ def make_server(
                     return
                 # Old API clients retain their full response; the native editor opts
                 # into an ACK with no source data when its catalog is still current.
-                payload = deck_payload(compact=body.get('compact') is True and base_source_revision == source_revision)
+                payload = deck_payload(compact=body.get('compact') is True and base_source_revision == sources.revision)
             response(self, 200, payload)
 
         def _create_slide(self) -> None:
@@ -417,7 +412,7 @@ def make_server(
             Requests express insertion intent, not a replacement order. Retry
             identity is retained with the source so uncertain ACKs are safe.
             """
-            nonlocal state, catalog, source_revision
+            nonlocal state
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if not 0 < length <= 4096:
@@ -430,23 +425,24 @@ def make_server(
                 with lock:
                     refresh_sources()
                     intent = {"requestId": request_id, "template": body["template"], "after": body["after"]}
-                    existing = catalog.get(sid)
+                    existing = sources.catalog.get(sid)
                     if existing:
                         if existing.get("creation") != intent:
                             raise EditConflict("creation identity already belongs to a different request")
                     else:
-                        if body["after"] not in catalog:
+                        if body["after"] not in sources.catalog:
                             raise EditConflict("insertion anchor is no longer available; reload the deck")
                         spec = make_starter(body["template"], sid, datetime.now(timezone.utc).isoformat(), body["after"])
                         spec["creation"] = intent
                         candidate = copy.deepcopy(state)
                         candidate.setdefault("createdSlides", {})[sid] = spec
-                        merged = load_catalog(slides_dir, candidate["createdSlides"])
+                        # The cache is keyed by its inputs: if validation or the
+                        # write fails, the next refresh re-derives the prior sources.
+                        sources.refresh(candidate["createdSlides"])
                         candidate["order"].insert(candidate["order"].index(body["after"])+1, sid)
-                        candidate = validate_state_snapshot(candidate, candidate, merged)
+                        candidate = validate_state_snapshot(candidate, candidate, sources.catalog)
                         atomic_write_json(state_path, candidate)
-                        state, catalog = candidate, merged
-                        source_revision = catalog_revision(catalog)
+                        state = candidate
                     payload = bootstrap(sid)
                 response(self, 200 if existing else 201, payload)
             except EditConflict as exc:

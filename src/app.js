@@ -35,6 +35,9 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var draftKey = "slidekit-conflict-draft:" + location.pathname;
   var toast = document.querySelector("[data-toast]");
   var selectedLabel = document.querySelector("[data-selected-component]");
+  // The first-paint skeleton in index.html is also the slide-to-slide loader.
+  var loadingCard = stage.querySelector('.stage-loading');
+  var thumbSkeleton = document.querySelector('[data-thumb-skeleton]');
   var state = null;
   var accepted = null;
   var currentId = null;
@@ -67,10 +70,10 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var previews = previewMode ? null : new window.SlidePreviews(document.querySelector('.filmstrip'), function(id) {
     return ensureSlide(id).then(function(slide) {
       return Object.assign(snapshot(state), {revision:state.revision, sourceRevision:state.sourceRevision,
-        runtimeRevision:window.slidekitAssetRevision,
+        runtimeRevision:window.slidekitAssetRevision, chartRuntime:state.chartRuntime,
         slideRevisions:{[id]:state.slideRevisions[id]}, slides:{[id]:slide}, loadedSlides:[id]});
     });
-  });
+  }, function(id) {ensureSlide(id).catch(function() {});});
 
   function loadLibrary(name) {
     if (!libraries.has(name)) {
@@ -118,9 +121,11 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     return slideRequests.get(key);
   }
 
+  // Also called with the bootstrap summary, so a renderer library downloads
+  // in parallel with the slide source rather than after it.
   function prepareSlide(slide) {
     var needed = [];
-    if (slide.recipe === 'chart-panels') needed.push(loadLibrary('plotly.min.js'));
+    if (slide.recipe === 'chart-panels') needed.push(loadLibrary(state.chartRuntime || 'plotly.min.js'));
     if (slide.recipe === 'mechanism-pipeline') needed.push(loadLibrary('joint-diagram.js'));
     if (slide.recipe === 'vector-geometry') needed.push(loadLibrary('geometry-runtime.js'));
     if (Object.values(slide.components || {}).some(function(c) {return c.render === 'latex';}))
@@ -168,6 +173,9 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   function currentSlide() { return slideById(currentId); }
   function activeOrder() {
     return navigationOrder(state.order,state.hidden,!previewMode && document.body.classList.contains('present-only'));
+  }
+  function updatePosition() {
+    position.textContent = (currentIndex() + 1) + ' / ' + activeOrder().length;
   }
   function currentIndex() {
     var index = activeOrder().indexOf(currentId);
@@ -644,7 +652,11 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     stage.querySelectorAll(".native-chart").forEach(function (chart) {
       window.disposeScientificChart(chart);
     });
-    stage.textContent = message;
+    stage.textContent = '';
+    if (message && loadingCard) {
+      loadingCard.querySelector('[data-loading-label]').textContent = message;
+      stage.appendChild(loadingCard);
+    }
   }
 
   function renderStage() {
@@ -698,7 +710,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       canvasObserver.observe(canvas);
       trackFitObserver(canvasObserver);
     }
-    position.textContent = (index + 1) + " / " + activeOrder().length;
+    updatePosition();
     document.querySelector('[data-layouts-link]').href = 'catalog.html#' + currentId;
     document.querySelector("[data-prev]").disabled = index === 0;
     document.querySelector("[data-next]").disabled = index === activeOrder().length - 1;
@@ -723,6 +735,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   function renderThumbs() {
     if (previewMode || (sidebarOrder && sidebarOrder.active())) return;
     var existing = new Map(Array.from(thumbList.children).map(function(card) {return [card.dataset.id,card];}));
+    if (thumbSkeleton) {thumbSkeleton.remove(); thumbSkeleton = null;}
     count.textContent = String(state.order.length);
     state.order.forEach(function (id, index) {
       var slide = slideById(id);
@@ -845,7 +858,9 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     var canvas = stage.querySelector('.slide-canvas');
     if (!canvas || canvas.dataset.slideId !== currentId || loadedSlides.get(currentId) !== state.slideRevisions[currentId])
       clearStage('Loading slide…');
-    renderThumbs();
+    renderThumbs(); updatePosition();
+    var summary = slideById(currentId);
+    if (summary) prepareSlide(summary).catch(function() {});
     ensureSlide(currentId).then(prepareSlide).then(function() {
       if (generation !== renderGeneration) return;
       renderStage(); renderTools();
@@ -870,12 +885,16 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
         else {creator.warm(); previews.start();}
       }
       requestAnimationFrame(function() {requestAnimationFrame(afterUsefulPaint);});
-      // Only the next source, only after paint, and never large image pages.
+      // After paint, warm both neighbours: their sources and renderer
+      // libraries, so arrow-key navigation needs no round trip on a far link.
       if (previewMode) return;
       prefetchTimer = setTimeout(function() {
-        var next = activeOrder()[currentIndex() + 1];
-        if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {});
-      }, 1200);
+        if (navigator.connection && navigator.connection.saveData) return;
+        var order = activeOrder(), index = currentIndex();
+        [order[index + 1], order[index - 1]].forEach(function(id) {
+          if (id) ensureSlide(id).then(prepareSlide).catch(function() {});
+        });
+      }, 600);
     }).catch(function(error) {
       if (generation !== renderGeneration) return;
       stage.textContent = error.message;
@@ -950,7 +969,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     if (JSON.stringify(next) === JSON.stringify(state.order)) return;
     beginChange(); state.order = next;
     // Reordering is not navigation: keep the current canvas, editor and hash.
-    position.textContent = (currentIndex() + 1) + ' / ' + state.order.length;
+    updatePosition();
     renderThumbs(); persist();
     showToast(ids.length > 1 ? ids.length + ' slides moved together.' : 'Slide moved to position ' + (next.indexOf(ids[0]) + 1) + '.');
   }

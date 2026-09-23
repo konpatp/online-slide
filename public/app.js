@@ -3875,6 +3875,8 @@
     var draftKey = "slidekit-conflict-draft:" + location.pathname;
     var toast = document.querySelector("[data-toast]");
     var selectedLabel = document.querySelector("[data-selected-component]");
+    var loadingCard = stage.querySelector(".stage-loading");
+    var thumbSkeleton = document.querySelector("[data-thumb-skeleton]");
     var state = null;
     var accepted = null;
     var currentId = null;
@@ -3918,10 +3920,14 @@
           revision: state.revision,
           sourceRevision: state.sourceRevision,
           runtimeRevision: window.slidekitAssetRevision,
+          chartRuntime: state.chartRuntime,
           slideRevisions: { [id]: state.slideRevisions[id] },
           slides: { [id]: slide },
           loadedSlides: [id]
         });
+      });
+    }, function(id) {
+      ensureSlide(id).catch(function() {
       });
     });
     function loadLibrary(name) {
@@ -3977,7 +3983,7 @@
     }
     function prepareSlide(slide) {
       var needed = [];
-      if (slide.recipe === "chart-panels") needed.push(loadLibrary("plotly.min.js"));
+      if (slide.recipe === "chart-panels") needed.push(loadLibrary(state.chartRuntime || "plotly.min.js"));
       if (slide.recipe === "mechanism-pipeline") needed.push(loadLibrary("joint-diagram.js"));
       if (slide.recipe === "vector-geometry") needed.push(loadLibrary("geometry-runtime.js"));
       if (Object.values(slide.components || {}).some(function(c) {
@@ -4056,6 +4062,9 @@
     }
     function activeOrder() {
       return navigationOrder(state.order, state.hidden, !previewMode && document.body.classList.contains("present-only"));
+    }
+    function updatePosition() {
+      position.textContent = currentIndex() + 1 + " / " + activeOrder().length;
     }
     function currentIndex() {
       var index2 = activeOrder().indexOf(currentId);
@@ -4585,7 +4594,11 @@
       stage.querySelectorAll(".native-chart").forEach(function(chart) {
         window.disposeScientificChart(chart);
       });
-      stage.textContent = message;
+      stage.textContent = "";
+      if (message && loadingCard) {
+        loadingCard.querySelector("[data-loading-label]").textContent = message;
+        stage.appendChild(loadingCard);
+      }
     }
     function renderStage() {
       var active = document.activeElement, caret = null, selection = getSelection();
@@ -4648,7 +4661,7 @@
         canvasObserver.observe(canvas);
         trackFitObserver(canvasObserver);
       }
-      position.textContent = index2 + 1 + " / " + activeOrder().length;
+      updatePosition();
       document.querySelector("[data-layouts-link]").href = "catalog.html#" + currentId;
       document.querySelector("[data-prev]").disabled = index2 === 0;
       document.querySelector("[data-next]").disabled = index2 === activeOrder().length - 1;
@@ -4678,6 +4691,10 @@
       var existing = new Map(Array.from(thumbList.children).map(function(card) {
         return [card.dataset.id, card];
       }));
+      if (thumbSkeleton) {
+        thumbSkeleton.remove();
+        thumbSkeleton = null;
+      }
       count.textContent = String(state.order.length);
       state.order.forEach(function(id, index2) {
         var slide = slideById(id);
@@ -4825,6 +4842,10 @@
       if (!canvas || canvas.dataset.slideId !== currentId || loadedSlides.get(currentId) !== state.slideRevisions[currentId])
         clearStage("Loading slide\u2026");
       renderThumbs();
+      updatePosition();
+      var summary = slideById(currentId);
+      if (summary) prepareSlide(summary).catch(function() {
+      });
       ensureSlide(currentId).then(prepareSlide).then(function() {
         if (generation !== renderGeneration) return;
         renderStage();
@@ -4865,10 +4886,13 @@
         });
         if (previewMode) return;
         prefetchTimer = setTimeout(function() {
-          var next = activeOrder()[currentIndex() + 1];
-          if (next && !(navigator.connection && navigator.connection.saveData)) ensureSlide(next).catch(function() {
+          if (navigator.connection && navigator.connection.saveData) return;
+          var order = activeOrder(), index2 = currentIndex();
+          [order[index2 + 1], order[index2 - 1]].forEach(function(id) {
+            if (id) ensureSlide(id).then(prepareSlide).catch(function() {
+            });
           });
-        }, 1200);
+        }, 600);
       }).catch(function(error) {
         if (generation !== renderGeneration) return;
         stage.textContent = error.message;
@@ -4950,7 +4974,7 @@
       if (JSON.stringify(next) === JSON.stringify(state.order)) return;
       beginChange();
       state.order = next;
-      position.textContent = currentIndex() + 1 + " / " + state.order.length;
+      updatePosition();
       renderThumbs();
       persist();
       showToast(ids.length > 1 ? ids.length + " slides moved together." : "Slide moved to position " + (next.indexOf(ids[0]) + 1) + ".");

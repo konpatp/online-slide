@@ -165,8 +165,47 @@ class ServerProtocolTests(unittest.TestCase):
             self.assertNotIn('createdSlides', response.read().decode())
         with self.get_response('/?preview=1&v=stale') as response:
             self.assertNotIn('immutable', response.headers['Cache-Control'])
-        with patch('server.load_catalog', side_effect=AssertionError('layouts must not scan research sources')):
+        with patch('slidekit.catalog.load_catalog', side_effect=AssertionError('layouts must not scan research sources')):
             self.assertEqual(len(self.get('/api/layouts')[1]), 6)
+
+    def test_unchanged_sources_are_not_revalidated_but_edits_are_adopted(self):
+        status, first = self.get('/api/bootstrap?slide=')
+        sid = first['order'][0]
+        with patch('slidekit.catalog.load_catalog', side_effect=AssertionError('unchanged sources re-derived')):
+            for path in ('/api/bootstrap?slide=', '/api/deck-state',
+                         f"/api/slides/{sid}?revision={first['slideRevisions'][sid]}"):
+                self.assertEqual(self.get(path)[0], 200)
+        source = next(self.slides_path.glob('*.json'))
+        spec = json.loads(source.read_text())
+        spec['headline'] = spec['headline']  # identical content, new file identity
+        source.write_text(json.dumps(spec))
+        self.assertEqual(self.get('/api/bootstrap?slide=')[1]['sourceRevision'], first['sourceRevision'])
+        spec['components'][spec['headline']]['text'] = 'Edited source headline'
+        source.write_text(json.dumps(spec))
+        status, after = self.get('/api/deck-state')
+        self.assertNotEqual(after['sourceRevision'], first['sourceRevision'])
+        self.assertEqual(after['slides'][spec['id']]['components'][spec['headline']]['text'], 'Edited source headline')
+
+    def test_page_head_needs_no_extra_round_trips(self):
+        page = self.get('/')[1].decode()
+        # A static root base made the preload scanner request every asset
+        # from the site root first; the runtime guard is inline, not a
+        # render-blocking script ahead of the bootstrap request.
+        self.assertIsNone(re.search(r'<base\b', page))
+        self.assertNotIn('runtime-version.js', page)
+        self.assertLess(page.index('window.slidekitRequest ='), page.index('api/bootstrap'))
+        self.assertIn('stage-loading', page)
+
+    def test_chart_runtime_is_the_smallest_sufficient_plotly_bundle(self):
+        from slidekit import chart_runtime
+        chart = lambda *types: {'s': {'components': {'c': {'kind': 'chart', 'figure': {'data': [
+            ({'type': kind} if kind else {}) for kind in types]}}}}}
+        self.assertEqual(chart_runtime(chart(None, 'scatter', 'bar', 'pie')), 'plotly-basic.min.js')
+        self.assertEqual(chart_runtime(chart('scatter', 'heatmap')), 'plotly.min.js')
+        self.assertIn(self.get('/api/bootstrap?slide=')[1]['chartRuntime'],
+                      {'plotly-basic.min.js', 'plotly.min.js'})
+        with self.get_response('/plotly-basic.min.js') as response:
+            self.assertIn(b'plotly.js (basic - minified) v2.35.2', response.read()[:200])
 
     def test_static_page_catalog_and_state_are_available(self):
         status, state = self.get("/api/deck-state")
