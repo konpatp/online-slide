@@ -87,7 +87,20 @@ def main():
                 page.screenshot(path=str(args.output/(key+'.failed.png')))
                 break
             transitions.append(key)
-            page.wait_for_timeout(180)
+            # Audit a fixed point, not a fixed delay: mode switches refit the
+            # stage and diagrams relayout over several frames, so one sample
+            # after 180 ms occasionally caught a label mid-move.
+            page.evaluate("window.__reviewGeometry = null")
+            try:
+                page.wait_for_function("""() => {
+                  const c=document.querySelector('.slide-canvas').getBoundingClientRect();
+                  const sig=[c.x,c.y,c.width,c.height].concat(...[...document.querySelectorAll('.semantic-component')]
+                    .map(n=>{const r=n.getBoundingClientRect();return [r.x,r.y,r.width,r.height];}))
+                    .map(v=>Math.round(v)).join(',');
+                  const settled=window.__reviewGeometry===sig; window.__reviewGeometry=sig; return settled;
+                }""", polling=150, timeout=5000)
+            except PlaywrightTimeout:
+                findings.append(key+': layout did not settle within 5 s')
             audit = page.evaluate("""() => {
               const canvas=document.querySelector('.slide-canvas');
               const c=canvas.getBoundingClientRect();
