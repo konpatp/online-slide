@@ -7,6 +7,21 @@ interface ViewportHost {
 }
 export function createViewport({stage,stageWrap,presentationExit,fullscreenToggle,applyAllTextRegions,syncTextRegionFrame,showToast,canPresent,modeChanged}:ViewportHost) {
 let presentationExitTimer: ReturnType<typeof setTimeout> | undefined;
+const navigatorToggle = document.querySelector<HTMLButtonElement>('[data-slides-toggle]');
+function closeNavigator() {
+  document.body.classList.remove('navigator-open');
+  navigatorToggle?.setAttribute('aria-expanded', 'false');
+  if (navigatorToggle) navigatorToggle.textContent = 'Slides';
+}
+navigatorToggle?.addEventListener('click', () => {
+  const open = document.body.classList.toggle('navigator-open');
+  navigatorToggle.setAttribute('aria-expanded', String(open));
+  navigatorToggle.textContent = open ? 'Close slides' : 'Slides';
+  if (open) document.querySelector('.thumb.current')?.scrollIntoView({block:'nearest'});
+});
+document.querySelector('[data-slides-dismiss]')?.addEventListener('click', closeNavigator);
+document.addEventListener('keydown', event => {if (event.key === 'Escape') closeNavigator();});
+matchMedia('(max-width: 960px)').addEventListener('change', closeNavigator);
 function stageContentBox() {
   var style = getComputedStyle(stageWrap);
   return {
@@ -50,6 +65,7 @@ function removePresentationQuery() {
 }
 
 function setPresentationMode(enabled: boolean) {
+  closeNavigator();
   if(enabled && !canPresent()) {showToast('No visible slides. Show a slide before presenting.');return false;}
   const changed=document.body.classList.contains('present-only')!==enabled;
   document.body.classList.toggle("present-only", enabled);
@@ -88,5 +104,5 @@ function toggleFullscreenPresentation() {
 }
 
 
-return {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation};
+return {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation,closeNavigator};
 }

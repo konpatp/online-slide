@@ -156,7 +156,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     toastTimer = setTimeout(function () { toast.classList.remove("visible"); }, 2700);
   }
 
-  var {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation} = createViewport({
+  var {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation,closeNavigator} = createViewport({
     stage, stageWrap, presentationExit, fullscreenToggle,
     applyAllTextRegions: function() {applyAllTextRegions();},
     syncTextRegionFrame: function() {syncTextRegionFrame();}, showToast,
@@ -972,6 +972,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   function selectSlide(id) {
+    closeNavigator();
     if (state.order.indexOf(id) < 0) return;
     // Selection is navigation, not a command to destroy/recreate the chart.
     if (id === currentId) return;

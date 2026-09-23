@@ -41,6 +41,7 @@
         <small>ScientificSlideKit pilot</small>
       </a>
       <div class="top-actions">
+        <button class="button quiet mobile-slides-toggle" type="button" data-slides-toggle aria-expanded="false" aria-controls="slide-navigator">Slides</button>
         <button class="button primary" type="button" data-new-slide disabled>+ New slide</button>
         <a class="button quiet" href="catalog.html" data-layouts-link>Layouts</a>
         <button class="button quiet" type="button" data-notes-toggle>Facts / notes</button>
@@ -53,7 +54,8 @@
     </header>
 
     <main class="app-shell">
-      <aside class="filmstrip" aria-label="Slide navigator">
+      <button class="navigator-backdrop" data-slides-dismiss aria-label="Close slide navigator" type="button"></button>
+      <aside class="filmstrip" id="slide-navigator" aria-label="Slide navigator">
         <div class="rail-heading">
           <div>
           <span class="eyebrow">SIX RECIPE PILOT</span>

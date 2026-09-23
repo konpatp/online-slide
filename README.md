@@ -68,6 +68,9 @@ a centered title. Table, image/plot, process, gallery and equation starters
 reuse the existing recipes. Quantitative interactive plots remain agent-authored
 SlideSpecs: this picker does not pretend to provide a chart-data editor.
 Drag a sidebar thumbnail to reorder slides; the list scrolls at its edges.
+On phones, the slide stays in view. Tap **Slides** to open the thumbnail drawer;
+choosing a slide closes it. Rotate the phone or use **Present fullscreen** for
+a larger proportional view; slide content never reflows or crops.
 Click the first slide, then Shift-click another to select a range. Drag any
 selected thumbnail to move the group together in its original order. The move
 is one save and one Undo action; Escape clears selection when not dragging.

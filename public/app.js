@@ -7,6 +7,23 @@
   var EDITOR_MAX_SLIDE_WIDTH = 1280;
   function createViewport({ stage, stageWrap, presentationExit, fullscreenToggle, applyAllTextRegions, syncTextRegionFrame, showToast, canPresent, modeChanged }) {
     let presentationExitTimer;
+    const navigatorToggle = document.querySelector("[data-slides-toggle]");
+    function closeNavigator() {
+      document.body.classList.remove("navigator-open");
+      navigatorToggle?.setAttribute("aria-expanded", "false");
+      if (navigatorToggle) navigatorToggle.textContent = "Slides";
+    }
+    navigatorToggle?.addEventListener("click", () => {
+      const open = document.body.classList.toggle("navigator-open");
+      navigatorToggle.setAttribute("aria-expanded", String(open));
+      navigatorToggle.textContent = open ? "Close slides" : "Slides";
+      if (open) document.querySelector(".thumb.current")?.scrollIntoView({ block: "nearest" });
+    });
+    document.querySelector("[data-slides-dismiss]")?.addEventListener("click", closeNavigator);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeNavigator();
+    });
+    matchMedia("(max-width: 960px)").addEventListener("change", closeNavigator);
     function stageContentBox() {
       var style = getComputedStyle(stageWrap);
       return {
@@ -45,6 +62,7 @@
       history.replaceState(null, "", url.pathname + url.search + url.hash);
     }
     function setPresentationMode(enabled) {
+      closeNavigator();
       if (enabled && !canPresent()) {
         showToast("No visible slides. Show a slide before presenting.");
         return false;
@@ -83,7 +101,7 @@
         });
       }
     }
-    return { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation };
+    return { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation, closeNavigator };
   }
 
   // src/editor/fit.ts
@@ -4007,7 +4025,7 @@
         toast.classList.remove("visible");
       }, 2700);
     }
-    var { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation } = createViewport({
+    var { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation, closeNavigator } = createViewport({
       stage,
       stageWrap,
       presentationExit,
@@ -4956,6 +4974,7 @@
       showToast(index2 < 0 ? "Slide hidden." : "Slide shown.");
     }
     function selectSlide(id) {
+      closeNavigator();
       if (state.order.indexOf(id) < 0) return;
       if (id === currentId) return;
       currentId = id;
