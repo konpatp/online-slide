@@ -1,4 +1,5 @@
 // Recipe owns layout; injected editor capabilities own mutable state.
+import {measureBox} from '../editor/transform';
 export function createWireVisualObjects(api) {
 const global = window;
 const {objectsForSlide,selectedObjectId,selectVisualObject,updateVisualObject} = api;
@@ -59,16 +60,12 @@ function wireVisualObjects(slide,records) {
   }
 
   function positionControls(record, geometry) {
-    if (!record.controls) return;
     if(record.selector) {
       record.selector.style.left=(geometry.x*100)+'%';record.selector.style.top=(geometry.y*100)+'%';
     }
     if (record.mode === "rect") {
-      record.controls.style.left = (geometry.x * 100) + "%";
-      record.controls.style.top = (geometry.y * 100) + "%";
-      record.controls.style.width = (geometry.width * 100) + "%";
-      record.controls.style.height = (geometry.height * 100) + "%";
-    } else {
+      api.transforms().sync();
+    } else if (record.controls) {
       var points = [geometry.from, geometry.to,
         [(geometry.from[0] + geometry.to[0]) / 2, (geometry.from[1] + geometry.to[1]) / 2]];
       [record.startHandle, record.endHandle, record.moveHandle].forEach(function (handle, index) {
@@ -86,6 +83,34 @@ function wireVisualObjects(slide,records) {
     api.selectVisualObject(slide.id, record.id, record.kind);
   }
 
+  // Boxes use the shared selection/move/resize layer; geometry persists as
+  // fractions of the recipe article, exactly as before.
+  function registerRect(record) {
+    var canvas = record.article.closest('.slide-canvas') || record.article;
+    api.transforms().register({
+      key: api.objectKey(slide.id, record.id),
+      label: record.kind === 'recipe-frame' ? 'layout frame' : record.id,
+      hits: [record.element], canvas: canvas, group: 'object:' + slide.id + ':' + record.id,
+      area: function () { return measureBox(record.article, canvas); },
+      minWidth: 24, minHeight: 12,
+      bodyDrag: record.kind !== 'recipe-frame',
+      select: function () { showSelected(record); },
+      edit: function () {
+        return {
+          update: function (next) {
+            var outer = measureBox(record.article, canvas);
+            var geometry = {kind: record.kind,
+              x: rounded((next.x - outer.x) / outer.width), y: rounded((next.y - outer.y) / outer.height),
+              width: rounded(next.width / outer.width), height: rounded(next.height / outer.height)};
+            objectState[record.id] = geometry;
+            applyGeometry(record, geometry);
+            api.setVisualObject(slide.id, record.id, record.kind, geometry);
+          }
+        };
+      }
+    });
+  }
+
   function boundedPoint(point) {
     return [Math.max(0, Math.min(1, rounded(point[0]))),
       Math.max(0, Math.min(1, rounded(point[1])))];
@@ -93,7 +118,6 @@ function wireVisualObjects(slide,records) {
 
   function startGesture(record, gesture, event) {
     if (!api.isEditMode()) return;
-    if(record.kind==='recipe-frame' && gesture==='move' && event.target!==record.element) return;
     event.preventDefault();
     event.stopPropagation();
     // Selection may reveal a midpoint handle beneath the pointer. Keep
@@ -112,16 +136,7 @@ function wireVisualObjects(slide,records) {
       if (Math.abs(dx) + Math.abs(dy) < .001 && !moved) return;
       moved = true;
       var next;
-      if (record.mode === "rect") {
-        next = Object.assign({}, initial);
-        if (gesture === "resize") {
-          next.width = Math.max(.03, Math.min(1 - initial.x, rounded(initial.width + dx)));
-          next.height = Math.max(.012, Math.min(1 - initial.y, rounded(initial.height + dy)));
-        } else {
-          next.x = Math.max(0, Math.min(1 - initial.width, rounded(initial.x + dx)));
-          next.y = Math.max(0, Math.min(1 - initial.height, rounded(initial.y + dy)));
-        }
-      } else {
+      {
         next = {kind: record.kind, from: initial.from.slice(), to: initial.to.slice()};
         if (gesture === "start") next.from = boundedPoint([initial.from[0] + dx, initial.from[1] + dy]);
         else if (gesture === "end") next.to = boundedPoint([initial.to[0] + dx, initial.to[1] + dy]);
@@ -159,35 +174,24 @@ function wireVisualObjects(slide,records) {
     record.element.setAttribute("data-visual-object-id", record.id);
     record.element.setAttribute("data-visual-object-kind", record.kind);
     record.element.setAttribute("aria-label", record.id + " editable " + record.mode);
-    record.element.addEventListener("pointerdown", function (event) {
-      startGesture(record, "move", event);
-    });
     record.element.addEventListener("click", function (event) {
       if (api.isEditMode()) event.stopPropagation();
     });
     if (record.mode === "rect") {
-      var frame = document.createElement("div");
-      frame.className = "accessibility-object-frame";
-      frame.hidden = true;
-      var resize = document.createElement("button");
-      resize.type = "button";
-      resize.className = "accessibility-object-resize";
-      resize.setAttribute("aria-label", "Resize " + record.id);
-      resize.addEventListener("pointerdown", function (event) {
-        startGesture(record, "resize", event);
-      });
-      frame.appendChild(resize);
-      record.controls = frame;
-      frame.addEventListener("click", function (event) { event.stopPropagation(); });
-      record.article.appendChild(frame);
+      registerRect(record);
       if(record.kind==='recipe-frame') {
+        // The frame holds the whole composition, so empty space never moves
+        // it; its labelled grip selects and drags it through the shared layer.
         var selector=document.createElement('button');selector.type='button';selector.className='recipe-frame-select';
         selector.textContent='Layout';selector.setAttribute('aria-label','Move layout frame');
-        selector.addEventListener('pointerdown',function(event){startGesture(record,'frame',event);});
+        selector.addEventListener('pointerdown',function(event){api.transforms().grab(api.objectKey(slide.id,record.id),event);});
         selector.addEventListener('click',function(event){event.stopPropagation();});
         record.selector=selector;record.article.appendChild(selector);
       }
     } else {
+      record.element.addEventListener("pointerdown", function (event) {
+        startGesture(record, "move", event);
+      });
       var controls = document.createElement("div");
       controls.className = "accessibility-line-controls";
       controls.hidden = true;

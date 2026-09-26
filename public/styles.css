@@ -126,30 +126,34 @@ body.present-only .hidden-ribbon { right: 14%; }
 .edit-mode .gallery-cell.semantic-component { cursor: copy; }
 .edit-mode .semantic-component:hover { box-shadow: inset 0 0 0 2px rgba(47, 111, 237, .5); }
 .edit-mode .selected-component { z-index: 10; box-shadow: inset 0 0 0 3px #2f6fed, 0 0 0 3px rgba(47, 111, 237, .12) !important; background-color: rgba(239, 245, 255, .55); }
-.editable-text-region.text-region-bounded { box-sizing: border-box; min-width: 0; min-height: 0; overflow: hidden; white-space: normal; }
+.editable-text-region.text-region-bounded { box-sizing: border-box; min-width: 0; min-height: 0; max-width: none; max-height: none; overflow: hidden; white-space: normal; }
 .editable-text-region.text-region-bounded:not(.vector-label-region):not(.gallery-caption-frame) { display: inline-block; }
-.text-region-frame {
-  position: absolute; z-index: 50; border: 2px solid #2f6fed; border-radius: 6px;
-  pointer-events: none; box-shadow: 0 0 0 3px rgba(47, 111, 237, .12);
+/* One frame for every movable object, drawn in screen pixels just outside
+   the clipped slide so handles stay reachable on objects at its edge. */
+.transform-frame {
+  position: absolute; z-index: 60; box-sizing: border-box; pointer-events: none;
+  outline: 2px solid #2f6fed; box-shadow: 0 0 0 5px rgba(47, 111, 237, .14);
 }
-.text-region-move-handle, .text-region-resize-handle {
-  position: absolute; display: block; margin: 0; padding: 0; border: 2px solid white;
-  background: #2f6fed; box-shadow: 0 1px 5px rgba(22, 55, 112, .28); pointer-events: auto;
+.transform-edge { position: absolute; pointer-events: auto; cursor: move; }
+.transform-edge-top, .transform-edge-bottom { left: 0; right: 0; height: 10px; }
+.transform-edge-left, .transform-edge-right { top: 0; bottom: 0; width: 10px; }
+.transform-edge-top { top: -5px; } .transform-edge-bottom { bottom: -5px; }
+.transform-edge-left { left: -5px; } .transform-edge-right { right: -5px; }
+.transform-handle, .transform-move-grip {
+  position: absolute; z-index: 1; margin: 0; padding: 0; pointer-events: auto; touch-action: none;
+  border: 2px solid white; background: #2f6fed; box-shadow: 0 1px 5px rgba(22, 55, 112, .3);
 }
-.text-region-move-handle {
-  left: 12px; top: -7px; width: 42px; height: 12px; border-radius: 99px; cursor: grab;
-}
-.text-region-move-handle::after {
-  content: ""; position: absolute; inset: 3px 9px; border-top: 1px solid rgba(255,255,255,.9);
-  border-bottom: 1px solid rgba(255,255,255,.9);
-}
-.text-region-move-handle:active { cursor: grabbing; }
-.text-region-resize-handle {
-  right: -8px; bottom: -8px; width: 17px; height: 17px; border-radius: 5px; cursor: nwse-resize;
-}
-body.resizing-text-region { cursor: nwse-resize; user-select: none; }
-body.moving-text-region { cursor: grabbing; user-select: none; }
-body.resizing-text-region [contenteditable="true"], body.moving-text-region [contenteditable="true"] { user-select: none; }
+.transform-handle { width: 12px; height: 12px; border-radius: 3px; transform: translate(-50%, -50%); }
+.transform-handle-nw { left: 0; top: 0; cursor: nwse-resize; } .transform-handle-n { left: 50%; top: 0; cursor: ns-resize; }
+.transform-handle-ne { left: 100%; top: 0; cursor: nesw-resize; } .transform-handle-e { left: 100%; top: 50%; cursor: ew-resize; }
+.transform-handle-se { left: 100%; top: 100%; cursor: nwse-resize; } .transform-handle-s { left: 50%; top: 100%; cursor: ns-resize; }
+.transform-handle-sw { left: 0; top: 100%; cursor: nesw-resize; } .transform-handle-w { left: 0; top: 50%; cursor: ew-resize; }
+/* Move grip above the top edge: works while text is being edited. */
+.transform-move-grip { left: 18px; top: -19px; width: 40px; height: 12px; border-radius: 99px; cursor: grab; }
+.transform-move-grip::after { content: ""; position: absolute; inset: 3px 9px; border-top: 1px solid rgba(255,255,255,.9); border-bottom: 1px solid rgba(255,255,255,.9); }
+.edit-mode [data-transform-target]:not(.semantic-component) { cursor: move; }
+body.transform-moving, body.transform-moving * { cursor: grabbing !important; user-select: none !important; }
+body.transform-resizing, body.transform-resizing * { user-select: none !important; }
 
 /* Hero plot */
 .hero-plot-body { display: grid; grid-template-rows: auto 1fr; gap: 2%; }
@@ -227,13 +231,11 @@ body.resizing-table-column { cursor: col-resize; user-select: none; }
 .edit-mode .editable-visual-object { cursor: move; touch-action: none; }
 .edit-mode .editable-visual-object:hover { filter: drop-shadow(0 0 5px rgba(47,111,237,.42)); }
 .edit-mode .selected-visual-object { filter: drop-shadow(0 0 6px rgba(47,111,237,.68)); }
-.accessibility-object-frame, .accessibility-line-controls { position: absolute; z-index: 18; pointer-events: none; }
-.accessibility-object-frame { border: 3px solid #2f6fed; border-radius: 999px; box-shadow: 0 0 0 4px rgba(47,111,237,.12); }
-.accessibility-object-resize, .accessibility-line-endpoint, .accessibility-line-move {
+.accessibility-line-controls { position: absolute; z-index: 18; pointer-events: none; }
+.accessibility-line-endpoint, .accessibility-line-move {
   position: absolute; z-index: 20; margin: 0; padding: 0; border: 3px solid white;
   background: #2f6fed; box-shadow: 0 2px 7px rgba(20,35,59,.28); pointer-events: auto;
 }
-.accessibility-object-resize { right: -10px; bottom: -10px; width: 20px; height: 20px; border-radius: 6px; cursor: nwse-resize; }
 .accessibility-line-controls { inset: 0; }
 .accessibility-line-endpoint { width: 20px; height: 20px; border-radius: 50%; transform: translate(-50%, -50%); cursor: crosshair; }
 .accessibility-line-move { width: 25px; height: 16px; border-radius: 5px; transform: translate(-50%, -50%); cursor: move; }

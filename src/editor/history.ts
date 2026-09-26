@@ -20,8 +20,8 @@ export class EditHistory {
     this.pending = null;
     if (sameSnapshot(before, state)) return;
     const last = this.entries[this.entries.length-1], time = Date.now();
-    // Only adjacent typing bursts coalesce; moves and deletes remain distinct.
-    if (group?.startsWith('text:') && last?.group === group && time-last.time < 750 && sameSnapshot(last.after,before)) {
+    // Only adjacent typing and arrow-key bursts coalesce; drags and deletes remain distinct.
+    if ((group?.startsWith('text:') || group?.endsWith(':nudge')) && last?.group === group && time-last.time < 750 && sameSnapshot(last.after,before)) {
       last.after = snapshot(state); last.time = time;
     } else this.entries.push({before, after:snapshot(state), group, time});
     if (this.entries.length > this.limit) this.entries.shift();

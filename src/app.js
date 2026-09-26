@@ -1,5 +1,6 @@
 import {createViewport,CANONICAL_SLIDE_WIDTH,CANONICAL_SLIDE_HEIGHT} from './editor/viewport';
 import {createTextRegions} from './editor/regions';
+import {createTransformLayer} from './editor/transform';
 import {createTableEditor} from './editor/tables';
 import {copy, snapshot, sameSnapshot} from './editor/snapshot';
 import {SaveQueue} from './editor/save-queue';
@@ -44,7 +45,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var selected = null;
   var editMode = false;
   var editHistory = new EditHistory();
-  var inputTimer = null;
+  var inputTimer = null, typingGroup = null;
   var toastTimer = null;
   var loadedSlides = new Map();
   var slideRequests = new Map();
@@ -164,7 +165,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation,closeNavigator} = createViewport({
     stage, stageWrap, presentationExit, fullscreenToggle,
     applyAllTextRegions: function() {applyAllTextRegions();},
-    syncTextRegionFrame: function() {syncTextRegionFrame();}, showToast,
+    syncTextRegionFrame: function() {transforms.sync();}, showToast,
     canPresent: function() {return Boolean(state && navigationOrder(state.order,state.hidden,true).length);},
     modeChanged: function() {if(state) {selected=null;editMode=false;render();}}
   });
@@ -221,11 +222,16 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     return Boolean(edge && (objects[edge.from]?.deleted || objects[edge.to]?.deleted));
   }
 
-  function updateVisualObject(slideId, objectId, kind, geometry, commit) {
+  /** Geometry only; the caller owns the undo boundary. */
+  function setVisualObject(slideId, objectId, kind, geometry) {
     if (!state.objects) state.objects = {};
     if (!state.objects[slideId]) state.objects[slideId] = {};
-    beginChange('object:'+slideId+':'+objectId);
     state.objects[slideId][objectId] = Object.assign({kind: kind}, copy(geometry));
+  }
+
+  function updateVisualObject(slideId, objectId, kind, geometry, commit) {
+    beginChange('object:'+slideId+':'+objectId);
+    setVisualObject(slideId, objectId, kind, geometry);
     if (commit) persist();
   }
 
@@ -287,6 +293,9 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   });
 
   function beginChange(group) {
+    // Starting any other change finalizes pending typing now. Its delayed
+    // save must not fire later and close that other change's undo step.
+    if (inputTimer && group !== typingGroup) {clearTimeout(inputTimer); inputTimer = null;}
     editHistory.begin(state, group);
     undoButton.disabled = false;
     setStatus("Saving…", "saving");
@@ -415,10 +424,11 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     element.addEventListener("input", function () {
       if (!editMode || isLatex) return;
       var value = readMarkedText(element);
-      beginChange('text:'+slide.id+':'+componentId);
+      typingGroup = 'text:'+slide.id+':'+componentId;
+      beginChange(typingGroup);
       updateText(slide.id, componentId, value);
       clearTimeout(inputTimer);
-      inputTimer = setTimeout(persist, 260);
+      inputTimer = setTimeout(function() {inputTimer = null; persist();}, 260);
     });
     element.addEventListener("paste", function (event) {
       if (!editMode || isLatex) return;
@@ -464,10 +474,16 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     return element;
   }
 
-  var {bindTextRegion,applyAllTextRegions,syncTextRegionFrame,removeTextRegionFrame,clearTextRegions} = createTextRegions({
+  // One selection and move/resize owner for every box-shaped object.
+  var transforms = createTransformLayer({isEditMode: function() {return editMode;}, beginChange: beginChange, persist: persist,
+    focusObject: function() {stage.tabIndex=-1; stage.focus({preventScroll:true});}});
+  function regionKey(slideId, componentId) { return slideId + '@' + componentId; }
+  function objectKey(slideId, objectId) { return slideId + '@object:' + objectId; }
+  var {bindTextRegion,applyAllTextRegions,clearTextRegions} = createTextRegions({
     getComponent: function(sid,cid) {return cid ? effectiveComponent(state.slides[sid],cid) : null;},
-    getSelected: function() {return selected;}, isEditMode: function() {return editMode;},
-    beginChange,persist,updateOverlay,
+    transforms: transforms,
+    selectRegion: function(sid,cid,element) {selectComponent(sid,cid,element);},
+    updateOverlay: updateOverlay,
     resizeChart: function(host) {
       // newPlot exposes partial layout internals before its promise resolves.
       // Region fitting must not relayout that half-initialized chart.
@@ -503,8 +519,9 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     canvas.setAttribute("data-slide-id", slide.id);
     canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
     canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
-    canvas.addEventListener("click", function () {
-      if (editMode) selectComponent(null, null);
+    canvas.addEventListener("click", function (event) {
+      // Objects and their frame handle their own selection.
+      if (editMode && !transforms.ownsPress() && !event.target.closest('[data-transform-control]')) selectComponent(null, null);
     });
     if (state.hidden.indexOf(slide.id) >= 0) {
       var ribbon = document.createElement("span");
@@ -634,10 +651,13 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       stage.querySelectorAll(".selected-component").forEach(function (node) {
         node.classList.remove("selected-component");
       });
-      removeTextRegionFrame();
+      transforms.select(objectKey(slideId, objectId));
       renderTools();
     },
+    transforms: function() {return transforms;},
+    objectKey: objectKey,
     updateVisualObject: updateVisualObject,
+    setVisualObject: setVisualObject,
     saveChartLayout: function (slideId, componentId, value) {
       beginChange();
       updateOverlay(slideId, componentId, "chartLayout", value);
@@ -647,7 +667,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
 
   function clearStage(message) {
     clearFitObservers();
-    removeTextRegionFrame();
+    transforms.clear();
     clearTextRegions();
     stage.querySelectorAll(".native-chart").forEach(function (chart) {
       window.disposeScientificChart(chart);
@@ -704,7 +724,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
         requestAnimationFrame(function () {
           if (!canvas.isConnected) return;
           applyAllTextRegions();
-          syncTextRegionFrame();
+          transforms.sync();
         });
       });
       canvasObserver.observe(canvas);
@@ -722,7 +742,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
         if (!selected.tableCell) delete selected.tableCell;
       }
     }
-    requestAnimationFrame(syncTextRegionFrame);
+    requestAnimationFrame(transforms.sync);
     if (focusCreatedTitle === currentId) {
       focusCreatedTitle = null;
       var title = canvas.querySelector('[data-component-id="' + slide.headline + '"]');
@@ -920,7 +940,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
 
   document.querySelector('[data-add-text]').addEventListener('click',function() {addTextBox(700,450);});
   stage.addEventListener('dblclick',function(event) {
-    if (!editMode || event.target.closest('[data-component-id], [data-visual-object-id], button, input, svg, canvas, .native-chart, [data-native-table], .text-region-frame')) return;
+    if (!editMode || event.target.closest('[data-component-id], [data-visual-object-id], button, input, svg, canvas, .native-chart, [data-native-table], [data-transform-control], [data-transform-target]')) return;
     var canvas=event.target.closest('.slide-canvas');
     if (!canvas) return;
     event.preventDefault();
@@ -934,7 +954,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     stage.querySelectorAll(".selected-visual-object").forEach(function (node) {
       node.classList.remove("selected-visual-object");
     });
-    stage.querySelectorAll(".accessibility-object-frame, .accessibility-line-controls").forEach(function (node) {
+    stage.querySelectorAll(".accessibility-line-controls").forEach(function (node) {
       node.hidden = true;
     });
     if (selected && element) {
@@ -953,7 +973,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     stage.querySelectorAll(".selected-component").forEach(function (node) { node.classList.remove("selected-component"); });
     if (element) element.classList.add("selected-component");
     renderTools();
-    requestAnimationFrame(syncTextRegionFrame);
+    transforms.select(selected ? regionKey(slideId, componentId) : null);
   }
 
   function mutateOrder(id, delta) {
@@ -1008,7 +1028,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   function undo() {
-    clearTimeout(inputTimer);
+    clearTimeout(inputTimer); inputTimer = null;
     var next;
     try {next=editHistory.undo(state);} catch(error) {showToast(error.message);return;}
     if (!next) return;
@@ -1134,6 +1154,13 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       event.preventDefault();stage.tabIndex=-1;stage.focus({preventScroll:true});return;
     }
     if (typingTarget(event.target)) return;
+    // A selected object owns the arrow keys; slides change only without one.
+    if (editMode && (stage.contains(event.target) || event.target===document.body) && transforms.nudge(event)) {
+      event.preventDefault(); event.stopPropagation(); return;
+    }
+    if (event.key === "Escape" && editMode && transforms.selected()) {
+      event.preventDefault(); selectComponent(null, null); return;
+    }
     if (event.key === "ArrowLeft") step(-1);
     if (event.key === "ArrowRight") step(1);
     if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();

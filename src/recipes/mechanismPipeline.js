@@ -1,4 +1,5 @@
 // Recipe owns layout; injected editor capabilities own mutable state.
+import {measureBox} from '../editor/transform';
 export function createMechanismPipeline(api) {
 const global = window;
 const {editableText,fitGroupInRegion,objectsForSlide,selectedObjectId,selectVisualObject,updateVisualObject} = api;
@@ -129,6 +130,7 @@ function mechanismPipeline(canvas, slide) {
       }
     });
     paperHost.dataset.diagramMeasurement = "untransformed-slide-coordinates";
+    if (api.isEditMode()) registerNodes(diagram);
     var reflowTimer = null;
     function scheduleReflow() {
       clearTimeout(reflowTimer);
@@ -155,6 +157,43 @@ function mechanismPipeline(canvas, slide) {
       observer.observe(plane);
     }
   });
+
+
+/** Each diagram box is one object: its text edits on click, a drag moves the
+ * box, and its handles resize it. Links follow through JointJS routing. */
+function registerNodes(diagram) {
+  var canvas = paperHost.closest('.slide-canvas');
+  if (!canvas) return;
+  slide.data.nodes.forEach(function (node) {
+    var block = nodeLabels[node.id], model = diagram.graph.getCell(node.id);
+    var view = model && diagram.paper.findViewByModel(model);
+    if (!block || !view || api.objectDeleted(slide, node.id)) return;
+    api.transforms().register({
+      key: api.objectKey(slide.id, node.id), label: 'diagram box',
+      hits: [block, view.el], canvas: canvas, group: 'object:' + slide.id + ':' + node.id,
+      area: function () { return measureBox(paperHost, canvas); },
+      minWidth: 60, minHeight: 40,
+      textAt: function (target) {
+        var text = target.closest('.semantic-component');
+        return text && block.contains(text) ? text : null;
+      },
+      select: function () { selectVisualObject(slide.id, node.id, 'diagram-node'); },
+      edit: function () {
+        return {
+          update: function (next) {
+            // Paper pixels differ from slide pixels when the plane is fitted.
+            var paper = measureBox(paperHost, canvas);
+            var factor = paperHost.clientWidth / paper.width;
+            var geometry = diagram.setNodeBox(node.id, {x: (next.x - paper.x) * factor, y: (next.y - paper.y) * factor,
+              width: next.width * factor, height: next.height * factor});
+            if (geometry) api.setVisualObject(slide.id, node.id, 'diagram-node', geometry);
+            diagram.publishPositions();
+          }
+        };
+      }
+    });
+  });
+}
 }
 
 

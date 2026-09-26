@@ -360,7 +360,7 @@ def main() -> int:
                 headline = page.locator('[data-component-id="headline"]')
                 headline_before = headline.bounding_box()
                 headline.click()
-                headline_move = page.locator('.text-region-frame [aria-label="Move text region"]')
+                headline_move = page.locator('.transform-frame [aria-label="Move text region"]')
                 move_box = headline_move.bounding_box()
                 page.mouse.move(move_box["x"] + move_box["width"] / 2,
                                 move_box["y"] + move_box["height"] / 2)
@@ -376,7 +376,7 @@ def main() -> int:
                 label = page.locator('[data-component-id="remove-label"]')
                 sibling_before = page.locator('[data-component-id="raw-label"]').bounding_box()
                 label.click()
-                frame = page.locator('.text-region-frame[data-text-region-frame="remove-label"]')
+                frame = page.locator('.transform-frame[data-transform-frame$="@remove-label"]')
                 before = frame.bounding_box()
                 move = frame.locator('[aria-label="Move text region"]')
                 move_box = move.bounding_box()
@@ -390,7 +390,7 @@ def main() -> int:
 
                 label = page.locator('[data-component-id="remove-label"]')
                 label.click()
-                frame = page.locator('.text-region-frame[data-text-region-frame="remove-label"]')
+                frame = page.locator('.transform-frame[data-transform-frame$="@remove-label"]')
                 moved = frame.bounding_box()
                 if moved["x"] <= before["x"] + 50 or moved["y"] <= before["y"] + 18:
                     findings.append("bounded vector text region did not move with its drag handle")
@@ -577,7 +577,8 @@ def main() -> int:
                     page.mouse.click(teacher_box["x"] + 3, teacher_box["y"] + teacher_box["height"] / 2)
                     if "teacher-node" not in page.locator("[data-selected-component]").text_content():
                         findings.append("clicking a diagram-node border did not select the semantic node")
-                    resize_handle = page.locator('g.joint-tool[model-id="teacher-node"] [joint-selector="handle"]')
+                    # Diagram boxes resize through the shared object frame.
+                    resize_handle = page.get_by_role("button", name="Resize diagram box", exact=True)
                     resize_handle.wait_for(state="visible")
                     handle_box = resize_handle.bounding_box()
                     page.mouse.move(handle_box["x"] + handle_box["width"] / 2,
@@ -589,7 +590,7 @@ def main() -> int:
                     page.wait_for_function("document.querySelector('[data-save-state]').textContent === 'Saved'")
                     resized_box = page.locator('g.joint-element[model-id="teacher-node"]').bounding_box()
                     if resized_box["width"] <= teacher_box["width"] + 50 or resized_box["height"] <= teacher_box["height"] + 25:
-                        findings.append("JointJS corner handle did not resize the selected node")
+                        findings.append("diagram box corner handle did not resize the selected node")
                     if page.locator('[data-diagram-node-id="teacher-node"] .diagram-node-content').get_attribute("data-fit-overflow") == "true":
                         findings.append("resized diagram-node text did not refit inside its bounded node")
 

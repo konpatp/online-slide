@@ -230,13 +230,383 @@
     fitObservers = [];
   }
 
+  // src/editor/boxes.ts
+  var HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+  var round = (value) => Math.round(value * 10) / 10;
+  function roundBox(box) {
+    return { x: round(box.x), y: round(box.y), width: round(box.width), height: round(box.height) };
+  }
+  function moveBox(box, dx, dy, bounds) {
+    const clamp = (value, min, max) => Math.max(min, Math.min(Math.max(min, max), value));
+    return {
+      ...box,
+      x: clamp(box.x + dx, bounds.x, bounds.x + bounds.width - box.width),
+      y: clamp(box.y + dy, bounds.y, bounds.y + bounds.height - box.height)
+    };
+  }
+  function resizeBox(box, handle, dx, dy, { bounds, minWidth, minHeight }, keepAspect = false) {
+    const west = handle.includes("w"), east = handle.includes("e");
+    const north = handle.includes("n"), south = handle.includes("s");
+    let left = box.x, right = box.x + box.width, top = box.y, bottom = box.y + box.height;
+    if (west) left = Math.min(right - minWidth, Math.max(bounds.x, left + dx));
+    if (east) right = Math.max(left + minWidth, Math.min(bounds.x + bounds.width, right + dx));
+    if (north) top = Math.min(bottom - minHeight, Math.max(bounds.y, top + dy));
+    if (south) bottom = Math.max(top + minHeight, Math.min(bounds.y + bounds.height, bottom + dy));
+    let next = { x: left, y: top, width: right - left, height: bottom - top };
+    if (keepAspect && box.width > 0 && box.height > 0) next = proportional(box, next, handle, { bounds, minWidth, minHeight });
+    return next;
+  }
+  function proportional(original, next, handle, { bounds, minWidth, minHeight }) {
+    const ratio = original.width / original.height;
+    const horizontal = handle.includes("e") || handle.includes("w");
+    const vertical = handle.includes("n") || handle.includes("s");
+    const sx = next.width / original.width, sy = next.height / original.height;
+    let scale = horizontal && vertical ? Math.abs(Math.log(sx)) >= Math.abs(Math.log(sy)) ? sx : sy : horizontal ? sx : sy;
+    scale = Math.max(scale, minWidth / original.width, minHeight / original.height);
+    const anchorX = handle.includes("w") ? original.x + original.width : handle.includes("e") ? original.x : original.x + original.width / 2;
+    const anchorY = handle.includes("n") ? original.y + original.height : handle.includes("s") ? original.y : original.y + original.height / 2;
+    const fx = handle.includes("w") ? 1 : handle.includes("e") ? 0 : 0.5;
+    const fy = handle.includes("n") ? 1 : handle.includes("s") ? 0 : 0.5;
+    const room = (anchor, fraction, min, max, extent) => {
+      const limits = [];
+      if (fraction > 0) limits.push((anchor - min) / (fraction * extent));
+      if (fraction < 1) limits.push((max - anchor) / ((1 - fraction) * extent));
+      return Math.min(...limits);
+    };
+    scale = Math.min(
+      scale,
+      room(anchorX, fx, bounds.x, bounds.x + bounds.width, original.width),
+      room(anchorY, fy, bounds.y, bounds.y + bounds.height, original.height)
+    );
+    const width = original.width * scale, height = width / ratio;
+    return { x: anchorX - fx * width, y: anchorY - fy * height, width, height };
+  }
+  function nudgeBox(box, key, large, bounds) {
+    const step = large ? 10 : 1;
+    const delta = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step]
+    };
+    return delta[key] ? moveBox(box, delta[key][0], delta[key][1], bounds) : null;
+  }
+  var DRAG_THRESHOLD = 4;
+  function isDrag(dx, dy) {
+    return Math.hypot(dx, dy) >= DRAG_THRESHOLD;
+  }
+
+  // src/editor/transform.ts
+  var SLIDE = { x: 0, y: 0, width: CANONICAL_SLIDE_WIDTH, height: CANONICAL_SLIDE_HEIGHT };
+  var IGNORED = "button, input, select, textarea, a[href], [data-transform-control]";
+  var HANDLE_NAMES = {
+    n: "top",
+    s: "bottom",
+    e: "right",
+    w: "left",
+    ne: "top-right",
+    nw: "top-left",
+    se: "bottom-right",
+    sw: "bottom-left"
+  };
+  function canvasScale(canvas) {
+    const rect = canvas.getBoundingClientRect();
+    return rect.width / CANONICAL_SLIDE_WIDTH || 1;
+  }
+  function measureBox(element, canvas) {
+    const outer = canvas.getBoundingClientRect(), rect = element.getBoundingClientRect();
+    const scale = outer.width / CANONICAL_SLIDE_WIDTH || 1;
+    return {
+      x: (rect.left - outer.left) / scale,
+      y: (rect.top - outer.top) / scale,
+      width: rect.width / scale,
+      height: rect.height / scale
+    };
+  }
+  function createTransformLayer(host) {
+    const targets = /* @__PURE__ */ new Map();
+    const owners = /* @__PURE__ */ new WeakMap();
+    const claimed = /* @__PURE__ */ new WeakSet();
+    let selectedKey = null;
+    let frame = null;
+    let gesture = null;
+    let follow = null;
+    let ownsPress = false;
+    document.addEventListener("pointerdown", () => {
+      ownsPress = false;
+    }, true);
+    const claim = (event) => {
+      claimed.add(event);
+      ownsPress = true;
+    };
+    const boundsOf = (target) => target.bounds ? target.bounds() : measureBox(target.hits[0], target.canvas);
+    function register(target) {
+      targets.set(target.key, target);
+      target.hits.forEach((element) => {
+        element.dataset.transformTarget = target.key;
+        if (owners.has(element)) {
+          owners.set(element, target);
+          return;
+        }
+        owners.set(element, target);
+        element.addEventListener("pointerdown", (event) => {
+          const owner = owners.get(element);
+          if (owner && targets.get(owner.key) === owner) pointerDown(owner, event, "move", true);
+        });
+      });
+      if (target.key === selectedKey) requestAnimationFrame(sync);
+    }
+    function pointerDown(target, event, kind, body) {
+      if (claimed.has(event) || !host.isEditMode() || event.button !== 0) return;
+      const node = event.target;
+      if (body) {
+        if (node.closest(IGNORED)) return;
+        if (target.nativeSelector && node.closest(target.nativeSelector)) {
+          claim(event);
+          select(target.key);
+          return;
+        }
+        const text = target.textAt?.(node) || null;
+        const active = document.activeElement;
+        if (text && active && (text === active || text.contains(active))) {
+          claim(event);
+          select(target.key);
+          return;
+        }
+        if (target.bodyDrag === false) return;
+        claim(event);
+        event.preventDefault();
+        select(target.key);
+        start(target, event, kind, text);
+        return;
+      }
+      claim(event);
+      event.preventDefault();
+      event.stopPropagation();
+      select(target.key);
+      start(target, event, kind, null);
+    }
+    function start(target, event, kind, text) {
+      finishGesture(false);
+      host.focusObject();
+      gesture = {
+        target,
+        kind,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        scale: canvasScale(target.canvas),
+        text,
+        dragging: false
+      };
+      document.addEventListener("pointermove", pointerMove);
+      document.addEventListener("pointerup", pointerUp);
+      document.addEventListener("pointercancel", pointerCancel);
+    }
+    function pointerMove(event) {
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      const screenX = event.clientX - gesture.startX, screenY = event.clientY - gesture.startY;
+      if (!gesture.dragging) {
+        if (!isDrag(screenX, screenY)) return;
+        gesture.dragging = true;
+        gesture.origin = boundsOf(gesture.target);
+        gesture.area = gesture.target.area?.() || SLIDE;
+        host.beginChange(gesture.target.group);
+        gesture.edit = gesture.target.edit();
+        document.body.classList.add(gesture.kind === "move" ? "transform-moving" : "transform-resizing");
+      }
+      event.preventDefault();
+      const dx = screenX / gesture.scale, dy = screenY / gesture.scale;
+      const { target, origin, area } = gesture;
+      const next = gesture.kind === "move" ? moveBox(origin, dx, dy, area) : resizeBox(
+        origin,
+        gesture.kind,
+        dx,
+        dy,
+        { bounds: area, minWidth: target.minWidth ?? 48, minHeight: target.minHeight ?? 28 },
+        Boolean(target.keepAspect) !== event.shiftKey
+      );
+      host.beginChange(target.group);
+      gesture.edit.update(roundBox(next));
+      sync();
+    }
+    function pointerUp(event) {
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      const { dragging, text } = gesture;
+      finishGesture(true);
+      if (!dragging && text) editTextAt(text, event.clientX, event.clientY);
+    }
+    function pointerCancel(event) {
+      if (gesture && event.pointerId === gesture.pointerId) finishGesture(true);
+    }
+    function finishGesture(commit) {
+      document.removeEventListener("pointermove", pointerMove);
+      document.removeEventListener("pointerup", pointerUp);
+      document.removeEventListener("pointercancel", pointerCancel);
+      document.body.classList.remove("transform-moving", "transform-resizing");
+      const done = gesture;
+      gesture = null;
+      if (done?.dragging && done.edit) {
+        swallowNextClick();
+        done.edit.finish?.();
+        if (commit) host.persist();
+        sync();
+      }
+    }
+    function swallowNextClick() {
+      const swallow = (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+      };
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+    }
+    function editTextAt(text, x, y) {
+      if (!text.isContentEditable) return;
+      text.focus({ preventScroll: true });
+      const doc = document;
+      let range = null;
+      if (doc.caretRangeFromPoint) range = doc.caretRangeFromPoint(x, y);
+      else if (doc.caretPositionFromPoint) {
+        const position = doc.caretPositionFromPoint(x, y);
+        if (position) {
+          range = document.createRange();
+          range.setStart(position.offsetNode, position.offset);
+        }
+      }
+      const selection = getSelection();
+      if (!selection) return;
+      if (!range || !text.contains(range.startContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(text);
+        range.collapse(false);
+      }
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+    function select(key) {
+      const changed2 = selectedKey !== key;
+      selectedKey = key;
+      const target = key ? targets.get(key) : null;
+      if (target && changed2) target.select();
+      sync();
+    }
+    function removeFrame() {
+      follow?.disconnect();
+      follow = null;
+      frame?.remove();
+      frame = null;
+    }
+    function buildFrame(target) {
+      removeFrame();
+      const element = document.createElement("div");
+      element.className = "transform-frame";
+      element.dataset.transformFrame = target.key;
+      element.dataset.transformControl = "";
+      const grip = control("transform-move-grip", "Move " + target.label, "Drag to move");
+      grip.addEventListener("pointerdown", (event) => pointerDown(target, event, "move", false));
+      element.appendChild(grip);
+      ["top", "right", "bottom", "left"].forEach((side) => {
+        const edge = document.createElement("div");
+        edge.className = "transform-edge transform-edge-" + side;
+        edge.dataset.transformControl = "";
+        edge.addEventListener("pointerdown", (event) => pointerDown(target, event, "move", false));
+        element.appendChild(edge);
+      });
+      if (target.resizable !== false) HANDLES.forEach((handle) => {
+        const name = handle === "se" ? "Resize " + target.label : "Resize " + target.label + " from " + HANDLE_NAMES[handle];
+        const button = control(
+          "transform-handle transform-handle-" + handle,
+          name,
+          "Drag to resize; Shift keeps proportions"
+        );
+        button.dataset.handle = handle;
+        button.addEventListener("pointerdown", (event) => pointerDown(target, event, handle, false));
+        element.appendChild(button);
+      });
+      element.addEventListener("click", (event) => event.stopPropagation());
+      frameHost(target).appendChild(element);
+      frame = element;
+      if (window.ResizeObserver) {
+        follow = new ResizeObserver(() => requestAnimationFrame(sync));
+        target.hits.forEach((node) => follow.observe(node));
+      }
+    }
+    function control(className, label, title) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = className;
+      button.tabIndex = -1;
+      button.setAttribute("aria-label", label);
+      button.title = title;
+      button.dataset.transformControl = "";
+      return button;
+    }
+    function sync() {
+      const target = selectedKey ? targets.get(selectedKey) : null;
+      if (!target || !host.isEditMode() || !target.hits[0].isConnected || !target.canvas.isConnected) {
+        removeFrame();
+        return;
+      }
+      const parent2 = frameHost(target);
+      if (!frame || frame.dataset.transformFrame !== target.key || frame.parentElement !== parent2) buildFrame(target);
+      const box = boundsOf(target), scale = canvasScale(target.canvas);
+      const slide = target.canvas.getBoundingClientRect(), outer = parent2.getBoundingClientRect();
+      Object.assign(frame.style, {
+        left: slide.left - outer.left + box.x * scale + "px",
+        top: slide.top - outer.top + box.y * scale + "px",
+        width: box.width * scale + "px",
+        height: box.height * scale + "px"
+      });
+    }
+    const frameHost = (target) => target.canvas.parentElement || target.canvas;
+    function nudge(event) {
+      const target = selectedKey ? targets.get(selectedKey) : null;
+      if (!target || !host.isEditMode() || event.metaKey || event.ctrlKey || event.altKey) return false;
+      const origin = boundsOf(target);
+      const next = nudgeBox(origin, event.key, event.shiftKey, target.area?.() || SLIDE);
+      if (!next) return false;
+      host.beginChange(target.group + ":nudge");
+      const edit = target.edit();
+      edit.update(roundBox(next));
+      edit.finish?.();
+      host.persist();
+      sync();
+      return true;
+    }
+    function clear() {
+      finishGesture(false);
+      targets.clear();
+      removeFrame();
+    }
+    function grab(key, event) {
+      const target = targets.get(key);
+      if (target) pointerDown(target, event, "move", false);
+    }
+    return {
+      register,
+      select,
+      sync,
+      nudge,
+      clear,
+      grab,
+      /** True while the press that produced the current click belonged to an object. */
+      ownsPress: () => ownsPress,
+      selected: () => selectedKey,
+      has: (key) => targets.has(key),
+      unregister(key) {
+        targets.delete(key);
+        if (selectedKey === key) select(null);
+      }
+    };
+  }
+
   // src/editor/regions.ts
   var CANONICAL_SLIDE_WIDTH2 = 1920;
   var CANONICAL_SLIDE_HEIGHT2 = 1080;
-  function createTextRegions({ getComponent, getSelected, isEditMode, beginChange, persist, updateOverlay, resizeChart }) {
+  function createTextRegions({ getComponent, transforms, selectRegion, updateOverlay, resizeChart }) {
     const textRegionBindings = /* @__PURE__ */ new Map();
-    let textRegionFrame = null;
-    let regionGesture = null;
     function textRegionKey(slideId, componentId) {
       return slideId + "@" + componentId;
     }
@@ -260,6 +630,7 @@
       requestAnimationFrame(function() {
         if (textRegionBindings.get(key) !== binding || !binding.host.isConnected) return;
         applyTextRegion(binding);
+        registerRegion(binding);
       });
       return binding.host;
     }
@@ -267,13 +638,6 @@
       return {
         x: canvas.clientWidth / CANONICAL_SLIDE_WIDTH2,
         y: canvas.clientHeight / CANONICAL_SLIDE_HEIGHT2
-      };
-    }
-    function canvasRenderScale(canvas) {
-      var rect = canvas.getBoundingClientRect();
-      return {
-        x: rect.width / canvas.clientWidth,
-        y: rect.height / canvas.clientHeight
       };
     }
     function ensureTextRegionFit(binding) {
@@ -316,162 +680,57 @@
         if (binding.host.isConnected) applyTextRegion(binding);
       });
     }
-    function currentTextRegionBinding() {
-      const selected = getSelected();
-      if (!selected || !isEditMode()) return null;
-      var component = getComponent(selected.slideId, selected.componentId);
-      if (!component || component.deleted || !["text", "chart"].includes(component.kind)) return null;
-      return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
-    }
-    function removeTextRegionFrame() {
-      if (textRegionFrame) textRegionFrame.remove();
-      textRegionFrame = null;
-    }
-    function regionFromBinding(binding) {
+    function registerRegion(binding) {
       var canvas = binding.host.closest(".slide-canvas");
-      if (!canvas) throw new Error("Detached text region");
-      var scale = canvasRenderScale(canvas);
-      var rect = binding.host.getBoundingClientRect();
       var component = getComponent(binding.slideId, binding.componentId);
-      return component?.region ? Object.assign({}, component.region) : {
-        x: 0,
-        y: 0,
-        width: rect.width / scale.x,
-        height: rect.height / scale.y
-      };
-    }
-    function syncTextRegionFrame() {
-      var binding = currentTextRegionBinding();
-      if (!binding || !binding.host.isConnected) {
-        removeTextRegionFrame();
-        return;
-      }
-      var canvas = binding.host.closest(".slide-canvas");
-      if (!canvas) return;
-      if (!textRegionFrame || textRegionFrame.parentElement !== canvas) {
-        removeTextRegionFrame();
-        textRegionFrame = document.createElement("div");
-        textRegionFrame.className = "text-region-frame";
-        textRegionFrame.addEventListener("click", (event) => event.stopPropagation());
-        textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
-        var move = document.createElement("button");
-        move.type = "button";
-        move.className = "text-region-move-handle";
-        move.setAttribute("aria-label", "Move text region");
-        move.title = "Drag to move this text region";
-        move.addEventListener("pointerdown", function(event) {
-          startTextRegionGesture("move", event);
-        });
-        var resize = document.createElement("button");
-        resize.type = "button";
-        resize.className = "text-region-resize-handle";
-        resize.setAttribute("aria-label", "Resize text region");
-        resize.title = "Drag to resize; text wraps and fits inside";
-        resize.addEventListener("pointerdown", function(event) {
-          startTextRegionGesture("resize", event);
-        });
-        textRegionFrame.appendChild(move);
-        textRegionFrame.appendChild(resize);
-        canvas.appendChild(textRegionFrame);
-      }
-      textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
-      var regionKind = getComponent(binding.slideId, binding.componentId)?.kind === "chart" ? "chart" : "text";
-      textRegionFrame.querySelector(".text-region-move-handle").setAttribute("aria-label", "Move " + regionKind + " region");
-      textRegionFrame.querySelector(".text-region-resize-handle").setAttribute("aria-label", "Resize " + regionKind + " region");
-      if (!canvas) return;
-      var canvasRect = canvas.getBoundingClientRect();
-      var rect = binding.host.getBoundingClientRect();
-      var scale = canvasRenderScale(canvas);
-      textRegionFrame.style.left = (rect.left - canvasRect.left) / scale.x + "px";
-      textRegionFrame.style.top = (rect.top - canvasRect.top) / scale.y + "px";
-      textRegionFrame.style.width = rect.width / scale.x + "px";
-      textRegionFrame.style.height = rect.height / scale.y + "px";
-    }
-    function startTextRegionGesture(kind, event) {
-      var binding = currentTextRegionBinding();
-      if (!binding) return;
-      event.preventDefault();
-      event.stopPropagation();
-      event.currentTarget.focus({ preventScroll: true });
-      var canvas = binding.host.closest(".slide-canvas");
-      if (!canvas) return;
-      var canvasRect = canvas.getBoundingClientRect();
-      var hostRect = binding.host.getBoundingClientRect();
-      beginChange();
-      regionGesture = {
-        kind,
-        binding,
+      if (!canvas || !component || !["text", "chart"].includes(component.kind)) return;
+      if (binding.host.closest("[data-table-cell], .diagram-node-copy")) return;
+      var chart = component.kind === "chart";
+      transforms.register({
+        key: binding.key,
+        label: chart ? "chart region" : "text region",
+        hits: [binding.host],
         canvas,
-        canvasRect,
-        hostRect,
-        startX: event.clientX,
-        startY: event.clientY,
-        region: regionFromBinding(binding)
-      };
-      document.body.classList.add(kind === "move" ? "moving-text-region" : "resizing-text-region");
-      document.addEventListener("pointermove", moveTextRegionGesture);
-      document.addEventListener("pointerup", finishTextRegionGesture, { once: true });
-      document.addEventListener("pointercancel", finishTextRegionGesture, { once: true });
+        group: "region:" + binding.key,
+        minWidth: 48,
+        minHeight: 28,
+        // Plot zoom, legend and annotation drags stay Plotly's; move by the border.
+        nativeSelector: chart ? ".js-plotly-plot, .main-svg" : void 0,
+        textAt: (node) => {
+          var text = node.closest(".semantic-component");
+          return text && binding.host.contains(text) ? text : null;
+        },
+        select: () => selectRegion(binding.slideId, binding.componentId, binding.element),
+        edit: () => regionEdit(binding, canvas)
+      });
     }
-    function moveTextRegionGesture(event) {
-      if (!regionGesture) return;
-      event.preventDefault();
-      var gesture = regionGesture;
-      var scale = canvasRenderScale(gesture.canvas);
-      var dx = event.clientX - gesture.startX;
-      var dy = event.clientY - gesture.startY;
-      var next = Object.assign({}, gesture.region);
-      if (gesture.kind === "move") {
-        dx = Math.max(
-          gesture.canvasRect.left - gesture.hostRect.left,
-          Math.min(gesture.canvasRect.right - gesture.hostRect.right, dx)
-        );
-        dy = Math.max(
-          gesture.canvasRect.top - gesture.hostRect.top,
-          Math.min(gesture.canvasRect.bottom - gesture.hostRect.bottom, dy)
-        );
-        next.x = gesture.region.x + dx / scale.x;
-        next.y = gesture.region.y + dy / scale.y;
-      } else {
-        var maxWidth = gesture.canvasRect.right - gesture.hostRect.left;
-        var maxHeight = gesture.canvasRect.bottom - gesture.hostRect.top;
-        next.width = Math.max(48, Math.min(
-          maxWidth / scale.x,
-          gesture.region.width + dx / scale.x
-        ));
-        next.height = Math.max(28, Math.min(
-          maxHeight / scale.y,
-          gesture.region.height + dy / scale.y
-        ));
+    function regionEdit(binding, canvas) {
+      var measured = measureBox(binding.host, canvas);
+      var current = getComponent(binding.slideId, binding.componentId)?.region;
+      var region = current ? Object.assign({}, current) : { x: 0, y: 0, width: measured.width, height: measured.height };
+      var origin = { x: measured.x - region.x, y: measured.y - region.y };
+      function write(next) {
+        var value = roundBox({ x: next.x - origin.x, y: next.y - origin.y, width: next.width, height: next.height });
+        updateOverlay(binding.slideId, binding.componentId, "region", value);
+        applyTextRegion(binding);
+        return value;
       }
-      next = {
-        x: Math.round(next.x * 10) / 10,
-        y: Math.round(next.y * 10) / 10,
-        width: Math.round(next.width * 10) / 10,
-        height: Math.round(next.height * 10) / 10
+      return {
+        update(next) {
+          var value = write(next);
+          var landed = measureBox(binding.host, canvas);
+          if (Math.abs(landed.x - next.x) > 0.5 || Math.abs(landed.y - next.y) > 0.5) {
+            origin = { x: landed.x - value.x, y: landed.y - value.y };
+            write(next);
+          }
+        }
       };
-      updateOverlay(gesture.binding.slideId, gesture.binding.componentId, "region", next);
-      applyTextRegion(gesture.binding);
-      syncTextRegionFrame();
-    }
-    function finishTextRegionGesture() {
-      document.removeEventListener("pointermove", moveTextRegionGesture);
-      document.removeEventListener("pointerup", finishTextRegionGesture);
-      document.removeEventListener("pointercancel", finishTextRegionGesture);
-      document.body.classList.remove("moving-text-region");
-      document.body.classList.remove("resizing-text-region");
-      if (!regionGesture) return;
-      regionGesture = null;
-      persist();
     }
     return {
       bindTextRegion,
       applyAllTextRegions,
-      syncTextRegionFrame,
-      removeTextRegionFrame,
       clearTextRegions() {
         textRegionBindings.clear();
-        removeTextRegionFrame();
       }
     };
   }
@@ -3738,7 +3997,7 @@
       this.pending = null;
       if (sameSnapshot(before, state)) return;
       const last = this.entries[this.entries.length - 1], time = Date.now();
-      if (group?.startsWith("text:") && last?.group === group && time - last.time < 750 && sameSnapshot(last.after, before)) {
+      if ((group?.startsWith("text:") || group?.endsWith(":nudge")) && last?.group === group && time - last.time < 750 && sameSnapshot(last.after, before)) {
         last.after = snapshot(state);
         last.time = time;
       } else this.entries.push({ before, after: snapshot(state), group, time });
@@ -3883,7 +4142,7 @@
     var selected = null;
     var editMode = false;
     var editHistory = new EditHistory();
-    var inputTimer = null;
+    var inputTimer = null, typingGroup = null;
     var toastTimer = null;
     var loadedSlides = /* @__PURE__ */ new Map();
     var slideRequests = /* @__PURE__ */ new Map();
@@ -4040,7 +4299,7 @@
         applyAllTextRegions();
       },
       syncTextRegionFrame: function() {
-        syncTextRegionFrame();
+        transforms.sync();
       },
       showToast,
       canPresent: function() {
@@ -4106,11 +4365,14 @@
       });
       return Boolean(edge && (objects[edge.from]?.deleted || objects[edge.to]?.deleted));
     }
-    function updateVisualObject(slideId, objectId, kind, geometry, commit) {
+    function setVisualObject(slideId, objectId, kind, geometry) {
       if (!state.objects) state.objects = {};
       if (!state.objects[slideId]) state.objects[slideId] = {};
-      beginChange("object:" + slideId + ":" + objectId);
       state.objects[slideId][objectId] = Object.assign({ kind }, copy(geometry));
+    }
+    function updateVisualObject(slideId, objectId, kind, geometry, commit) {
+      beginChange("object:" + slideId + ":" + objectId);
+      setVisualObject(slideId, objectId, kind, geometry);
       if (commit) persist();
     }
     function cleanVisualObject(slideId, objectId) {
@@ -4178,6 +4440,10 @@
       updateOverlay
     });
     function beginChange(group) {
+      if (inputTimer && group !== typingGroup) {
+        clearTimeout(inputTimer);
+        inputTimer = null;
+      }
       editHistory.begin(state, group);
       undoButton.disabled = false;
       setStatus("Saving\u2026", "saving");
@@ -4338,10 +4604,14 @@
       element.addEventListener("input", function() {
         if (!editMode || isLatex) return;
         var value = readMarkedText(element);
-        beginChange("text:" + slide.id + ":" + componentId);
+        typingGroup = "text:" + slide.id + ":" + componentId;
+        beginChange(typingGroup);
         updateText(slide.id, componentId, value);
         clearTimeout(inputTimer);
-        inputTimer = setTimeout(persist, 260);
+        inputTimer = setTimeout(function() {
+          inputTimer = null;
+          persist();
+        }, 260);
       });
       element.addEventListener("paste", function(event) {
         if (!editMode || isLatex) return;
@@ -4391,18 +4661,31 @@
       bindTextRegion(slide, componentId, element, element, { minSize: 10 });
       return element;
     }
-    var { bindTextRegion, applyAllTextRegions, syncTextRegionFrame, removeTextRegionFrame, clearTextRegions } = createTextRegions({
-      getComponent: function(sid, cid) {
-        return cid ? effectiveComponent(state.slides[sid], cid) : null;
-      },
-      getSelected: function() {
-        return selected;
-      },
+    var transforms = createTransformLayer({
       isEditMode: function() {
         return editMode;
       },
       beginChange,
       persist,
+      focusObject: function() {
+        stage.tabIndex = -1;
+        stage.focus({ preventScroll: true });
+      }
+    });
+    function regionKey(slideId, componentId) {
+      return slideId + "@" + componentId;
+    }
+    function objectKey(slideId, objectId) {
+      return slideId + "@object:" + objectId;
+    }
+    var { bindTextRegion, applyAllTextRegions, clearTextRegions } = createTextRegions({
+      getComponent: function(sid, cid) {
+        return cid ? effectiveComponent(state.slides[sid], cid) : null;
+      },
+      transforms,
+      selectRegion: function(sid, cid, element) {
+        selectComponent(sid, cid, element);
+      },
       updateOverlay,
       resizeChart: function(host) {
         if (host.isConnected && host.clientWidth > 0 && host.clientHeight > 0 && host.dataset.chartReady === "true" && host._fullLayout && host.layout && window.Plotly && (host.layout.width !== host.clientWidth || host.layout.height !== host.clientHeight))
@@ -4436,8 +4719,8 @@
       canvas.setAttribute("data-slide-id", slide.id);
       canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
       canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
-      canvas.addEventListener("click", function() {
-        if (editMode) selectComponent(null, null);
+      canvas.addEventListener("click", function(event) {
+        if (editMode && !transforms.ownsPress() && !event.target.closest("[data-transform-control]")) selectComponent(null, null);
       });
       if (state.hidden.indexOf(slide.id) >= 0) {
         var ribbon = document.createElement("span");
@@ -4577,10 +4860,15 @@
         stage.querySelectorAll(".selected-component").forEach(function(node) {
           node.classList.remove("selected-component");
         });
-        removeTextRegionFrame();
+        transforms.select(objectKey(slideId, objectId));
         renderTools();
       },
+      transforms: function() {
+        return transforms;
+      },
+      objectKey,
       updateVisualObject,
+      setVisualObject,
       saveChartLayout: function(slideId, componentId, value) {
         beginChange();
         updateOverlay(slideId, componentId, "chartLayout", value);
@@ -4589,7 +4877,7 @@
     });
     function clearStage(message) {
       clearFitObservers();
-      removeTextRegionFrame();
+      transforms.clear();
       clearTextRegions();
       stage.querySelectorAll(".native-chart").forEach(function(chart) {
         window.disposeScientificChart(chart);
@@ -4655,7 +4943,7 @@
           requestAnimationFrame(function() {
             if (!canvas.isConnected) return;
             applyAllTextRegions();
-            syncTextRegionFrame();
+            transforms.sync();
           });
         });
         canvasObserver.observe(canvas);
@@ -4673,7 +4961,7 @@
           if (!selected.tableCell) delete selected.tableCell;
         }
       }
-      requestAnimationFrame(syncTextRegionFrame);
+      requestAnimationFrame(transforms.sync);
       if (focusCreatedTitle === currentId) {
         focusCreatedTitle = null;
         var title = canvas.querySelector('[data-component-id="' + slide.headline + '"]');
@@ -4923,7 +5211,7 @@
       addTextBox(700, 450);
     });
     stage.addEventListener("dblclick", function(event) {
-      if (!editMode || event.target.closest("[data-component-id], [data-visual-object-id], button, input, svg, canvas, .native-chart, [data-native-table], .text-region-frame")) return;
+      if (!editMode || event.target.closest("[data-component-id], [data-visual-object-id], button, input, svg, canvas, .native-chart, [data-native-table], [data-transform-control], [data-transform-target]")) return;
       var canvas = event.target.closest(".slide-canvas");
       if (!canvas) return;
       event.preventDefault();
@@ -4939,7 +5227,7 @@
       stage.querySelectorAll(".selected-visual-object").forEach(function(node) {
         node.classList.remove("selected-visual-object");
       });
-      stage.querySelectorAll(".accessibility-object-frame, .accessibility-line-controls").forEach(function(node) {
+      stage.querySelectorAll(".accessibility-line-controls").forEach(function(node) {
         node.hidden = true;
       });
       if (selected && element) {
@@ -4960,7 +5248,7 @@
       });
       if (element) element.classList.add("selected-component");
       renderTools();
-      requestAnimationFrame(syncTextRegionFrame);
+      transforms.select(selected ? regionKey(slideId, componentId) : null);
     }
     function mutateOrder(id, delta) {
       var index2 = state.order.indexOf(id);
@@ -5013,6 +5301,7 @@
     }
     function undo() {
       clearTimeout(inputTimer);
+      inputTimer = null;
       var next;
       try {
         next = editHistory.undo(state);
@@ -5169,6 +5458,16 @@
         return;
       }
       if (typingTarget(event.target)) return;
+      if (editMode && (stage.contains(event.target) || event.target === document.body) && transforms.nudge(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (event.key === "Escape" && editMode && transforms.selected()) {
+        event.preventDefault();
+        selectComponent(null, null);
+        return;
+      }
       if (event.key === "ArrowLeft") step(-1);
       if (event.key === "ArrowRight") step(1);
       if (event.key.toLowerCase() === "f") toggleFullscreenPresentation();

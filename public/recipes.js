@@ -494,6 +494,21 @@
     return targetAccessibility;
   }
 
+  // src/editor/viewport.ts
+  var CANONICAL_SLIDE_WIDTH = 1920;
+
+  // src/editor/transform.ts
+  function measureBox(element, canvas) {
+    const outer = canvas.getBoundingClientRect(), rect = element.getBoundingClientRect();
+    const scale = outer.width / CANONICAL_SLIDE_WIDTH || 1;
+    return {
+      x: (rect.left - outer.left) / scale,
+      y: (rect.top - outer.top) / scale,
+      width: rect.width / scale,
+      height: rect.height / scale
+    };
+  }
+
   // src/recipes/wireVisualObjects.js
   function createWireVisualObjects(api) {
     const global = window;
@@ -560,17 +575,13 @@
         positionControls(record, geometry);
       }
       function positionControls(record, geometry) {
-        if (!record.controls) return;
         if (record.selector) {
           record.selector.style.left = geometry.x * 100 + "%";
           record.selector.style.top = geometry.y * 100 + "%";
         }
         if (record.mode === "rect") {
-          record.controls.style.left = geometry.x * 100 + "%";
-          record.controls.style.top = geometry.y * 100 + "%";
-          record.controls.style.width = geometry.width * 100 + "%";
-          record.controls.style.height = geometry.height * 100 + "%";
-        } else {
+          api.transforms().sync();
+        } else if (record.controls) {
           var points = [
             geometry.from,
             geometry.to,
@@ -589,6 +600,42 @@
         });
         api.selectVisualObject(slide.id, record.id, record.kind);
       }
+      function registerRect(record) {
+        var canvas = record.article.closest(".slide-canvas") || record.article;
+        api.transforms().register({
+          key: api.objectKey(slide.id, record.id),
+          label: record.kind === "recipe-frame" ? "layout frame" : record.id,
+          hits: [record.element],
+          canvas,
+          group: "object:" + slide.id + ":" + record.id,
+          area: function() {
+            return measureBox(record.article, canvas);
+          },
+          minWidth: 24,
+          minHeight: 12,
+          bodyDrag: record.kind !== "recipe-frame",
+          select: function() {
+            showSelected(record);
+          },
+          edit: function() {
+            return {
+              update: function(next) {
+                var outer = measureBox(record.article, canvas);
+                var geometry = {
+                  kind: record.kind,
+                  x: rounded((next.x - outer.x) / outer.width),
+                  y: rounded((next.y - outer.y) / outer.height),
+                  width: rounded(next.width / outer.width),
+                  height: rounded(next.height / outer.height)
+                };
+                objectState[record.id] = geometry;
+                applyGeometry(record, geometry);
+                api.setVisualObject(slide.id, record.id, record.kind, geometry);
+              }
+            };
+          }
+        });
+      }
       function boundedPoint(point) {
         return [
           Math.max(0, Math.min(1, rounded(point[0]))),
@@ -597,7 +644,6 @@
       }
       function startGesture(record, gesture, event) {
         if (!api.isEditMode()) return;
-        if (record.kind === "recipe-frame" && gesture === "move" && event.target !== record.element) return;
         event.preventDefault();
         event.stopPropagation();
         if (event.currentTarget.setPointerCapture) event.currentTarget.setPointerCapture(event.pointerId);
@@ -614,16 +660,7 @@
           if (Math.abs(dx) + Math.abs(dy) < 1e-3 && !moved) return;
           moved = true;
           var next;
-          if (record.mode === "rect") {
-            next = Object.assign({}, initial);
-            if (gesture === "resize") {
-              next.width = Math.max(0.03, Math.min(1 - initial.x, rounded(initial.width + dx)));
-              next.height = Math.max(0.012, Math.min(1 - initial.y, rounded(initial.height + dy)));
-            } else {
-              next.x = Math.max(0, Math.min(1 - initial.width, rounded(initial.x + dx)));
-              next.y = Math.max(0, Math.min(1 - initial.height, rounded(initial.y + dy)));
-            }
-          } else {
+          {
             next = { kind: record.kind, from: initial.from.slice(), to: initial.to.slice() };
             if (gesture === "start") next.from = boundedPoint([initial.from[0] + dx, initial.from[1] + dy]);
             else if (gesture === "end") next.to = boundedPoint([initial.to[0] + dx, initial.to[1] + dy]);
@@ -665,29 +702,11 @@
         record.element.setAttribute("data-visual-object-id", record.id);
         record.element.setAttribute("data-visual-object-kind", record.kind);
         record.element.setAttribute("aria-label", record.id + " editable " + record.mode);
-        record.element.addEventListener("pointerdown", function(event) {
-          startGesture(record, "move", event);
-        });
         record.element.addEventListener("click", function(event) {
           if (api.isEditMode()) event.stopPropagation();
         });
         if (record.mode === "rect") {
-          var frame = document.createElement("div");
-          frame.className = "accessibility-object-frame";
-          frame.hidden = true;
-          var resize = document.createElement("button");
-          resize.type = "button";
-          resize.className = "accessibility-object-resize";
-          resize.setAttribute("aria-label", "Resize " + record.id);
-          resize.addEventListener("pointerdown", function(event) {
-            startGesture(record, "resize", event);
-          });
-          frame.appendChild(resize);
-          record.controls = frame;
-          frame.addEventListener("click", function(event) {
-            event.stopPropagation();
-          });
-          record.article.appendChild(frame);
+          registerRect(record);
           if (record.kind === "recipe-frame") {
             var selector = document.createElement("button");
             selector.type = "button";
@@ -695,7 +714,7 @@
             selector.textContent = "Layout";
             selector.setAttribute("aria-label", "Move layout frame");
             selector.addEventListener("pointerdown", function(event) {
-              startGesture(record, "frame", event);
+              api.transforms().grab(api.objectKey(slide.id, record.id), event);
             });
             selector.addEventListener("click", function(event) {
               event.stopPropagation();
@@ -704,6 +723,9 @@
             record.article.appendChild(selector);
           }
         } else {
+          record.element.addEventListener("pointerdown", function(event) {
+            startGesture(record, "move", event);
+          });
           var controls = document.createElement("div");
           controls.className = "accessibility-line-controls";
           controls.hidden = true;
@@ -922,6 +944,7 @@
           }
         });
         paperHost.dataset.diagramMeasurement = "untransformed-slide-coordinates";
+        if (api.isEditMode()) registerNodes(diagram);
         var reflowTimer = null;
         function scheduleReflow() {
           clearTimeout(reflowTimer);
@@ -945,6 +968,50 @@
           observer.observe(plane);
         }
       });
+      function registerNodes(diagram) {
+        var canvas2 = paperHost.closest(".slide-canvas");
+        if (!canvas2) return;
+        slide.data.nodes.forEach(function(node) {
+          var block = nodeLabels[node.id], model = diagram.graph.getCell(node.id);
+          var view = model && diagram.paper.findViewByModel(model);
+          if (!block || !view || api.objectDeleted(slide, node.id)) return;
+          api.transforms().register({
+            key: api.objectKey(slide.id, node.id),
+            label: "diagram box",
+            hits: [block, view.el],
+            canvas: canvas2,
+            group: "object:" + slide.id + ":" + node.id,
+            area: function() {
+              return measureBox(paperHost, canvas2);
+            },
+            minWidth: 60,
+            minHeight: 40,
+            textAt: function(target) {
+              var text = target.closest(".semantic-component");
+              return text && block.contains(text) ? text : null;
+            },
+            select: function() {
+              selectVisualObject(slide.id, node.id, "diagram-node");
+            },
+            edit: function() {
+              return {
+                update: function(next) {
+                  var paper = measureBox(paperHost, canvas2);
+                  var factor = paperHost.clientWidth / paper.width;
+                  var geometry = diagram.setNodeBox(node.id, {
+                    x: (next.x - paper.x) * factor,
+                    y: (next.y - paper.y) * factor,
+                    width: next.width * factor,
+                    height: next.height * factor
+                  });
+                  if (geometry) api.setVisualObject(slide.id, node.id, "diagram-node", geometry);
+                  diagram.publishPositions();
+                }
+              };
+            }
+          });
+        });
+      }
     }
     return mechanismPipeline;
   }

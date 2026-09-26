@@ -19,7 +19,9 @@ Strict TypeScript owns the editing behavior:
 | `editor/save-queue.ts` | One writer, coalescing, conflict/retry transitions |
 | `editor/text.ts` | Safe rendering and atomic wording-plus-formatting commands |
 | `editor/tables.ts` | Stable identities, structural commands, paste and resizing |
-| `editor/regions.ts` | Bounded regions and canonical-coordinate gestures |
+| `editor/boxes.ts` | Pure box geometry: move, eight-handle and proportional resize, nudge, click-versus-drag |
+| `editor/transform.ts` | The one selection and move/resize layer for every box-shaped object: direct drag, handles, border and grip moves, keyboard nudge, click-to-edit text, change boundaries |
+| `editor/regions.ts` | Bounded text/chart regions, fitting, and their transform adapter (offset-from-flow storage) |
 | `editor/fit.ts` | Fitting and observer lifetime |
 | `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
 | `editor/navigation.ts` | Visible-only audience sequence, counters, and hidden-route resolution |
@@ -35,6 +37,20 @@ Explicit source changes and conflicts reset session history rather than allowing
 stale inverses. Deletion is a source-bound `deleted` tombstone on a component or
 visual object, not removal of scientific source. Renderers preserve layout and
 hide the deleted object in both editor and presentation modes.
+
+Movable objects never implement their own gestures. Each registers a
+transform target whose adapter converts one absolute canonical box into its
+storage: text/chart regions (offset from flow position), annotation and layout
+frames (fractions of their article) and diagram boxes (JointJS paper
+coordinates; JointJS keeps link vertex editing). Lines and vectors keep their
+endpoint controls. A click on text edits it; a drag on an object that is not
+being edited moves it; while editing, the border and move grip move it. The
+frame is drawn outside the clipped slide so handles at the slide edge stay
+reachable. `browser_direct_manipulation.py` proves each gesture with real
+input, and `browser_interaction_fuzz.py` mixes them at random: after every
+step saved geometry must equal the painted editor and no other slide may
+change; undoing everything must restore the pristine deck; a reload must paint
+what was saved. A new gesture joins its operation table.
 
 Each recipe has a module under `src/recipes/`. Recipes own spatial decisions,
 not persistence. JointJS, JSXGraph, KaTeX and Plotly retain native rendering

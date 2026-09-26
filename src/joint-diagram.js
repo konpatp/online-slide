@@ -1,4 +1,4 @@
-import { dia, elementTools, linkTools, shapes } from "@joint/core";
+import { dia, linkTools, shapes } from "@joint/core";
 import { DirectedGraph } from "@joint/layout-directed-graph";
 
 const PALETTE = {
@@ -8,23 +8,6 @@ const PALETTE = {
   output: { fill: "#edf9f4", stroke: "#66bda5" },
   result: { fill: "#f5f0fb", stroke: "#a88ad3" },
 };
-
-class ResizeControl extends elementTools.Control {
-  getPosition(view) {
-    const size = view.model.size();
-    return { x: size.width, y: size.height };
-  }
-
-  setPosition(view, coordinates) {
-    const position = view.model.position();
-    const paperWidth = view.paper.el.clientWidth;
-    const paperHeight = view.paper.el.clientHeight;
-    view.model.resize(
-      Math.max(118, Math.min(paperWidth - position.x, coordinates.x)),
-      Math.max(72, Math.min(paperHeight - position.y, coordinates.y)),
-    );
-  }
-}
 
 function rounded(value) {
   return Math.round(value * 10000) / 10000;
@@ -226,7 +209,9 @@ function renderPipeline(host, spec, options = {}) {
     cellViewNamespace: shapes,
     background: { color: "transparent" },
     restrictTranslate: true,
-    interactive: () => Boolean(options.interactive),
+    // Nodes move and resize through the editor's shared transform layer;
+    // links keep JointJS vertex editing.
+    interactive: () => (options.interactive ? { elementMove: false } : false),
   });
 
   function publishPositions() {
@@ -284,22 +269,6 @@ function renderPipeline(host, spec, options = {}) {
     if (!options.interactive) return;
     if (evt && evt.stopPropagation) evt.stopPropagation();
     clearTools();
-    const tools = new dia.ToolsView({
-      tools: [
-        new elementTools.Boundary({ padding: 6, useModelGeometry: true }),
-        new ResizeControl({
-          padding: 0,
-          handleAttributes: {
-            r: 9,
-            fill: "#2f6fed",
-            stroke: "#ffffff",
-            "stroke-width": 3,
-          },
-        }),
-      ],
-    });
-    view.addTools(tools);
-    editingTools = { view, kind: "diagram-node" };
     if (options.onSelect) options.onSelect("diagram-node", String(view.model.id));
   }
 
@@ -404,7 +373,27 @@ function renderPipeline(host, spec, options = {}) {
       else selectLink(view);
     });
   }
-  return { graph, paper, publishPositions, resizeNodes };
+  /** Paper-pixel box of a node, for the editor's transform adapter. */
+  function nodeBox(id) {
+    const model = nodeModels.get(id);
+    return model ? model.getBBox() : null;
+  }
+  /** Place a node from the editor. The adapter records the geometry itself,
+   * so this is a layout mutation, not a second change stream. */
+  function setNodeBox(id, box) {
+    const model = nodeModels.get(id);
+    if (!model) return null;
+    mutatingLayout = true;
+    try {
+      model.position(box.x, box.y);
+      model.resize(box.width, box.height);
+    } finally {
+      mutatingLayout = false;
+    }
+    objectState[id] = Object.assign({ kind: "diagram-node" }, nodeGeometry(model));
+    return nodeGeometry(model);
+  }
+  return { graph, paper, publishPositions, resizeNodes, nodeBox, setNodeBox };
 }
 
 window.ScientificDiagramRuntime = { renderPipeline };

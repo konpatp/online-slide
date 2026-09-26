@@ -1,21 +1,21 @@
 import type {Region} from './model';
 import {fitTextInRegion, registerTextFit} from './fit';
+import {measureBox} from './transform';
+import type {TransformLayer} from './transform';
+import {roundBox} from './boxes';
+import type {Box} from './boxes';
 const CANONICAL_SLIDE_WIDTH = 1920, CANONICAL_SLIDE_HEIGHT = 1080;
 interface RegionOptions {minSize?:number; fitMode?:string; alwaysFit?:boolean; fitRegistered?:boolean}
 interface Binding {key:string; slideId:string; componentId:string; element:HTMLElement; host:HTMLElement; minSize:number; fitMode:string; alwaysFit:boolean; fitRegistered:boolean}
-interface Gesture {kind:'move'|'resize';binding:Binding;canvas:HTMLElement;canvasRect:DOMRect;hostRect:DOMRect;startX:number;startY:number;region:Region}
 interface RegionHost {
   getComponent(slideId:string,componentId:string): {kind:string; region?:Region; deleted?:boolean} | null;
-  getSelected(): {slideId:string;componentId:string} | null;
-  isEditMode(): boolean;
-  beginChange(): void; persist(): void;
+  transforms: TransformLayer;
+  selectRegion(slideId:string,componentId:string,element:HTMLElement): void;
   updateOverlay(slideId:string,componentId:string,key:'region',value:Region): void;
   resizeChart(host:HTMLElement): void;
 }
-export function createTextRegions({getComponent,getSelected,isEditMode,beginChange,persist,updateOverlay,resizeChart}:RegionHost) {
+export function createTextRegions({getComponent,transforms,selectRegion,updateOverlay,resizeChart}:RegionHost) {
 const textRegionBindings = new Map<string,Binding>();
-let textRegionFrame: HTMLElement | null = null;
-let regionGesture: Gesture | null = null;
 function textRegionKey(slideId: string, componentId: string) {
   return slideId + "@" + componentId;
 }
@@ -40,6 +40,7 @@ function bindTextRegion(slide: {id:string}, componentId:string, element:HTMLElem
   requestAnimationFrame(function () {
     if (textRegionBindings.get(key) !== binding || !binding.host.isConnected) return;
     applyTextRegion(binding);
+    registerRegion(binding);
   });
   return binding.host;
 }
@@ -48,14 +49,6 @@ function canvasCoordinateScale(canvas: HTMLElement) {
   return {
     x: canvas.clientWidth / CANONICAL_SLIDE_WIDTH,
     y: canvas.clientHeight / CANONICAL_SLIDE_HEIGHT
-  };
-}
-
-function canvasRenderScale(canvas: HTMLElement) {
-  var rect = canvas.getBoundingClientRect();
-  return {
-    x: rect.width / canvas.clientWidth,
-    y: rect.height / canvas.clientHeight
   };
 }
 
@@ -103,154 +96,56 @@ function applyAllTextRegions() {
   });
 }
 
-function currentTextRegionBinding() {
-  const selected = getSelected();
-  if (!selected || !isEditMode()) return null;
-  var component = getComponent(selected.slideId,selected.componentId);
-  if (!component || component.deleted || !['text','chart'].includes(component.kind)) return null;
-  return textRegionBindings.get(textRegionKey(selected.slideId, selected.componentId)) || null;
-}
-
-function removeTextRegionFrame() {
-  if (textRegionFrame) textRegionFrame.remove();
-  textRegionFrame = null;
-}
-
-function regionFromBinding(binding: Binding) {
+/** Text and charts become shared transform targets. Table cells belong to
+ * their table and diagram text to its node; neither moves on its own. */
+function registerRegion(binding: Binding) {
   var canvas = binding.host.closest<HTMLElement>(".slide-canvas");
-  if (!canvas) throw new Error("Detached text region");
-  var scale = canvasRenderScale(canvas);
-  var rect = binding.host.getBoundingClientRect();
-  var component = getComponent(binding.slideId,binding.componentId);
-  return component?.region ? Object.assign({}, component.region) : {
-    x: 0,
-    y: 0,
-    width: rect.width / scale.x,
-    height: rect.height / scale.y
+  var component = getComponent(binding.slideId, binding.componentId);
+  if (!canvas || !component || !['text', 'chart'].includes(component.kind)) return;
+  if (binding.host.closest('[data-table-cell], .diagram-node-copy')) return;
+  var chart = component.kind === 'chart';
+  transforms.register({
+    key: binding.key, label: chart ? 'chart region' : 'text region',
+    hits: [binding.host], canvas, group: 'region:' + binding.key,
+    minWidth: 48, minHeight: 28,
+    // Plot zoom, legend and annotation drags stay Plotly's; move by the border.
+    nativeSelector: chart ? '.js-plotly-plot, .main-svg' : undefined,
+    textAt: node => {
+      var text = node.closest<HTMLElement>('.semantic-component');
+      return text && binding.host.contains(text) ? text : null;
+    },
+    select: () => selectRegion(binding.slideId, binding.componentId, binding.element),
+    edit: () => regionEdit(binding, canvas!)
+  });
+}
+
+/** Regions store an offset from the object's flow position plus a size.
+ * Convert absolute boxes to that form, correcting any flow shift a new width
+ * causes so the object lands exactly where it was dragged. */
+function regionEdit(binding: Binding, canvas: HTMLElement) {
+  var measured = measureBox(binding.host, canvas);
+  var current = getComponent(binding.slideId, binding.componentId)?.region;
+  var region: Region = current ? Object.assign({}, current)
+    : {x: 0, y: 0, width: measured.width, height: measured.height};
+  var origin = {x: measured.x - region.x, y: measured.y - region.y};
+  function write(next: Box) {
+    var value = roundBox({x: next.x - origin.x, y: next.y - origin.y, width: next.width, height: next.height});
+    updateOverlay(binding.slideId, binding.componentId, 'region', value);
+    applyTextRegion(binding);
+    return value;
+  }
+  return {
+    update(next: Box) {
+      var value = write(next);
+      var landed = measureBox(binding.host, canvas);
+      if (Math.abs(landed.x - next.x) > .5 || Math.abs(landed.y - next.y) > .5) {
+        origin = {x: landed.x - value.x, y: landed.y - value.y};
+        write(next);
+      }
+    }
   };
 }
 
-function syncTextRegionFrame() {
-  var binding = currentTextRegionBinding();
-  if (!binding || !binding.host.isConnected) {
-    removeTextRegionFrame();
-    return;
-  }
-  var canvas = binding.host.closest<HTMLElement>(".slide-canvas");
-  if (!canvas) return;
-  if (!textRegionFrame || textRegionFrame.parentElement !== canvas) {
-    removeTextRegionFrame();
-    textRegionFrame = document.createElement("div");
-    textRegionFrame.className = "text-region-frame";
-    textRegionFrame.addEventListener('click', event => event.stopPropagation());
-    textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
-    var move = document.createElement("button");
-    move.type = "button";
-    move.className = "text-region-move-handle";
-    move.setAttribute("aria-label", "Move text region");
-    move.title = "Drag to move this text region";
-    move.addEventListener("pointerdown", function (event) {
-      startTextRegionGesture("move", event);
-    });
-    var resize = document.createElement("button");
-    resize.type = "button";
-    resize.className = "text-region-resize-handle";
-    resize.setAttribute("aria-label", "Resize text region");
-    resize.title = "Drag to resize; text wraps and fits inside";
-    resize.addEventListener("pointerdown", function (event) {
-      startTextRegionGesture("resize", event);
-    });
-    textRegionFrame.appendChild(move);
-    textRegionFrame.appendChild(resize);
-    canvas.appendChild(textRegionFrame);
-  }
-  textRegionFrame.setAttribute("data-text-region-frame", binding.componentId);
-  var regionKind=getComponent(binding.slideId,binding.componentId)?.kind==='chart'?'chart':'text';
-  textRegionFrame.querySelector('.text-region-move-handle')!.setAttribute('aria-label','Move '+regionKind+' region');
-  textRegionFrame.querySelector('.text-region-resize-handle')!.setAttribute('aria-label','Resize '+regionKind+' region');
-  if (!canvas) return;
-  var canvasRect = canvas.getBoundingClientRect();
-  var rect = binding.host.getBoundingClientRect();
-  var scale = canvasRenderScale(canvas);
-  textRegionFrame.style.left = ((rect.left - canvasRect.left) / scale.x) + "px";
-  textRegionFrame.style.top = ((rect.top - canvasRect.top) / scale.y) + "px";
-  textRegionFrame.style.width = (rect.width / scale.x) + "px";
-  textRegionFrame.style.height = (rect.height / scale.y) + "px";
-}
-
-function startTextRegionGesture(kind: 'move' | 'resize', event: PointerEvent) {
-  var binding = currentTextRegionBinding();
-  if (!binding) return;
-  event.preventDefault();
-  event.stopPropagation();
-  (event.currentTarget as HTMLElement).focus({preventScroll:true});
-  var canvas = binding.host.closest<HTMLElement>(".slide-canvas");
-  if (!canvas) return;
-  var canvasRect = canvas.getBoundingClientRect();
-  var hostRect = binding.host.getBoundingClientRect();
-  beginChange();
-  regionGesture = {
-    kind: kind,
-    binding: binding,
-    canvas: canvas,
-    canvasRect: canvasRect,
-    hostRect: hostRect,
-    startX: event.clientX,
-    startY: event.clientY,
-    region: regionFromBinding(binding)
-  };
-  document.body.classList.add(kind === "move" ? "moving-text-region" : "resizing-text-region");
-  document.addEventListener("pointermove", moveTextRegionGesture);
-  document.addEventListener("pointerup", finishTextRegionGesture, {once: true});
-  document.addEventListener("pointercancel", finishTextRegionGesture, {once: true});
-}
-
-function moveTextRegionGesture(event: PointerEvent) {
-  if (!regionGesture) return;
-  event.preventDefault();
-  var gesture = regionGesture;
-  var scale = canvasRenderScale(gesture.canvas);
-  var dx = event.clientX - gesture.startX;
-  var dy = event.clientY - gesture.startY;
-  var next = Object.assign({}, gesture.region);
-  if (gesture.kind === "move") {
-    dx = Math.max(gesture.canvasRect.left - gesture.hostRect.left,
-      Math.min(gesture.canvasRect.right - gesture.hostRect.right, dx));
-    dy = Math.max(gesture.canvasRect.top - gesture.hostRect.top,
-      Math.min(gesture.canvasRect.bottom - gesture.hostRect.bottom, dy));
-    next.x = gesture.region.x + dx / scale.x;
-    next.y = gesture.region.y + dy / scale.y;
-  } else {
-    var maxWidth = gesture.canvasRect.right - gesture.hostRect.left;
-    var maxHeight = gesture.canvasRect.bottom - gesture.hostRect.top;
-    next.width = Math.max(48, Math.min(maxWidth / scale.x,
-      gesture.region.width + dx / scale.x));
-    next.height = Math.max(28, Math.min(maxHeight / scale.y,
-      gesture.region.height + dy / scale.y));
-  }
-  next = {
-    x: Math.round(next.x * 10) / 10,
-    y: Math.round(next.y * 10) / 10,
-    width: Math.round(next.width * 10) / 10,
-    height: Math.round(next.height * 10) / 10
-  };
-  updateOverlay(gesture.binding.slideId, gesture.binding.componentId, "region", next);
-  applyTextRegion(gesture.binding);
-  syncTextRegionFrame();
-}
-
-function finishTextRegionGesture() {
-  document.removeEventListener("pointermove", moveTextRegionGesture);
-  document.removeEventListener("pointerup", finishTextRegionGesture);
-  document.removeEventListener("pointercancel", finishTextRegionGesture);
-  document.body.classList.remove("moving-text-region");
-  document.body.classList.remove("resizing-text-region");
-  if (!regionGesture) return;
-  regionGesture = null;
-  persist();
-}
-
-
-return {bindTextRegion,applyAllTextRegions,syncTextRegionFrame,removeTextRegionFrame,
-  clearTextRegions() {textRegionBindings.clear(); removeTextRegionFrame();}};
+return {bindTextRegion,applyAllTextRegions,
+  clearTextRegions() {textRegionBindings.clear();}};
 }
