@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 import shutil
 import sys
-import multiprocessing
+import socket
+import threading
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,14 +33,27 @@ def main():
     assert replaced == 1, 'runtime fixture must actually disable the table selector'
     path.write_text(source)
     state = args.output / 'state.json'
+    # Threads, not forked processes: a fork inherits the Playwright driver's
+    # pipes, and the driver then never sees EOF and hangs on shutdown.
+    # A restart must also drop open keep-alive connections, or the browser keeps
+    # talking to the stopped server's threads (as a real process restart would not).
     def start(public, port=0):
         http = server.make_server(public, sources, ROOT / 'data/seed-state.json', state, port=port)
-        bound = http.server_address[1]
-        process = multiprocessing.Process(target=http.serve_forever, daemon=True); process.start()
-        http.server_close()
-        return process, bound
+        http.open_connections = []
+        accept = http.process_request
+        def track(request, address):
+            http.open_connections.append(request); accept(request, address)
+        http.process_request = track
+        threading.Thread(target=http.serve_forever, daemon=True).start()
+        return http, http.server_address[1]
     def stop(pair):
-        pair[0].terminate(); pair[0].join()
+        http = pair[0]
+        if http.socket.fileno() < 0: return
+        http.shutdown()
+        for connection in http.open_connections:
+            try: connection.shutdown(socket.SHUT_RDWR)
+            except OSError: pass
+        http.server_close()
     running = start(old); port = running[1]
     try:
         with sync_playwright() as p:
@@ -53,7 +67,7 @@ def main():
             stop(running); running = start(ROOT / 'public', port)
             page.evaluate("dispatchEvent(new Event('focus'))")
             page.wait_for_function('(old) => window.slidekitAssetRevision !== old', arg=old_revision)
-            page.locator('.gallery-option-row button').first.wait_for()
+            page.locator('.gallery-option-row input[type=range]').first.wait_for()
             assert page.locator('[data-native-table]').count() == 1
             assert page.url.endswith('?present=1#two-tables')
             page.screenshot(path=str(args.output / 'after.png'))
@@ -78,7 +92,6 @@ def main():
             draft = page.evaluate("JSON.parse(localStorage.getItem('slidekit-conflict-draft:'+location.pathname))")
             assert draft['local']['overlays']['two-tables']['primary-cell']['text'] == 'Retain this unsaved edit'
             page.screenshot(path=str(args.output / 'draft-retained.png'))
-            stop(running)  # Forked servers must release inherited browser pipes before browser.close().
             browser.close()
         receipt = {'ok': True, 'open_tab_upgrade': True, 'selected_table_count': 1,
                    'route_preserved': True, 'unsaved_draft_preserved': True, 'stale_edits_applied': False}

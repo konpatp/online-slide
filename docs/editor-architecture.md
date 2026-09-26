@@ -19,8 +19,8 @@ Strict TypeScript owns the editing behavior:
 | `editor/save-queue.ts` | One writer, coalescing, conflict/retry transitions |
 | `editor/text.ts` | Safe rendering and atomic wording-plus-formatting commands |
 | `editor/tables.ts` | Stable identities, structural commands, paste and resizing |
-| `editor/boxes.ts` | Pure box geometry: move, eight-handle and proportional resize, nudge, click-versus-drag |
-| `editor/transform.ts` | The one selection and move/resize layer for every box-shaped object: direct drag, handles, border and grip moves, keyboard nudge, click-to-edit text, change boundaries |
+| `editor/boxes.ts` | Pure box geometry: move, eight-handle and proportional resize, nudge, click-versus-drag, snapping (lines, equal spacing, matching sizes), align, distribute, group scaling |
+| `editor/transform.ts` | The one selection and move/resize layer for every box-shaped object: single and multiple selection (Shift-click, box select, select all), direct and group drag, handles, border and grip moves, snapping guides (Alt disables), nudge, align/distribute, click-to-edit text, change boundaries |
 | `editor/regions.ts` | Bounded text/chart regions, fitting, and their transform adapter (offset-from-flow storage) |
 | `editor/fit.ts` | Fitting and observer lifetime |
 | `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
@@ -46,8 +46,11 @@ coordinates; JointJS keeps link vertex editing). Lines and vectors keep their
 endpoint controls. A click on text edits it; a drag on an object that is not
 being edited moves it; while editing, the border and move grip move it. The
 frame is drawn outside the clipped slide so handles at the slide edge stay
-reachable. `browser_direct_manipulation.py` proves each gesture with real
-input, and `browser_interaction_fuzz.py` mixes them at random: after every
+reachable. The layer owns the selection: the editor's own click handlers run
+after every layer gesture, so a request to select an already selected object
+keeps the group, and the click ending a layer-owned press cannot override the
+layer's decision. `browser_direct_manipulation.py` (exact geometry, snapping
+off) and `browser_snap_multiselect.py` prove each gesture with real input, and `browser_interaction_fuzz.py` mixes them at random: after every
 step saved geometry must equal the painted editor and no other slide may
 change; undoing everything must restore the pristine deck; a reload must paint
 what was saved. A new gesture joins its operation table.

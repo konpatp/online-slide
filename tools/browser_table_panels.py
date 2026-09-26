@@ -81,20 +81,27 @@ def main():
                     {'value':p['id'],'label':p['heading']} for p in spec['data']['tables']]}
                 spec['data']['initialTable']='primary'
                 path.write_text(json.dumps(spec))
-                page.goto('http://%s:%s/?present=1#two-tables'%http.server_address,wait_until='networkidle')
+                # The slide is hidden above, so presentation mode skips it by
+                # design; the editor view shows it with the same selector.
+                page.goto('http://%s:%s/#two-tables'%http.server_address,wait_until='networkidle')
+                page.reload(wait_until='networkidle')  # a hash-only goto keeps the old source
+                slider=page.locator('.gallery-option-row input[type=range]')
+                def choose(label):
+                    options=[o['value'] for o in spec['data']['tableSelector']['options']]
+                    slider.evaluate('(el,v)=>{el.value=v;el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}))}',str(options.index(label)))
                 assert page.locator('[data-native-table]').count()==1
                 assert page.locator('[data-table-panel-id="primary"]').is_visible()
-                page.locator('.gallery-option-row button',has_text='secondary').click()
+                choose('secondary')
                 assert page.locator('[data-native-table]').count()==1
                 assert page.locator('[data-component-id="secondary-cell"]').text_content()=='17'
                 page.reload(wait_until='networkidle')
                 assert page.locator('[data-table-panel-id="secondary"]').is_visible()
-                page.locator('.gallery-option-row button',has_text='primary').click()
+                choose('primary')
                 assert page.locator('[data-component-id="primary-cell"]').text_content()=='12'
                 page.screenshot(path=str(args.output/'table-checkpoint-selector.png'))
                 del spec['data']['heatmap']['domain']
                 path.write_text(json.dumps(spec))
-                page.goto('http://%s:%s/#two-tables'%http.server_address,wait_until='networkidle')
+                page.reload(wait_until='networkidle')  # adopt the changed source before editing
                 page.locator('[data-edit-toggle]').click()
                 auto_cell=page.locator('[data-component-id="primary-cell"]')
                 auto_cell.click();auto_cell.fill('20')
@@ -108,7 +115,7 @@ def main():
                     'proofs':['heatmap follows edited numeric value and survives reload','real secondary-cell edit; primary unchanged','secondary row insertion remains table-local',
                               'source panel reorder preserves cell and structure','hidden table remains editable and show survives reload',
                               'index route clicks navigate; section visibility saves and survives reload',
-                              'checkpoint buttons display exactly one table; selection and independent edits survive reload'],
+                              'checkpoint slider displays exactly one table; selection and independent edits survive reload'],
                     'tableKeys':list(state['tables'])},indent=2)+'\n')
                 browser.close()
         finally:http.shutdown();http.server_close()

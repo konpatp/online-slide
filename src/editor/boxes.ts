@@ -84,3 +84,157 @@ export const DRAG_THRESHOLD = 4;
 export function isDrag(dx: number, dy: number): boolean {
   return Math.hypot(dx, dy) >= DRAG_THRESHOLD;
 }
+
+// ---------------------------------------------------------------------------
+// Snapping. Candidates are the slide's edges and centre lines and every other
+// object's edges and centres; a move may also snap to equal spacing between
+// its neighbours, and a resize to another object's width or height. Adapted
+// from Deckwerk's snapping model (MIT), reduced to what this editor draws.
+
+/** A guide line: alignment at `at` on `axis`, drawn from `from` to `to` across it. */
+export interface Guide { axis: 'x' | 'y'; at: number; from: number; to: number }
+/** An equal-spacing bar: the empty span `start..end` on `axis`, drawn at `cross`. */
+export interface Spacing { axis: 'x' | 'y'; start: number; end: number; cross: number }
+export interface Snapped { box: Box; guides: Guide[]; spacing: Spacing[] }
+
+type Axis = 'x' | 'y';
+const START = {x: 'x', y: 'y'} as const, SIZE = {x: 'width', y: 'height'} as const;
+const other = (axis: Axis): Axis => axis === 'x' ? 'y' : 'x';
+const lines = (box: Box, axis: Axis) =>
+  [box[START[axis]], box[START[axis]] + box[SIZE[axis]] / 2, box[START[axis]] + box[SIZE[axis]]];
+const overlaps = (a: Box, b: Box, axis: Axis) =>
+  a[START[axis]] < b[START[axis]] + b[SIZE[axis]] && b[START[axis]] < a[START[axis]] + a[SIZE[axis]];
+
+/** Best translation along one axis within `tolerance`, or null. */
+function moveOffset(box: Box, others: Box[], slide: Box, axis: Axis, tolerance: number): number | null {
+  let best: number | null = null;
+  const consider = (delta: number) => {
+    if (Math.abs(delta) <= tolerance && (best === null || Math.abs(delta) < Math.abs(best))) best = delta;
+  };
+  const moving = lines(box, axis);
+  for (const target of [slide, ...others]) for (const line of lines(target, axis))
+    for (const edge of moving) consider(line - edge);
+  // Equal spacing: between the nearest neighbours on each side, or matching a
+  // gap that already exists between other objects in the same row/column.
+  const cross = other(axis), start = START[axis], size = SIZE[axis];
+  const row = others.filter(item => overlaps(item, box, cross));
+  const before = row.filter(item => item[start] + item[size] <= box[start] + tolerance)
+    .sort((a, b) => (b[start] + b[size]) - (a[start] + a[size]))[0];
+  const after = row.filter(item => item[start] >= box[start] + box[size] - tolerance)
+    .sort((a, b) => a[start] - b[start])[0];
+  if (before && after) consider((before[start] + before[size] + after[start] - box[size]) / 2 - box[start]);
+  const sorted = [...row].sort((a, b) => a[start] - b[start]);
+  const gaps = sorted.slice(1).map((item, index) => item[start] - (sorted[index][start] + sorted[index][size])).filter(gap => gap > 0);
+  for (const gap of gaps) {
+    if (before) consider(before[start] + before[size] + gap - box[start]);
+    if (after) consider(after[start] - gap - box[size] - box[start]);
+  }
+  return best;
+}
+
+/** Guides and spacing bars that hold exactly for a settled box. */
+export function describeSnap(box: Box, others: Box[], slide: Box): {guides: Guide[]; spacing: Spacing[]} {
+  const guides: Guide[] = [], spacing: Spacing[] = [];
+  for (const axis of ['x', 'y'] as Axis[]) {
+    const cross = other(axis);
+    for (const edge of lines(box, axis)) {
+      const hits = [slide, ...others].filter(target => lines(target, axis).some(line => Math.abs(line - edge) < .5));
+      if (!hits.length) continue;
+      const span = [box, ...hits.filter(hit => hit !== slide)];
+      const from = Math.min(...span.map(b => b[START[cross]])), to = Math.max(...span.map(b => b[START[cross]] + b[SIZE[cross]]));
+      guides.push({axis, at: edge, from: hits.includes(slide) && span.length === 1 ? slide[START[cross]] : from,
+        to: hits.includes(slide) && span.length === 1 ? slide[START[cross]] + slide[SIZE[cross]] : to});
+    }
+    const start = START[axis], size = SIZE[axis];
+    const row = others.filter(item => overlaps(item, box, cross));
+    const before = row.filter(item => item[start] + item[size] <= box[start] + .5)
+      .sort((a, b) => (b[start] + b[size]) - (a[start] + a[size]))[0];
+    const after = row.filter(item => item[start] >= box[start] + box[size] - .5).sort((a, b) => a[start] - b[start])[0];
+    if (before && after) {
+      const left = box[start] - (before[start] + before[size]), right = after[start] - (box[start] + box[size]);
+      if (left > 0 && Math.abs(left - right) < .5) {
+        const mid = box[START[cross]] + box[SIZE[cross]] / 2;
+        spacing.push({axis, start: before[start] + before[size], end: box[start], cross: mid},
+          {axis, start: box[start] + box[size], end: after[start], cross: mid});
+      }
+    }
+  }
+  return {guides, spacing};
+}
+
+export function snapMove(box: Box, others: Box[], slide: Box, tolerance: number): Snapped {
+  const dx = moveOffset(box, others, slide, 'x', tolerance) ?? 0;
+  const dy = moveOffset(box, others, slide, 'y', tolerance) ?? 0;
+  const snapped = moveBox(box, dx, dy, slide);
+  return {box: snapped, ...describeSnap(snapped, others, slide)};
+}
+
+/** Snap only the edges a handle drags, to lines or to another object's size. */
+export function snapResize(box: Box, handle: Handle, others: Box[], slide: Box, tolerance: number): Snapped {
+  let {x, y, width, height} = box;
+  const pick = (candidates: number[], value: number) => {
+    let best: number | null = null;
+    for (const candidate of candidates)
+      if (Math.abs(candidate - value) <= tolerance && (best === null || Math.abs(candidate - value) < Math.abs(best - value))) best = candidate;
+    return best;
+  };
+  const xs = [slide, ...others].flatMap(b => lines(b, 'x')), ys = [slide, ...others].flatMap(b => lines(b, 'y'));
+  if (handle.includes('e')) {
+    const edge = pick([...xs, ...others.map(b => x + b.width)], x + width);
+    if (edge !== null) width = edge - x;
+  } else if (handle.includes('w')) {
+    const right = x + width, edge = pick([...xs, ...others.map(b => right - b.width)], x);
+    if (edge !== null) { x = edge; width = right - edge; }
+  }
+  if (handle.includes('s')) {
+    const edge = pick([...ys, ...others.map(b => y + b.height)], y + height);
+    if (edge !== null) height = edge - y;
+  } else if (handle.includes('n')) {
+    const bottom = y + height, edge = pick([...ys, ...others.map(b => bottom - b.height)], y);
+    if (edge !== null) { y = edge; height = bottom - edge; }
+  }
+  const snapped = width > 0 && height > 0 ? {x, y, width, height} : box;
+  return {box: snapped, ...describeSnap(snapped, others, slide)};
+}
+
+// ---------------------------------------------------------------------------
+// Several objects. Alignment references the selection's union, or the slide
+// for a single object; distribution keeps the outermost objects fixed.
+
+export type Alignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
+export function unionBox(boxes: Box[]): Box {
+  const x = Math.min(...boxes.map(b => b.x)), y = Math.min(...boxes.map(b => b.y));
+  return {x, y, width: Math.max(...boxes.map(b => b.x + b.width)) - x, height: Math.max(...boxes.map(b => b.y + b.height)) - y};
+}
+export function alignBoxes(boxes: Box[], mode: Alignment, slide: Box): Box[] {
+  const reference = boxes.length > 1 ? unionBox(boxes) : slide;
+  return boxes.map(box => {
+    switch (mode) {
+      case 'left': return {...box, x: reference.x};
+      case 'center': return {...box, x: reference.x + (reference.width - box.width) / 2};
+      case 'right': return {...box, x: reference.x + reference.width - box.width};
+      case 'top': return {...box, y: reference.y};
+      case 'middle': return {...box, y: reference.y + (reference.height - box.height) / 2};
+      case 'bottom': return {...box, y: reference.y + reference.height - box.height};
+    }
+  });
+}
+/** Equal gaps between objects ordered along an axis; the first and last stay put. */
+export function distributeBoxes(boxes: Box[], axis: Axis): Box[] {
+  if (boxes.length < 3) return boxes.map(box => ({...box}));
+  const start = START[axis], size = SIZE[axis];
+  const order = boxes.map((box, index) => ({box, index})).sort((a, b) => a.box[start] - b.box[start]);
+  const first = order[0].box, last = order[order.length - 1].box;
+  const occupied = order.reduce((sum, item) => sum + item.box[size], 0);
+  const gap = (last[start] + last[size] - first[start] - occupied) / (order.length - 1);
+  const result = boxes.map(box => ({...box}));
+  let cursor = first[start];
+  for (const item of order) { result[item.index][start] = cursor; cursor += item.box[size] + gap; }
+  return result;
+}
+/** Map each member from the group's old union to its new union. */
+export function scaleGroup(boxes: Box[], from: Box, to: Box): Box[] {
+  const sx = from.width ? to.width / from.width : 1, sy = from.height ? to.height / from.height : 1;
+  return boxes.map(box => ({x: to.x + (box.x - from.x) * sx, y: to.y + (box.y - from.y) * sy,
+    width: box.width * sx, height: box.height * sy}));
+}

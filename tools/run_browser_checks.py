@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Discover executable scratch browser regressions; no live writes or hidden omissions."""
 import argparse
+import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,6 +20,25 @@ def discover():
             raise ValueError(f'{path.name}: declare scratch, scratch-output or read-only-probe')
         checks[path.stem.removeprefix('browser_')] = (path, match[1])
     return checks
+
+
+def run_group(command, timeout=120):
+    """Run one check in its own process group; a timeout retires the whole
+    tree (Python, Playwright driver, browser) instead of orphaning it."""
+    process = subprocess.Popen(command, cwd=ROOT, start_new_session=True)
+    try:
+        code = process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+        raise
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)  # stray descendants of a finished check
+        except ProcessLookupError:
+            pass
+    if code:
+        raise subprocess.CalledProcessError(code, command)
 
 
 def main():
@@ -39,7 +60,7 @@ def main():
         with tempfile.TemporaryDirectory(prefix=f'slide-check-{name}-') as temporary:
             if mode == 'scratch-output':
                 command += ['--output', temporary]
-            subprocess.run(command, cwd=ROOT, check=True, timeout=120)
+            run_group(command)
 
 
 if __name__ == '__main__':

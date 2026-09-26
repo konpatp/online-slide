@@ -608,6 +608,7 @@
           hits: [record.element],
           canvas,
           group: "object:" + slide.id + ":" + record.id,
+          identity: { slideId: slide.id, objectId: record.id, objectKind: record.kind },
           area: function() {
             return measureBox(record.article, canvas);
           },
@@ -981,6 +982,7 @@
             hits: [block, view.el],
             canvas: canvas2,
             group: "object:" + slide.id + ":" + node.id,
+            identity: { slideId: slide.id, objectId: node.id, objectKind: "diagram-node" },
             area: function() {
               return measureBox(paperHost, canvas2);
             },

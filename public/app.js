@@ -295,6 +295,150 @@
   function isDrag(dx, dy) {
     return Math.hypot(dx, dy) >= DRAG_THRESHOLD;
   }
+  var START = { x: "x", y: "y" };
+  var SIZE = { x: "width", y: "height" };
+  var other = (axis) => axis === "x" ? "y" : "x";
+  var lines = (box, axis) => [box[START[axis]], box[START[axis]] + box[SIZE[axis]] / 2, box[START[axis]] + box[SIZE[axis]]];
+  var overlaps = (a, b, axis) => a[START[axis]] < b[START[axis]] + b[SIZE[axis]] && b[START[axis]] < a[START[axis]] + a[SIZE[axis]];
+  function moveOffset(box, others, slide, axis, tolerance) {
+    let best = null;
+    const consider = (delta) => {
+      if (Math.abs(delta) <= tolerance && (best === null || Math.abs(delta) < Math.abs(best))) best = delta;
+    };
+    const moving = lines(box, axis);
+    for (const target of [slide, ...others]) for (const line of lines(target, axis))
+      for (const edge of moving) consider(line - edge);
+    const cross = other(axis), start = START[axis], size = SIZE[axis];
+    const row = others.filter((item) => overlaps(item, box, cross));
+    const before = row.filter((item) => item[start] + item[size] <= box[start] + tolerance).sort((a, b) => b[start] + b[size] - (a[start] + a[size]))[0];
+    const after = row.filter((item) => item[start] >= box[start] + box[size] - tolerance).sort((a, b) => a[start] - b[start])[0];
+    if (before && after) consider((before[start] + before[size] + after[start] - box[size]) / 2 - box[start]);
+    const sorted = [...row].sort((a, b) => a[start] - b[start]);
+    const gaps = sorted.slice(1).map((item, index2) => item[start] - (sorted[index2][start] + sorted[index2][size])).filter((gap) => gap > 0);
+    for (const gap of gaps) {
+      if (before) consider(before[start] + before[size] + gap - box[start]);
+      if (after) consider(after[start] - gap - box[size] - box[start]);
+    }
+    return best;
+  }
+  function describeSnap(box, others, slide) {
+    const guides = [], spacing = [];
+    for (const axis of ["x", "y"]) {
+      const cross = other(axis);
+      for (const edge of lines(box, axis)) {
+        const hits = [slide, ...others].filter((target) => lines(target, axis).some((line) => Math.abs(line - edge) < 0.5));
+        if (!hits.length) continue;
+        const span = [box, ...hits.filter((hit) => hit !== slide)];
+        const from = Math.min(...span.map((b) => b[START[cross]])), to = Math.max(...span.map((b) => b[START[cross]] + b[SIZE[cross]]));
+        guides.push({
+          axis,
+          at: edge,
+          from: hits.includes(slide) && span.length === 1 ? slide[START[cross]] : from,
+          to: hits.includes(slide) && span.length === 1 ? slide[START[cross]] + slide[SIZE[cross]] : to
+        });
+      }
+      const start = START[axis], size = SIZE[axis];
+      const row = others.filter((item) => overlaps(item, box, cross));
+      const before = row.filter((item) => item[start] + item[size] <= box[start] + 0.5).sort((a, b) => b[start] + b[size] - (a[start] + a[size]))[0];
+      const after = row.filter((item) => item[start] >= box[start] + box[size] - 0.5).sort((a, b) => a[start] - b[start])[0];
+      if (before && after) {
+        const left = box[start] - (before[start] + before[size]), right = after[start] - (box[start] + box[size]);
+        if (left > 0 && Math.abs(left - right) < 0.5) {
+          const mid = box[START[cross]] + box[SIZE[cross]] / 2;
+          spacing.push(
+            { axis, start: before[start] + before[size], end: box[start], cross: mid },
+            { axis, start: box[start] + box[size], end: after[start], cross: mid }
+          );
+        }
+      }
+    }
+    return { guides, spacing };
+  }
+  function snapMove(box, others, slide, tolerance) {
+    const dx = moveOffset(box, others, slide, "x", tolerance) ?? 0;
+    const dy = moveOffset(box, others, slide, "y", tolerance) ?? 0;
+    const snapped = moveBox(box, dx, dy, slide);
+    return { box: snapped, ...describeSnap(snapped, others, slide) };
+  }
+  function snapResize(box, handle, others, slide, tolerance) {
+    let { x, y, width, height } = box;
+    const pick = (candidates, value) => {
+      let best = null;
+      for (const candidate of candidates)
+        if (Math.abs(candidate - value) <= tolerance && (best === null || Math.abs(candidate - value) < Math.abs(best - value))) best = candidate;
+      return best;
+    };
+    const xs = [slide, ...others].flatMap((b) => lines(b, "x")), ys = [slide, ...others].flatMap((b) => lines(b, "y"));
+    if (handle.includes("e")) {
+      const edge = pick([...xs, ...others.map((b) => x + b.width)], x + width);
+      if (edge !== null) width = edge - x;
+    } else if (handle.includes("w")) {
+      const right = x + width, edge = pick([...xs, ...others.map((b) => right - b.width)], x);
+      if (edge !== null) {
+        x = edge;
+        width = right - edge;
+      }
+    }
+    if (handle.includes("s")) {
+      const edge = pick([...ys, ...others.map((b) => y + b.height)], y + height);
+      if (edge !== null) height = edge - y;
+    } else if (handle.includes("n")) {
+      const bottom = y + height, edge = pick([...ys, ...others.map((b) => bottom - b.height)], y);
+      if (edge !== null) {
+        y = edge;
+        height = bottom - edge;
+      }
+    }
+    const snapped = width > 0 && height > 0 ? { x, y, width, height } : box;
+    return { box: snapped, ...describeSnap(snapped, others, slide) };
+  }
+  function unionBox(boxes) {
+    const x = Math.min(...boxes.map((b) => b.x)), y = Math.min(...boxes.map((b) => b.y));
+    return { x, y, width: Math.max(...boxes.map((b) => b.x + b.width)) - x, height: Math.max(...boxes.map((b) => b.y + b.height)) - y };
+  }
+  function alignBoxes(boxes, mode, slide) {
+    const reference = boxes.length > 1 ? unionBox(boxes) : slide;
+    return boxes.map((box) => {
+      switch (mode) {
+        case "left":
+          return { ...box, x: reference.x };
+        case "center":
+          return { ...box, x: reference.x + (reference.width - box.width) / 2 };
+        case "right":
+          return { ...box, x: reference.x + reference.width - box.width };
+        case "top":
+          return { ...box, y: reference.y };
+        case "middle":
+          return { ...box, y: reference.y + (reference.height - box.height) / 2 };
+        case "bottom":
+          return { ...box, y: reference.y + reference.height - box.height };
+      }
+    });
+  }
+  function distributeBoxes(boxes, axis) {
+    if (boxes.length < 3) return boxes.map((box) => ({ ...box }));
+    const start = START[axis], size = SIZE[axis];
+    const order = boxes.map((box, index2) => ({ box, index: index2 })).sort((a, b) => a.box[start] - b.box[start]);
+    const first = order[0].box, last = order[order.length - 1].box;
+    const occupied = order.reduce((sum, item) => sum + item.box[size], 0);
+    const gap = (last[start] + last[size] - first[start] - occupied) / (order.length - 1);
+    const result = boxes.map((box) => ({ ...box }));
+    let cursor = first[start];
+    for (const item of order) {
+      result[item.index][start] = cursor;
+      cursor += item.box[size] + gap;
+    }
+    return result;
+  }
+  function scaleGroup(boxes, from, to) {
+    const sx = from.width ? to.width / from.width : 1, sy = from.height ? to.height / from.height : 1;
+    return boxes.map((box) => ({
+      x: to.x + (box.x - from.x) * sx,
+      y: to.y + (box.y - from.y) * sy,
+      width: box.width * sx,
+      height: box.height * sy
+    }));
+  }
 
   // src/editor/transform.ts
   var SLIDE = { x: 0, y: 0, width: CANONICAL_SLIDE_WIDTH, height: CANONICAL_SLIDE_HEIGHT };
@@ -309,6 +453,7 @@
     se: "bottom-right",
     sw: "bottom-left"
   };
+  var SNAP_SCREEN_PX = 6;
   function canvasScale(canvas) {
     const rect = canvas.getBoundingClientRect();
     return rect.width / CANONICAL_SLIDE_WIDTH || 1;
@@ -323,14 +468,17 @@
       height: rect.height / scale
     };
   }
+  var inside = (box, area) => moveBox(box, 0, 0, area);
   function createTransformLayer(host) {
     const targets = /* @__PURE__ */ new Map();
     const owners = /* @__PURE__ */ new WeakMap();
     const claimed = /* @__PURE__ */ new WeakSet();
-    let selectedKey = null;
+    let selection = [];
     let frame = null;
+    let overlay = null;
     let gesture = null;
     let follow = null;
+    let notifying = false, settling = false;
     let ownsPress = false;
     document.addEventListener("pointerdown", () => {
       ownsPress = false;
@@ -340,6 +488,9 @@
       ownsPress = true;
     };
     const boundsOf = (target) => target.bounds ? target.bounds() : measureBox(target.hits[0], target.canvas);
+    const live = (target) => Boolean(target && target.hits[0].isConnected && target.canvas.isConnected);
+    const members = () => selection.map((key) => targets.get(key)).filter(live);
+    const groupOf = (list) => list.length === 1 ? list[0].group : "selection:" + list.map((t) => t.key).join(",");
     function register(target) {
       targets.set(target.key, target);
       target.hits.forEach((element) => {
@@ -351,19 +502,46 @@
         owners.set(element, target);
         element.addEventListener("pointerdown", (event) => {
           const owner = owners.get(element);
-          if (owner && targets.get(owner.key) === owner) pointerDown(owner, event, "move", true);
+          if (owner && targets.get(owner.key) === owner) pointerDown(owner, event);
         });
       });
-      if (target.key === selectedKey) requestAnimationFrame(sync);
+      if (selection.includes(target.key)) requestAnimationFrame(sync);
     }
-    function pointerDown(target, event, kind, body) {
+    function setSelection(keys) {
+      const previous = selection;
+      selection = keys.filter((key, index2) => keys.indexOf(key) === index2);
+      const primary = selection.length ? targets.get(selection[selection.length - 1]) : void 0;
+      if (primary && previous[previous.length - 1] !== primary.key) {
+        notifying = true;
+        try {
+          primary.select();
+        } finally {
+          notifying = false;
+        }
+      }
+      if (previous.join() !== selection.join()) host.selectionChanged?.(selection.slice());
+      sync();
+    }
+    function select(key) {
+      if (notifying || settling || key && selection.includes(key)) return;
+      setSelection(key ? [key] : []);
+    }
+    function toggle(key) {
+      setSelection(selection.includes(key) ? selection.filter((item) => item !== key) : [...selection, key]);
+    }
+    function selectAll(canvas) {
+      setSelection([...targets.values()].filter((t) => live(t) && t.canvas === canvas && t.bodyDrag !== false).map((t) => t.key));
+    }
+    function pointerDown(target, event, handle) {
       if (claimed.has(event) || !host.isEditMode() || event.button !== 0) return;
       const node = event.target;
-      if (body) {
+      if (!handle) {
         if (node.closest(IGNORED)) return;
         if (target.nativeSelector && node.closest(target.nativeSelector)) {
           claim(event);
-          select(target.key);
+          if (event.shiftKey) toggle(target.key);
+          else if (!selection.includes(target.key)) select(target.key);
+          settle();
           return;
         }
         const text = target.textAt?.(node) || null;
@@ -376,65 +554,122 @@
         if (target.bodyDrag === false) return;
         claim(event);
         event.preventDefault();
-        select(target.key);
-        start(target, event, kind, text);
+        if (event.shiftKey) {
+          toggle(target.key);
+          if (selection.includes(target.key)) start(event, "move", null, null);
+          else settle();
+          return;
+        }
+        const inGroup = selection.length > 1 && selection.includes(target.key);
+        if (!inGroup) select(target.key);
+        start(event, "move", text, inGroup ? target.key : null);
         return;
       }
       claim(event);
       event.preventDefault();
       event.stopPropagation();
-      select(target.key);
-      start(target, event, kind, null);
+      if (!selection.includes(target.key)) select(target.key);
+      start(event, handle, null, null);
     }
-    function start(target, event, kind, text) {
+    function start(event, kind, text, collapseTo) {
       finishGesture(false);
+      const list = members();
+      if (!list.length) return;
       host.focusObject();
       gesture = {
-        target,
         kind,
         pointerId: event.pointerId,
         startX: event.clientX,
         startY: event.clientY,
-        scale: canvasScale(target.canvas),
+        scale: canvasScale(list[0].canvas),
+        canvas: list[0].canvas,
+        members: list,
         text,
+        collapseTo,
         dragging: false
       };
       document.addEventListener("pointermove", pointerMove);
       document.addEventListener("pointerup", pointerUp);
       document.addEventListener("pointercancel", pointerCancel);
     }
+    function beginDrag(active) {
+      active.dragging = true;
+      active.origins = active.members.map(boundsOf);
+      active.union = unionBox(active.origins);
+      active.areas = active.members.map((t) => t.area?.() || SLIDE);
+      const chosen = new Set(active.members);
+      active.others = [...targets.values()].filter((t) => live(t) && t.canvas === active.canvas && !chosen.has(t) && t.bodyDrag !== false).map(boundsOf);
+      host.beginChange(groupOf(active.members));
+      active.edits = active.members.map((t) => t.edit());
+      document.body.classList.add(active.kind === "move" ? "transform-moving" : "transform-resizing");
+    }
     function pointerMove(event) {
       if (!gesture || event.pointerId !== gesture.pointerId) return;
       const screenX = event.clientX - gesture.startX, screenY = event.clientY - gesture.startY;
       if (!gesture.dragging) {
         if (!isDrag(screenX, screenY)) return;
-        gesture.dragging = true;
-        gesture.origin = boundsOf(gesture.target);
-        gesture.area = gesture.target.area?.() || SLIDE;
-        host.beginChange(gesture.target.group);
-        gesture.edit = gesture.target.edit();
-        document.body.classList.add(gesture.kind === "move" ? "transform-moving" : "transform-resizing");
+        beginDrag(gesture);
       }
       event.preventDefault();
-      const dx = screenX / gesture.scale, dy = screenY / gesture.scale;
-      const { target, origin, area } = gesture;
-      const next = gesture.kind === "move" ? moveBox(origin, dx, dy, area) : resizeBox(
-        origin,
-        gesture.kind,
-        dx,
-        dy,
-        { bounds: area, minWidth: target.minWidth ?? 48, minHeight: target.minHeight ?? 28 },
-        Boolean(target.keepAspect) !== event.shiftKey
-      );
-      host.beginChange(target.group);
-      gesture.edit.update(roundBox(next));
+      const active = gesture;
+      const dx = screenX / active.scale, dy = screenY / active.scale, single = active.members.length === 1;
+      const area = single ? active.areas[0] : SLIDE;
+      const tolerance = SNAP_SCREEN_PX / active.scale, snapping = !event.altKey;
+      let union, guides = [], spacing = [];
+      if (active.kind === "move") {
+        union = moveBox(active.union, dx, dy, area);
+        if (snapping) ({ box: union, guides, spacing } = snapMove(union, active.others, SLIDE, tolerance));
+        union = inside(union, area);
+      } else {
+        const lead = active.members[0], keepAspect = Boolean(single && lead.keepAspect) !== event.shiftKey;
+        union = resizeBox(
+          active.union,
+          active.kind,
+          dx,
+          dy,
+          { bounds: area, minWidth: single ? lead.minWidth ?? 48 : 20, minHeight: single ? lead.minHeight ?? 28 : 12 },
+          keepAspect
+        );
+        if (snapping && !keepAspect) ({ box: union, guides, spacing } = snapResize(union, active.kind, active.others, SLIDE, tolerance));
+        union = inside(union, area);
+      }
+      const boxes = active.kind === "move" ? active.origins.map((box) => ({ ...box, x: box.x + union.x - active.union.x, y: box.y + union.y - active.union.y })) : scaleGroup(active.origins, active.union, union);
+      host.beginChange(groupOf(active.members));
+      boxes.forEach((box, index2) => active.edits[index2].update(roundBox(inside(box, active.areas[index2]))));
+      drawGuides(active.canvas, guides, spacing);
       sync();
     }
     function pointerUp(event) {
       if (!gesture || event.pointerId !== gesture.pointerId) return;
-      const { dragging, text } = gesture;
+      const { dragging, text, collapseTo } = gesture;
       finishGesture(true);
-      if (!dragging && text) editTextAt(text, event.clientX, event.clientY);
+      if (dragging) return;
+      if (collapseTo) setSelection([collapseTo]);
+      settle();
+      if (text) editTextAt(text, event.clientX, event.clientY);
+    }
+    function settle() {
+      settling = true;
+      let fallback = 0;
+      const release = () => {
+        window.removeEventListener("click", onClick, true);
+        clearTimeout(fallback);
+        if (!settling) return;
+        settling = false;
+        const primary = targets.get(selection[selection.length - 1]);
+        if (live(primary)) {
+          notifying = true;
+          try {
+            primary.select();
+          } finally {
+            notifying = false;
+          }
+        }
+        sync();
+      };
+      const onClick = () => setTimeout(release, 0);
+      window.addEventListener("click", onClick, { capture: true, once: true });
+      fallback = window.setTimeout(release, 350);
     }
     function pointerCancel(event) {
       if (gesture && event.pointerId === gesture.pointerId) finishGesture(true);
@@ -444,11 +679,12 @@
       document.removeEventListener("pointerup", pointerUp);
       document.removeEventListener("pointercancel", pointerCancel);
       document.body.classList.remove("transform-moving", "transform-resizing");
+      drawGuides(null, [], []);
       const done = gesture;
       gesture = null;
-      if (done?.dragging && done.edit) {
+      if (done?.dragging && done.edits) {
         swallowNextClick();
-        done.edit.finish?.();
+        done.edits.forEach((edit) => edit.finish?.());
         if (commit) host.persist();
         sync();
       }
@@ -474,23 +710,66 @@
           range.setStart(position.offsetNode, position.offset);
         }
       }
-      const selection = getSelection();
-      if (!selection) return;
+      const selectionRange = getSelection();
+      if (!selectionRange) return;
       if (!range || !text.contains(range.startContainer)) {
         range = document.createRange();
         range.selectNodeContents(text);
         range.collapse(false);
       }
       range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
+      selectionRange.removeAllRanges();
+      selectionRange.addRange(range);
     }
-    function select(key) {
-      const changed2 = selectedKey !== key;
-      selectedKey = key;
-      const target = key ? targets.get(key) : null;
-      if (target && changed2) target.select();
-      sync();
+    function marquee(canvas, event) {
+      if (claimed.has(event) || !host.isEditMode() || event.button !== 0) return;
+      const startX = event.clientX, startY = event.clientY, additive = event.shiftKey, base = additive ? selection.slice() : [];
+      const scale = canvasScale(canvas), outer = canvas.getBoundingClientRect();
+      const toSlide = (x, y) => ({ x: (x - outer.left) / scale, y: (y - outer.top) / scale });
+      let band = null, dragging = false;
+      const move = (next) => {
+        if (next.pointerId !== event.pointerId) return;
+        if (!dragging && !isDrag(next.clientX - startX, next.clientY - startY)) return;
+        if (!dragging) {
+          dragging = true;
+          ownsPress = true;
+          host.focusObject();
+          band = document.createElement("div");
+          band.className = "transform-marquee";
+          band.dataset.transformControl = "";
+          frameHost(canvas).appendChild(band);
+        }
+        next.preventDefault();
+        const a = toSlide(startX, startY), b = toSlide(next.clientX, next.clientY);
+        const box = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) };
+        place(band, canvas, box);
+        const enclosed = [...targets.values()].filter((t) => live(t) && t.canvas === canvas && t.bodyDrag !== false).filter((t) => {
+          const r = boundsOf(t);
+          return r.x >= box.x && r.y >= box.y && r.x + r.width <= box.x + box.width && r.y + r.height <= box.y + box.height;
+        }).map((t) => t.key);
+        setSelection([...base, ...enclosed]);
+      };
+      const end = (next) => {
+        if (next.pointerId !== event.pointerId) return;
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", end);
+        document.removeEventListener("pointercancel", end);
+        band?.remove();
+        if (dragging) swallowNextClick();
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", end);
+      document.addEventListener("pointercancel", end);
+    }
+    const frameHost = (canvas) => canvas.parentElement || canvas;
+    function place(element, canvas, box) {
+      const scale = canvasScale(canvas), slide = canvas.getBoundingClientRect(), outer = frameHost(canvas).getBoundingClientRect();
+      Object.assign(element.style, {
+        left: slide.left - outer.left + box.x * scale + "px",
+        top: slide.top - outer.top + box.y * scale + "px",
+        width: box.width * scale + "px",
+        height: box.height * scale + "px"
+      });
     }
     function removeFrame() {
       follow?.disconnect();
@@ -498,39 +777,36 @@
       frame?.remove();
       frame = null;
     }
-    function buildFrame(target) {
+    function buildFrame(list, identity) {
       removeFrame();
+      const lead = list[list.length - 1], label = list.length > 1 ? "selection" : lead.label;
       const element = document.createElement("div");
-      element.className = "transform-frame";
-      element.dataset.transformFrame = target.key;
+      element.className = "transform-frame" + (list.length > 1 ? " transform-frame-group" : "");
+      element.dataset.transformFrame = identity;
       element.dataset.transformControl = "";
-      const grip = control("transform-move-grip", "Move " + target.label, "Drag to move");
-      grip.addEventListener("pointerdown", (event) => pointerDown(target, event, "move", false));
+      const grip = control("transform-move-grip", "Move " + label, "Drag to move");
+      grip.addEventListener("pointerdown", (event) => pointerDown(lead, event, "move"));
       element.appendChild(grip);
       ["top", "right", "bottom", "left"].forEach((side) => {
         const edge = document.createElement("div");
         edge.className = "transform-edge transform-edge-" + side;
         edge.dataset.transformControl = "";
-        edge.addEventListener("pointerdown", (event) => pointerDown(target, event, "move", false));
+        edge.addEventListener("pointerdown", (event) => pointerDown(lead, event, "move"));
         element.appendChild(edge);
       });
-      if (target.resizable !== false) HANDLES.forEach((handle) => {
-        const name = handle === "se" ? "Resize " + target.label : "Resize " + target.label + " from " + HANDLE_NAMES[handle];
-        const button = control(
-          "transform-handle transform-handle-" + handle,
-          name,
-          "Drag to resize; Shift keeps proportions"
-        );
+      if (list.every((t) => t.resizable !== false)) HANDLES.forEach((handle) => {
+        const name = handle === "se" ? "Resize " + label : "Resize " + label + " from " + HANDLE_NAMES[handle];
+        const button = control("transform-handle transform-handle-" + handle, name, "Drag to resize; Shift keeps proportions; Alt ignores guides");
         button.dataset.handle = handle;
-        button.addEventListener("pointerdown", (event) => pointerDown(target, event, handle, false));
+        button.addEventListener("pointerdown", (event) => pointerDown(lead, event, handle));
         element.appendChild(button);
       });
       element.addEventListener("click", (event) => event.stopPropagation());
-      frameHost(target).appendChild(element);
+      frameHost(lead.canvas).appendChild(element);
       frame = element;
       if (window.ResizeObserver) {
         follow = new ResizeObserver(() => requestAnimationFrame(sync));
-        target.hits.forEach((node) => follow.observe(node));
+        list.forEach((target) => target.hits.forEach((node) => follow.observe(node)));
       }
     }
     function control(className, label, title) {
@@ -544,35 +820,85 @@
       return button;
     }
     function sync() {
-      const target = selectedKey ? targets.get(selectedKey) : null;
-      if (!target || !host.isEditMode() || !target.hits[0].isConnected || !target.canvas.isConnected) {
+      const list = members();
+      if (!list.length || !host.isEditMode()) {
         removeFrame();
         return;
       }
-      const parent2 = frameHost(target);
-      if (!frame || frame.dataset.transformFrame !== target.key || frame.parentElement !== parent2) buildFrame(target);
-      const box = boundsOf(target), scale = canvasScale(target.canvas);
-      const slide = target.canvas.getBoundingClientRect(), outer = parent2.getBoundingClientRect();
-      Object.assign(frame.style, {
-        left: slide.left - outer.left + box.x * scale + "px",
-        top: slide.top - outer.top + box.y * scale + "px",
-        width: box.width * scale + "px",
-        height: box.height * scale + "px"
+      const identity = list.map((t) => t.key).join("|"), canvas = list[0].canvas;
+      if (!frame || frame.dataset.transformFrame !== identity || frame.parentElement !== frameHost(canvas)) buildFrame(list, identity);
+      const boxes = list.map(boundsOf);
+      place(frame, canvas, unionBox(boxes));
+      frame.querySelectorAll(".transform-member").forEach((node) => node.remove());
+      if (list.length > 1) boxes.forEach((box) => {
+        const outline = document.createElement("div");
+        outline.className = "transform-member";
+        const union = unionBox(boxes), scale = canvasScale(canvas);
+        Object.assign(outline.style, {
+          left: (box.x - union.x) * scale + "px",
+          top: (box.y - union.y) * scale + "px",
+          width: box.width * scale + "px",
+          height: box.height * scale + "px"
+        });
+        frame.appendChild(outline);
       });
     }
-    const frameHost = (target) => target.canvas.parentElement || target.canvas;
-    function nudge(event) {
-      const target = selectedKey ? targets.get(selectedKey) : null;
-      if (!target || !host.isEditMode() || event.metaKey || event.ctrlKey || event.altKey) return false;
-      const origin = boundsOf(target);
-      const next = nudgeBox(origin, event.key, event.shiftKey, target.area?.() || SLIDE);
-      if (!next) return false;
-      host.beginChange(target.group + ":nudge");
-      const edit = target.edit();
-      edit.update(roundBox(next));
-      edit.finish?.();
+    function drawGuides(canvas, guides, spacing) {
+      overlay?.remove();
+      overlay = null;
+      if (!canvas || !guides.length && !spacing.length) return;
+      overlay = document.createElement("div");
+      overlay.className = "transform-guides";
+      overlay.dataset.transformControl = "";
+      const container = frameHost(canvas);
+      container.appendChild(overlay);
+      guides.forEach((guide) => {
+        const line = document.createElement("div");
+        line.className = "transform-guide transform-guide-" + guide.axis;
+        place(line, canvas, guide.axis === "x" ? { x: guide.at, y: guide.from, width: 0, height: guide.to - guide.from } : { x: guide.from, y: guide.at, width: guide.to - guide.from, height: 0 });
+        overlay.appendChild(line);
+      });
+      spacing.forEach((bar) => {
+        const element = document.createElement("div");
+        element.className = "transform-spacing transform-spacing-" + bar.axis;
+        element.dataset.gap = String(Math.round(bar.end - bar.start));
+        place(element, canvas, bar.axis === "x" ? { x: bar.start, y: bar.cross, width: bar.end - bar.start, height: 0 } : { x: bar.cross, y: bar.start, width: 0, height: bar.end - bar.start });
+        overlay.appendChild(element);
+      });
+    }
+    function applyBoxes(list, boxes, group) {
+      host.beginChange(group);
+      list.forEach((target, index2) => {
+        const edit = target.edit();
+        edit.update(roundBox(inside(boxes[index2], target.area?.() || SLIDE)));
+        edit.finish?.();
+      });
       host.persist();
       sync();
+    }
+    function nudge(event) {
+      const list = members();
+      if (!list.length || !host.isEditMode() || event.metaKey || event.ctrlKey || event.altKey) return false;
+      const boxes = list.map(boundsOf), union = unionBox(boxes);
+      const next = nudgeBox(union, event.key, event.shiftKey, list.length === 1 ? list[0].area?.() || SLIDE : SLIDE);
+      if (!next) return false;
+      applyBoxes(
+        list,
+        boxes.map((box) => ({ ...box, x: box.x + next.x - union.x, y: box.y + next.y - union.y })),
+        groupOf(list) + ":nudge"
+      );
+      return true;
+    }
+    function align(mode) {
+      const list = members();
+      if (!list.length) return false;
+      applyBoxes(list, alignBoxes(list.map(boundsOf), mode, SLIDE), groupOf(list) + ":align");
+      return true;
+    }
+    function distribute(axis) {
+      const list = members();
+      if (list.length < 3) return false;
+      applyBoxes(list, distributeBoxes(list.map(boundsOf), axis), groupOf(list) + ":distribute");
       return true;
     }
     function clear() {
@@ -582,22 +908,29 @@
     }
     function grab(key, event) {
       const target = targets.get(key);
-      if (target) pointerDown(target, event, "move", false);
+      if (target) pointerDown(target, event, "move");
     }
     return {
       register,
       select,
+      toggle,
+      selectAll,
+      marquee,
       sync,
       nudge,
+      align,
+      distribute,
       clear,
       grab,
       /** True while the press that produced the current click belonged to an object. */
       ownsPress: () => ownsPress,
-      selected: () => selectedKey,
+      selected: () => selection.length ? selection[selection.length - 1] : null,
+      keys: () => selection.slice(),
+      identities: () => members().map((t) => t.identity).filter((id) => Boolean(id)),
       has: (key) => targets.has(key),
       unregister(key) {
         targets.delete(key);
-        if (selectedKey === key) select(null);
+        if (selection.includes(key)) setSelection(selection.filter((k) => k !== key));
       }
     };
   }
@@ -692,6 +1025,7 @@
         hits: [binding.host],
         canvas,
         group: "region:" + binding.key,
+        identity: { slideId: binding.slideId, componentId: binding.componentId },
         minWidth: 48,
         minHeight: 28,
         // Plot zoom, legend and annotation drags stay Plotly's; move by the border.
@@ -4670,11 +5004,15 @@
       focusObject: function() {
         stage.tabIndex = -1;
         stage.focus({ preventScroll: true });
+      },
+      selectionChanged: function() {
+        renderTools();
       }
     });
     function regionKey(slideId, componentId) {
       return slideId + "@" + componentId;
     }
+    var MARQUEE_EXCLUDED = "[data-transform-target], [data-component-id], [data-visual-object-id], .native-chart, .jsxgraph-host, .joint-paper, [data-native-table], .gallery-cell, button, input, select, textarea, [data-transform-control], .accessibility-line-controls";
     function objectKey(slideId, objectId) {
       return slideId + "@object:" + objectId;
     }
@@ -4719,6 +5057,9 @@
       canvas.setAttribute("data-slide-id", slide.id);
       canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
       canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
+      canvas.addEventListener("pointerdown", function(event) {
+        if (editMode && !event.target.closest(MARQUEE_EXCLUDED)) transforms.marquee(canvas, event);
+      });
       canvas.addEventListener("click", function(event) {
         if (editMode && !transforms.ownsPress() && !event.target.closest("[data-transform-control]")) selectComponent(null, null);
       });
@@ -5107,7 +5448,20 @@
         button.disabled = disabled;
       });
       document.querySelector("[data-table-tools]").hidden = !tableSelected;
-      selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId + (textSelected ? " \xB7 drag top edge \xB7 resize corner" : "") : objectSelected ? selected.slideId + " @ " + selected.objectId + " \xB7 " + selected.objectKind : "Select a component or visual object in edit mode";
+      var count2 = editMode ? transforms.keys().length : 0;
+      document.querySelector("[data-arrange-toggle]").disabled = count2 < 1;
+      if (count2 < 1) closeArrange();
+      document.querySelectorAll("[data-align]").forEach(function(button) {
+        button.disabled = count2 < 1;
+      });
+      document.querySelectorAll("[data-distribute]").forEach(function(button) {
+        button.disabled = count2 < 3;
+      });
+      if (count2 > 1) {
+        selectedLabel.textContent = count2 + " objects selected \xB7 drag to move together \xB7 Shift-click adds or removes";
+        return;
+      }
+      selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId + (textSelected ? " \xB7 drag to move \xB7 handles resize" : "") : objectSelected ? selected.slideId + " @ " + selected.objectId + " \xB7 " + selected.objectKind : "Select a component or visual object in edit mode";
     }
     function render() {
       if (!previewMode && document.body.classList.contains("present-only")) {
@@ -5312,27 +5666,36 @@
       if (!next) return;
       state = next;
       selected = null;
+      transforms.select(null);
       render();
       persist();
       showToast("Undid the last change.");
     }
     function deleteSelectedObject() {
-      if (!editMode || !selected || selected.slideId !== currentId) return false;
+      if (!editMode) return false;
+      var doomed = transforms.keys().length > 1 ? transforms.identities() : selected && selected.slideId === currentId ? [selected.visualObject ? { slideId: currentId, objectId: selected.objectId, objectKind: selected.objectKind } : { slideId: currentId, componentId: selected.componentId }] : [];
+      doomed = doomed.filter(function(item) {
+        return item.slideId === currentId;
+      });
+      if (!doomed.length) return false;
       beginChange();
-      if (selected.visualObject) {
-        if (!state.objects[currentId]) state.objects[currentId] = {};
-        state.objects[currentId][selected.objectId] = Object.assign(
-          {},
-          state.objects[currentId][selected.objectId],
-          { kind: selected.objectKind, deleted: true }
-        );
-      } else updateOverlay(currentId, selected.componentId, "deleted", true);
+      doomed.forEach(function(item) {
+        if (item.objectId) {
+          if (!state.objects[currentId]) state.objects[currentId] = {};
+          state.objects[currentId][item.objectId] = Object.assign(
+            {},
+            state.objects[currentId][item.objectId],
+            { kind: item.objectKind, deleted: true }
+          );
+        } else updateOverlay(currentId, item.componentId, "deleted", true);
+      });
       selected = null;
+      transforms.select(null);
       stage.tabIndex = -1;
       stage.focus({ preventScroll: true });
       render();
       persist();
-      showToast("Object deleted. Undo restores it.");
+      showToast(doomed.length > 1 ? doomed.length + " objects deleted. Undo restores them." : "Object deleted. Undo restores it.");
       return true;
     }
     thumbList.addEventListener("click", function(event) {
@@ -5412,6 +5775,36 @@
         persist();
       });
     });
+    var arrangeToggle = document.querySelector("[data-arrange-toggle]"), arrangeTools = document.querySelector("[data-arrange-tools]");
+    function closeArrange() {
+      arrangeTools.hidden = true;
+      arrangeToggle.setAttribute("aria-expanded", "false");
+    }
+    arrangeToggle.addEventListener("click", function(event) {
+      event.stopPropagation();
+      arrangeTools.hidden = !arrangeTools.hidden;
+      arrangeToggle.setAttribute("aria-expanded", String(!arrangeTools.hidden));
+    });
+    document.addEventListener("pointerdown", function(event) {
+      if (!arrangeTools.hidden && !event.target.closest(".arrange-menu")) closeArrange();
+    });
+    function arranged() {
+      closeArrange();
+      stage.tabIndex = -1;
+      stage.focus({ preventScroll: true });
+    }
+    document.querySelectorAll("[data-align]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        transforms.align(button.dataset.align);
+        arranged();
+      });
+    });
+    document.querySelectorAll("[data-distribute]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        transforms.distribute(button.dataset.distribute);
+        arranged();
+      });
+    });
     document.querySelector("[data-reset-component]").addEventListener("click", function() {
       if (!selected) return;
       beginChange();
@@ -5458,7 +5851,16 @@
         return;
       }
       if (typingTarget(event.target)) return;
-      if (editMode && (stage.contains(event.target) || event.target === document.body) && transforms.nudge(event)) {
+      if (editMode && (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "a") {
+        var canvas = stage.querySelector(".slide-canvas");
+        if (canvas) {
+          event.preventDefault();
+          event.stopPropagation();
+          transforms.selectAll(canvas);
+          return;
+        }
+      }
+      if (editMode && transforms.nudge(event)) {
         event.preventDefault();
         event.stopPropagation();
         return;

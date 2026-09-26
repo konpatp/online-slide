@@ -107,6 +107,7 @@ function registerRegion(binding: Binding) {
   transforms.register({
     key: binding.key, label: chart ? 'chart region' : 'text region',
     hits: [binding.host], canvas, group: 'region:' + binding.key,
+    identity: {slideId: binding.slideId, componentId: binding.componentId},
     minWidth: 48, minHeight: 28,
     // Plot zoom, legend and annotation drags stay Plotly's; move by the border.
     nativeSelector: chart ? '.js-plotly-plot, .main-svg' : undefined,

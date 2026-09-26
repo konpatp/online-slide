@@ -66,3 +66,59 @@ test('small pointer jitter is a click, not a drag', () => {
   assert.equal(isDrag(2, 2), false);
   assert.equal(isDrag(3, 3), true);
 });
+
+import {snapMove, snapResize, alignBoxes, distributeBoxes, scaleGroup, unionBox} from '../../src/editor/boxes';
+
+test('moves snap to the slide centre and to other objects, within tolerance only', () => {
+  const near = {x: 758, y: 300, width: 400, height: 100};            // centre 958 ~ slide centre 960
+  const snapped = snapMove(near, [], slide, 6);
+  assert.equal(snapped.box.x, 760);
+  assert.ok(snapped.guides.some(g => g.axis === 'x' && g.at === 960));
+  const far = {...near, x: 700};
+  assert.equal(snapMove(far, [], slide, 6).box.x, 700);
+  const other = {x: 100, y: 600, width: 300, height: 80};
+  const edge = snapMove({x: 104, y: 200, width: 200, height: 50}, [other], slide, 6);
+  assert.equal(edge.box.x, 100);                                     // left edges align
+  assert.ok(edge.guides.some(g => g.axis === 'x' && g.at === 100 && g.from <= 200 && g.to >= 680));
+});
+
+test('moves snap to equal spacing between neighbours and report the spacing', () => {
+  const left = {x: 100, y: 400, width: 200, height: 100}, right = {x: 900, y: 400, width: 200, height: 100};
+  const middle = {x: 497, y: 410, width: 200, height: 80};           // equal gaps at x=500
+  const snapped = snapMove(middle, [left, right], {x: 0, y: 0, width: 5000, height: 5000}, 6);
+  assert.equal(snapped.box.x, 500);
+  assert.equal(snapped.spacing.filter(s => s.axis === 'x').length, 2);
+});
+
+test('resizes snap the dragged edge to lines and to matching sizes', () => {
+  const other = {x: 1000, y: 700, width: 320, height: 90};
+  const box = {x: 100, y: 100, width: 316, height: 50};
+  assert.equal(snapResize(box, 'e', [other], slide, 6).box.width, 320);   // same width as other
+  const toEdge = snapResize({...box, width: 896}, 'e', [other], slide, 6);
+  assert.equal(toEdge.box.x + toEdge.box.width, 1000);                   // right edge meets other's left
+  const west = snapResize({x: 997, y: 100, width: 100, height: 50}, 'w', [other], slide, 6);
+  assert.equal(west.box.x, 1000); assert.equal(west.box.x + west.box.width, 1097);
+});
+
+test('align uses the selection union, or the slide for one object', () => {
+  const boxes = [{x: 100, y: 100, width: 100, height: 50}, {x: 300, y: 250, width: 200, height: 100}];
+  assert.deepEqual(alignBoxes(boxes, 'left', slide).map(b => b.x), [100, 100]);
+  assert.deepEqual(alignBoxes(boxes, 'right', slide).map(b => b.x + b.width), [500, 500]);
+  assert.deepEqual(alignBoxes(boxes, 'middle', slide).map(b => b.y + b.height / 2), [225, 225]);
+  assert.deepEqual(alignBoxes([boxes[0]], 'center', slide)[0].x, 910);
+});
+
+test('distribution equalizes gaps and keeps the outermost objects fixed', () => {
+  const boxes = [{x: 0, y: 0, width: 100, height: 10}, {x: 900, y: 0, width: 100, height: 10}, {x: 130, y: 0, width: 200, height: 10}];
+  const out = distributeBoxes(boxes, 'x');
+  assert.equal(out[0].x, 0); assert.equal(out[1].x, 900);
+  assert.equal(out[2].x, 400);                                        // 0 + 100 + gap (1000-400)/2
+});
+
+test('group resize maps every member through the union', () => {
+  const boxes = [{x: 100, y: 100, width: 100, height: 100}, {x: 300, y: 200, width: 100, height: 100}];
+  const from = unionBox(boxes), to = {x: 100, y: 100, width: 600, height: 400};
+  const out = scaleGroup(boxes, from, to);
+  assert.deepEqual(out[1], {x: 500, y: 300, width: 200, height: 200});
+  assert.deepEqual(unionBox(out), to);
+});

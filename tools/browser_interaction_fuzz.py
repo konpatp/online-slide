@@ -92,6 +92,29 @@ class Session:
         word = self.rng.choice(['alpha', 'β-test', ' 42', 'Z'])
         self.page.keyboard.type(word); return f'type {key} {word!r}'
 
+    def shift(self):
+        key = self.rng.choice(self.targets()); x, y = self.center(key)
+        self.page.keyboard.down('Shift'); self.page.mouse.click(x, y); self.page.keyboard.up('Shift')
+        return 'shift ' + key
+
+    def marquee(self):
+        c = self.page.locator('.slide-canvas').bounding_box()
+        x0, y0 = c['x'] + c['width'] * self.rng.random(), c['y'] + c['height'] * self.rng.random()
+        x1, y1 = c['x'] + c['width'] * self.rng.random(), c['y'] + c['height'] * self.rng.random()
+        self.page.keyboard.press('Escape'); self.page.keyboard.press('Escape')
+        self.drag(x0, y0, x1 - x0, y1 - y0)
+        return f'marquee {x0:.0f},{y0:.0f}->{x1:.0f},{y1:.0f}'
+
+    def arrange(self):
+        toggle = self.page.locator('[data-arrange-toggle]')
+        if toggle.is_disabled(): return self.shift()
+        toggle.click()
+        choices = [b for b in self.page.locator('[data-arrange-tools] button').all() if b.is_enabled()]
+        choice = self.rng.choice(choices); name = choice.get_attribute('aria-label')
+        choice.click()
+        if self.page.locator('[data-arrange-tools]').is_visible(): toggle.click()
+        return 'arrange ' + name
+
     def undo(self):
         self.page.keyboard.press('Escape'); self.page.keyboard.press('Escape')
         self.page.keyboard.press('ControlOrMeta+z'); return 'undo'
@@ -99,7 +122,8 @@ class Session:
     def escape(self):
         self.page.keyboard.press('Escape'); return 'escape'
 
-    OPERATIONS = {'select': 2, 'move': 4, 'resize': 4, 'nudge': 3, 'type': 2, 'undo': 2, 'escape': 1}
+    OPERATIONS = {'select': 2, 'move': 4, 'resize': 4, 'nudge': 3, 'type': 2, 'undo': 2, 'escape': 1,
+                  'shift': 2, 'marquee': 2, 'arrange': 2}
 
     def step(self):
         names = list(self.OPERATIONS)
@@ -114,6 +138,7 @@ class Session:
         if others != {k: v for k, v in initial['overlays'].items() if k != SLIDE}:
             errors.append('another slide changed')
         if page.locator('.transform-frame').count() > 1: errors.append('more than one frame')
+        if page.locator('.transform-marquee, .transform-guides').count(): errors.append('marquee or guides left behind')
         # Saved region sizes are what the editor paints.
         painted = page.evaluate("""sid=>Object.fromEntries([...document.querySelectorAll('[data-stage] [data-text-region-for]')]
           .map(e=>{const c=e.closest('.slide-canvas').getBoundingClientRect(),r=e.getBoundingClientRect(),s=c.width/1920;

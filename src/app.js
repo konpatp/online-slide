@@ -476,8 +476,12 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
 
   // One selection and move/resize owner for every box-shaped object.
   var transforms = createTransformLayer({isEditMode: function() {return editMode;}, beginChange: beginChange, persist: persist,
-    focusObject: function() {stage.tabIndex=-1; stage.focus({preventScroll:true});}});
+    focusObject: function() {stage.tabIndex=-1; stage.focus({preventScroll:true});},
+    selectionChanged: function() {renderTools();}});
   function regionKey(slideId, componentId) { return slideId + '@' + componentId; }
+  // Presses here belong to an object or a control, never to box selection.
+  var MARQUEE_EXCLUDED = '[data-transform-target], [data-component-id], [data-visual-object-id], .native-chart, .jsxgraph-host, ' +
+    '.joint-paper, [data-native-table], .gallery-cell, button, input, select, textarea, [data-transform-control], .accessibility-line-controls';
   function objectKey(slideId, objectId) { return slideId + '@object:' + objectId; }
   var {bindTextRegion,applyAllTextRegions,clearTextRegions} = createTextRegions({
     getComponent: function(sid,cid) {return cid ? effectiveComponent(state.slides[sid],cid) : null;},
@@ -519,6 +523,10 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     canvas.setAttribute("data-slide-id", slide.id);
     canvas.setAttribute("data-canonical-width", String(CANONICAL_SLIDE_WIDTH));
     canvas.setAttribute("data-canonical-height", String(CANONICAL_SLIDE_HEIGHT));
+    // Dragging on empty slide space draws a selection box.
+    canvas.addEventListener("pointerdown", function (event) {
+      if (editMode && !event.target.closest(MARQUEE_EXCLUDED)) transforms.marquee(canvas, event);
+    });
     canvas.addEventListener("click", function (event) {
       // Objects and their frame handle their own selection.
       if (editMode && !transforms.ownsPress() && !event.target.closest('[data-transform-control]')) selectComponent(null, null);
@@ -859,8 +867,14 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       button.disabled = disabled;
     });
     document.querySelector("[data-table-tools]").hidden = !tableSelected;
+    var count = editMode ? transforms.keys().length : 0;
+    document.querySelector('[data-arrange-toggle]').disabled = count < 1;
+    if (count < 1) closeArrange();
+    document.querySelectorAll('[data-align]').forEach(function(button) {button.disabled = count < 1;});
+    document.querySelectorAll('[data-distribute]').forEach(function(button) {button.disabled = count < 3;});
+    if (count > 1) {selectedLabel.textContent = count + ' objects selected · drag to move together · Shift-click adds or removes'; return;}
     selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId +
-      (textSelected ? " · drag top edge · resize corner" : "") :
+      (textSelected ? " · drag to move · handles resize" : "") :
       (objectSelected ? selected.slideId + " @ " + selected.objectId + " · " + selected.objectKind :
         "Select a component or visual object in edit mode");
   }
@@ -1033,23 +1047,32 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     try {next=editHistory.undo(state);} catch(error) {showToast(error.message);return;}
     if (!next) return;
     state = next;
-    selected = null;
+    selected = null; transforms.select(null);
     render();
     persist();
     showToast("Undid the last change.");
   }
 
   function deleteSelectedObject() {
-    if (!editMode || !selected || selected.slideId !== currentId) return false;
+    if (!editMode) return false;
+    // A multi-selection deletes every selected object as one undoable change.
+    var doomed = transforms.keys().length > 1 ? transforms.identities() :
+      selected && selected.slideId === currentId ? [selected.visualObject ?
+        {slideId: currentId, objectId: selected.objectId, objectKind: selected.objectKind} :
+        {slideId: currentId, componentId: selected.componentId}] : [];
+    doomed = doomed.filter(function(item) {return item.slideId === currentId;});
+    if (!doomed.length) return false;
     beginChange();
-    if(selected.visualObject) {
-      if(!state.objects[currentId]) state.objects[currentId]={};
-      state.objects[currentId][selected.objectId]=Object.assign({},state.objects[currentId][selected.objectId],
-        {kind:selected.objectKind,deleted:true});
-    } else updateOverlay(currentId,selected.componentId,'deleted',true);
-    selected=null;
+    doomed.forEach(function(item) {
+      if (item.objectId) {
+        if(!state.objects[currentId]) state.objects[currentId]={};
+        state.objects[currentId][item.objectId]=Object.assign({},state.objects[currentId][item.objectId],
+          {kind:item.objectKind,deleted:true});
+      } else updateOverlay(currentId,item.componentId,'deleted',true);
+    });
+    selected=null; transforms.select(null);
     stage.tabIndex=-1; stage.focus({preventScroll:true});
-    render(); persist(); showToast('Object deleted. Undo restores it.');
+    render(); persist(); showToast(doomed.length > 1 ? doomed.length + ' objects deleted. Undo restores them.' : 'Object deleted. Undo restores it.');
     return true;
   }
 
@@ -1118,6 +1141,24 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       render(); persist();
     });
   });
+  var arrangeToggle = document.querySelector('[data-arrange-toggle]'), arrangeTools = document.querySelector('[data-arrange-tools]');
+  function closeArrange() { arrangeTools.hidden = true; arrangeToggle.setAttribute('aria-expanded', 'false'); }
+  arrangeToggle.addEventListener('click', function(event) {
+    event.stopPropagation();
+    arrangeTools.hidden = !arrangeTools.hidden;
+    arrangeToggle.setAttribute('aria-expanded', String(!arrangeTools.hidden));
+  });
+  document.addEventListener('pointerdown', function(event) {
+    if (!arrangeTools.hidden && !event.target.closest('.arrange-menu')) closeArrange();
+  });
+  // After arranging, keys act on the selection again (nudge, Delete, Escape).
+  function arranged() { closeArrange(); stage.tabIndex=-1; stage.focus({preventScroll:true}); }
+  document.querySelectorAll('[data-align]').forEach(function(button) {
+    button.addEventListener('click', function() {transforms.align(button.dataset.align); arranged();});
+  });
+  document.querySelectorAll('[data-distribute]').forEach(function(button) {
+    button.addEventListener('click', function() {transforms.distribute(button.dataset.distribute); arranged();});
+  });
   document.querySelector("[data-reset-component]").addEventListener("click", function () {
     if (!selected) return;
     beginChange();
@@ -1154,8 +1195,13 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       event.preventDefault();stage.tabIndex=-1;stage.focus({preventScroll:true});return;
     }
     if (typingTarget(event.target)) return;
+    if (editMode && (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'a') {
+      var canvas = stage.querySelector('.slide-canvas');
+      if (canvas) {event.preventDefault(); event.stopPropagation(); transforms.selectAll(canvas); return;}
+    }
     // A selected object owns the arrow keys; slides change only without one.
-    if (editMode && (stage.contains(event.target) || event.target===document.body) && transforms.nudge(event)) {
+    // Focus may sit on a toolbar button after Arrange; it is still the selection's keys.
+    if (editMode && transforms.nudge(event)) {
       event.preventDefault(); event.stopPropagation(); return;
     }
     if (event.key === "Escape" && editMode && transforms.selected()) {

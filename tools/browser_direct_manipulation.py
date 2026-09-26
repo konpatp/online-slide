@@ -54,12 +54,16 @@ def main():
                       return {x:(r.left-c.left)/s,y:(r.top-c.top)/s,width:r.width/s,height:r.height/s}}""")
 
                 def drag(x, y, dx, dy, shift=False):
+                    # Alt disables snapping: these checks verify exact pointer
+                    # arithmetic; browser_snap_multiselect.py covers snapping.
                     page.mouse.move(x, y)
+                    page.keyboard.down('Alt')
                     if shift: page.keyboard.down('Shift')
                     page.mouse.down()
                     page.mouse.move(x + dx, y + dy, steps=6)
                     page.mouse.up()
                     if shift: page.keyboard.up('Shift')
+                    page.keyboard.up('Alt')
 
                 def close(a, b, tolerance=2.5):
                     return abs(a - b) <= tolerance

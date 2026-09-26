@@ -91,6 +91,7 @@ function wireVisualObjects(slide,records) {
       key: api.objectKey(slide.id, record.id),
       label: record.kind === 'recipe-frame' ? 'layout frame' : record.id,
       hits: [record.element], canvas: canvas, group: 'object:' + slide.id + ':' + record.id,
+      identity: {slideId: slide.id, objectId: record.id, objectKind: record.kind},
       area: function () { return measureBox(record.article, canvas); },
       minWidth: 24, minHeight: 12,
       bodyDrag: record.kind !== 'recipe-frame',

@@ -171,6 +171,7 @@ function registerNodes(diagram) {
     api.transforms().register({
       key: api.objectKey(slide.id, node.id), label: 'diagram box',
       hits: [block, view.el], canvas: canvas, group: 'object:' + slide.id + ':' + node.id,
+      identity: {slideId: slide.id, objectId: node.id, objectKind: 'diagram-node'},
       area: function () { return measureBox(paperHost, canvas); },
       minWidth: 60, minHeight: 40,
       textAt: function (target) {
