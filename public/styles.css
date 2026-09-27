@@ -71,7 +71,12 @@ body.present-only.preview-only .presentation-exit { display: none; }
 .thumb-action:disabled { opacity: .4; cursor: default; }
 .rail-help { margin: 18px 8px 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
-.workspace { min-width: 0; display: grid; grid-template-rows: 55px 1fr 41px; overflow: hidden; }
+/* The column is capped at the available width: toolbar contents never widen
+   the workspace (which would re-fit and move the slide). */
+.workspace { min-width: 0; display: grid; grid-template-rows: 55px 1fr 41px; grid-template-columns: minmax(0, 1fr); overflow: hidden; }
+/* A toolbar wider than the window scrolls rather than clipping controls. */
+.workspace-bar { min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.workspace-bar > * { flex: none; }
 .workspace-bar, .workspace-footer { display: flex; align-items: center; gap: 10px; padding: 0 24px; color: var(--muted); background: rgba(255, 255, 255, .72); border-bottom: 1px solid var(--line); }
 .workspace-footer { justify-content: space-between; border-top: 1px solid var(--line); border-bottom: 0; font-size: 11px; }
 .workspace-hint { min-width: 255px; margin-left: 12px; overflow: hidden; color: #7f8da1; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -167,7 +172,7 @@ body.present-only .hidden-ribbon { right: 14%; }
 .transform-spacing::after { content: attr(data-gap); position: absolute; left: 50%; top: 50%; transform: translate(-50%, -130%); padding: 1px 5px; border-radius: 4px; background: #e0457b; color: white; font: 700 10px/1.4 Inter, sans-serif; white-space: nowrap; }
 .transform-spacing-y::after { transform: translate(8px, -50%); }
 .arrange-menu { position: relative; display: inline-flex; }
-.arrange-tools { position: absolute; z-index: 80; top: calc(100% + 6px); right: 0; display: grid; grid-template-columns: repeat(4, 30px); gap: 4px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: white; box-shadow: 0 12px 30px rgba(20, 35, 59, .16); }
+.arrange-tools { position: fixed; z-index: 80; display: grid; grid-template-columns: repeat(4, 30px); gap: 4px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: white; box-shadow: 0 12px 30px rgba(20, 35, 59, .16); }
 .arrange-tools[hidden] { display: none; }
 .arrange-button { display: inline-grid; place-items: center; width: 28px; padding: 0; }
 .arrange-button svg { width: 15px; height: 15px; fill: rgba(47, 111, 237, .18); stroke: #33455f; stroke-width: 1.2; }
@@ -525,5 +530,9 @@ body.preview-only .stage-loading { display: none; }
 .custom-color input { position: absolute; inset: -6px; width: 32px; height: 32px; border: 0; padding: 0; opacity: 0; cursor: pointer; }
 .custom-color:has(input:disabled) { opacity: .38; }
 .paragraph-menu { position: relative; display: inline-flex; }
-.paragraph-tools { position: absolute; z-index: 80; top: calc(100% + 6px); left: 0; display: grid; grid-template-columns: repeat(3, auto); gap: 4px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: white; box-shadow: 0 12px 30px rgba(20, 35, 59, .16); white-space: nowrap; }
+.paragraph-tools { position: fixed; z-index: 80; display: grid; grid-template-columns: repeat(3, auto); gap: 4px; padding: 7px; border: 1px solid var(--line); border-radius: 10px; background: white; box-shadow: 0 12px 30px rgba(20, 35, 59, .16); white-space: nowrap; }
 .paragraph-tools[hidden] { display: none; }
+
+/* Table cell ranges. */
+.edit-mode .table-range-cell { background-image: linear-gradient(rgba(47, 111, 237, .16), rgba(47, 111, 237, .16)) !important; box-shadow: inset 0 0 0 2px rgba(47, 111, 237, .75); }
+body.selecting-table-range, body.selecting-table-range * { user-select: none !important; cursor: cell !important; }

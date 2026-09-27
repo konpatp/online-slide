@@ -20,7 +20,8 @@ Strict TypeScript owns the editing behavior:
 | `editor/text.ts` | Rich text model (wording + character marks + per-line paragraphs, never HTML): mark and paragraph operations, splice, rendering, DOM read-back and caret offsets |
 | `editor/formatting.ts` | Formatting commands and their scope (selected characters; caret = whole text or its line; object = all), shortcuts, Enter/Tab list behaviour, toolbar state |
 | `editor/paste.ts` | Clipboard HTML to rich text: keeps bold, italic, underline, breaks and lists; drops everything else |
-| `editor/tables.ts` | Stable identities, structural commands, paste and resizing |
+| `editor/tables.ts` | Stable identities, structural commands (including deleting a spanned set of rows or columns), paste and resizing |
+| `editor/table-range.ts` | Rectangular cell ranges: drag across cells (a drag inside one cell still selects text), Shift-click, row/column/table selection, highlight; formatting, Delete and Row−/Col− act on every cell of a range as one change |
 | `editor/boxes.ts` | Pure box geometry: move, eight-handle and proportional resize, nudge, click-versus-drag, snapping (lines, equal spacing, matching sizes), align, distribute, group scaling |
 | `editor/transform.ts` | The one selection and move/resize layer for every box-shaped object: single and multiple selection (Shift-click, box select, select all), direct and group drag, handles, border and grip moves, snapping guides (Alt disables), nudge, align/distribute, click-to-edit text, change boundaries |
 | `editor/regions.ts` | Bounded text/chart regions, fitting, and their transform adapter (offset-from-flow storage) |
@@ -61,6 +62,11 @@ off) and `browser_snap_multiselect.py` prove each gesture with real input, and `
 step saved geometry must equal the painted editor and no other slide may
 change; undoing everything must restore the pristine deck; a reload must paint
 what was saved. A new gesture joins its operation table.
+
+The workspace column is capped at the available width: toolbar contents
+never widen it (that re-fitted and moved the slide when table tools appeared).
+A toolbar wider than the window scrolls; its menus float so it cannot clip
+them.
 
 Text formatting is data. Marks carry bold, italic, underline, colour and a
 size multiplier over UTF-16 ranges; paragraphs carry alignment and list kind

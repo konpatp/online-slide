@@ -1202,6 +1202,39 @@
       });
       return insertAt;
     }
+    function deleteSpan(kind, first, last) {
+      const selection = getSelected();
+      if (!selection?.tableCell) return false;
+      var slide = getState().slides[selection.slideId];
+      if (!slide || slide.recipe !== "evidence-table") return false;
+      slide = selectedTableContext(slide, selection.tableCell);
+      var table = ensureTable(slide);
+      if (kind === "row" && last - first + 1 >= table.rows.length) return false;
+      if (kind === "column" && last - first + 1 >= table.columns.length - 1) return false;
+      beginChange();
+      for (var index2 = last; index2 >= first; index2--) {
+        if (kind === "row") {
+          var removedRow = table.rows.splice(index2, 1)[0];
+          retireTableComponent(table, removedRow.label);
+          removedRow.cells.forEach(function(componentId) {
+            retireTableComponent(table, componentId);
+          });
+        } else {
+          var removed = table.columns.splice(index2, 1)[0];
+          table.rows.forEach(function(rowItem) {
+            var removedCell = rowItem.cells.splice(index2 - 1, 1)[0];
+            if (rowItem.best === removedCell) rowItem.best = null;
+            if (rowItem.globalBest === removedCell) rowItem.globalBest = null;
+            retireTableComponent(table, removedCell);
+          });
+          retireTableComponent(table, removed.label);
+        }
+      }
+      clearSelection();
+      render();
+      persist();
+      return true;
+    }
     function mutateSelectedTable(action) {
       const selection = getSelected();
       if (!selection?.tableCell) return;
@@ -1354,7 +1387,7 @@
       render();
       persist();
     }
-    return { tableContexts, selectedTableContext, sourceTableModel, effectiveTable, ensureTable, tableCell, mutateSelectedTable, pasteTableGrid, startTableColumnResize };
+    return { tableContexts, selectedTableContext, sourceTableModel, effectiveTable, ensureTable, tableCell, mutateSelectedTable, deleteSpan, pasteTableGrid, startTableColumnResize };
   }
 
   // src/editor/snapshot.ts
@@ -4856,7 +4889,33 @@
       const style = getComputedStyle(element);
       return key2 === "bold" ? Number(style.fontWeight) >= 600 : key2 === "italic" ? style.fontStyle === "italic" : style.textDecorationLine.includes("underline");
     };
+    function members() {
+      const list2 = host.batch?.() || [];
+      if (list2.length < 2) return null;
+      return list2.map((item) => {
+        const element = host.element(item.slideId, item.componentId);
+        return element && element.dataset.latexSource === void 0 ? { ...item, element, value: readRichText(element) } : null;
+      }).filter((item) => Boolean(item));
+    }
+    function batchCommit(list2, apply) {
+      host.beginChange();
+      for (const item of list2) {
+        const next = apply(item);
+        if (next) {
+          host.updateText(item.slideId, item.componentId, next);
+          renderRichText(item.element, next);
+        }
+      }
+      host.persist();
+      host.refreshTools();
+      return true;
+    }
     function toggle(key2) {
+      const batch = members();
+      if (batch) {
+        const on2 = !batch.every((item) => rangeHas(item.value, 0, item.value.text.length, key2, inherited(item.element, key2)));
+        return batchCommit(batch, (item) => setMark(item.value, 0, item.value.text.length, key2, on2));
+      }
       const target = scope();
       if (!target || target.end <= target.start) return false;
       commit(target, toggleMark(target.value, target.start, target.end, key2, inherited(target.element, key2)));
@@ -4864,6 +4923,12 @@
     }
     const allText = (target) => target.whole || target.start === 0 && target.end === target.value.text.length;
     function color(value) {
+      const batch = members();
+      if (batch) return batchCommit(batch, (item) => {
+        host.setComponentStyle(item.slideId, item.componentId, "color", value);
+        item.element.style.color = value;
+        return setMark(item.value, 0, item.value.text.length, "color", void 0);
+      });
       const target = scope();
       if (!target) return false;
       if (allText(target)) {
@@ -4887,6 +4952,14 @@
       return Math.round((sizes[0] ?? 1) * 100);
     }
     function size(percent) {
+      const batch = members();
+      if (batch && Number.isFinite(percent)) {
+        const scale = Math.max(0.7, Math.min(1.5, Math.round(percent) / 100));
+        return batchCommit(batch, (item) => {
+          host.setComponentStyle(item.slideId, item.componentId, "fontScale", scale === 1 ? void 0 : scale);
+          return null;
+        });
+      }
       const target = scope();
       if (!target || !Number.isFinite(percent)) return false;
       if (allText(target)) {
@@ -4903,6 +4976,8 @@
       return true;
     }
     function resize(deltaPercent) {
+      const batch = members();
+      if (batch) return size(Math.round((host.componentStyle(batch[0].slideId, batch[0].componentId).fontScale || 1) * 100) + deltaPercent);
       const target = scope();
       return target ? size(currentSize(target) + deltaPercent) : false;
     }
@@ -4980,6 +5055,20 @@
       return false;
     }
     function toolState() {
+      const batch = members();
+      if (batch) {
+        const all = (key2) => batch.every((item) => rangeHas(item.value, 0, item.value.text.length, key2, inherited(item.element, key2)));
+        return {
+          bold: all("bold"),
+          italic: all("italic"),
+          underline: all("underline"),
+          paragraphs: false,
+          align: "left",
+          list: null,
+          size: Math.round((host.componentStyle(batch[0].slideId, batch[0].componentId).fontScale || 1) * 100),
+          color: host.componentStyle(batch[0].slideId, batch[0].componentId).color
+        };
+      }
       const target = scope();
       if (!target) return null;
       const range = { start: target.start, end: Math.max(target.end, target.start) };
@@ -4997,6 +5086,138 @@
       };
     }
     return { scope, pin, unpin, remember, toggle, color, size, resize, align, list, indent, insert, enter, paste, key, toolState };
+  }
+
+  // src/editor/table-range.ts
+  function normalize(range) {
+    return {
+      tableKey: range.tableKey,
+      row0: Math.min(range.row0, range.row1),
+      row1: Math.max(range.row0, range.row1),
+      col0: Math.min(range.col0, range.col1),
+      col1: Math.max(range.col0, range.col1)
+    };
+  }
+  function cellsIn(range, table) {
+    const r = normalize(range), ids = [];
+    for (let row = r.row0; row <= r.row1; row++) for (let col = r.col0; col <= r.col1; col++) {
+      const id = row < 0 ? table.columns[col]?.label : col === 0 ? table.rows[row]?.label : table.rows[row]?.cells[col - 1];
+      if (id) ids.push(id);
+    }
+    return ids;
+  }
+  var rowsIn = (range) => {
+    const r = normalize(range);
+    return { first: Math.max(0, r.row0), last: r.row1 };
+  };
+  var columnsIn = (range) => {
+    const r = normalize(range);
+    return { first: Math.max(1, r.col0), last: r.col1 };
+  };
+  function gridCell(node) {
+    const cell = node?.closest("[data-table-cell]");
+    const table = cell?.closest("[data-native-table]");
+    if (!cell || !table) return null;
+    return { tableKey: table.dataset.nativeTable, row: Number(cell.dataset.tableRowIndex), col: Number(cell.dataset.tableColumnIndex), element: cell };
+  }
+  function createTableRange(host) {
+    let range = null;
+    function set(next) {
+      range = next && host.table(next.tableKey) ? normalize(next) : null;
+      paint();
+      host.changed();
+    }
+    const active = () => Boolean(range && (range.row0 !== range.row1 || range.col0 !== range.col1));
+    function paint() {
+      host.stage.querySelectorAll(".table-range-cell").forEach((node) => node.classList.remove("table-range-cell"));
+      if (!range || !active()) return;
+      const table = host.stage.querySelector(`[data-native-table="${CSS.escape(range.tableKey)}"]`);
+      table?.querySelectorAll("[data-table-cell]").forEach((cell) => {
+        const row = Number(cell.dataset.tableRowIndex), col = Number(cell.dataset.tableColumnIndex);
+        if (row >= range.row0 && row <= range.row1 && col >= range.col0 && col <= range.col1) cell.classList.add("table-range-cell");
+      });
+    }
+    function endTextSelection() {
+      getSelection()?.removeAllRanges();
+      document.activeElement?.blur?.();
+      host.stage.tabIndex = -1;
+      host.stage.focus({ preventScroll: true });
+    }
+    host.stage.addEventListener("pointerdown", (event) => {
+      if (!host.isEditMode() || event.button !== 0) return;
+      const start = gridCell(event.target);
+      if (!start) {
+        if (range) set(null);
+        return;
+      }
+      if (event.target.closest("button, .table-column-resizer")) return;
+      const anchor = host.anchor();
+      if (event.shiftKey && anchor && anchor.tableKey === start.tableKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        endTextSelection();
+        set({ tableKey: start.tableKey, row0: anchor.row, col0: anchor.col, row1: start.row, col1: start.col });
+        return;
+      }
+      if (range) set(null);
+      let spanning = false;
+      const move = (next) => {
+        const over = gridCell(document.elementFromPoint(next.clientX, next.clientY));
+        if (!over || over.tableKey !== start.tableKey) return;
+        if (!spanning && over.row === start.row && over.col === start.col) return;
+        if (!spanning) {
+          spanning = true;
+          host.selectCell(start.element);
+          endTextSelection();
+          document.body.classList.add("selecting-table-range");
+        }
+        next.preventDefault();
+        getSelection()?.removeAllRanges();
+        set({ tableKey: start.tableKey, row0: start.row, col0: start.col, row1: over.row, col1: over.col });
+      };
+      const end = () => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", end);
+        document.removeEventListener("pointercancel", end);
+        document.body.classList.remove("selecting-table-range");
+        if (spanning) {
+          const swallow = (click) => {
+            click.stopPropagation();
+            click.preventDefault();
+          };
+          window.addEventListener("click", swallow, { capture: true, once: true });
+          setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+        }
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", end);
+      document.addEventListener("pointercancel", end);
+    }, true);
+    function selectAround(kind) {
+      const anchor = host.anchor(), table = anchor && host.table(anchor.tableKey);
+      if (!anchor || !table) return false;
+      const lastRow = table.rows.length - 1, lastCol = table.columns.length - 1;
+      endTextSelection();
+      if (kind === "row") set({ tableKey: anchor.tableKey, row0: anchor.row, row1: anchor.row, col0: 0, col1: lastCol });
+      else if (kind === "column") set({ tableKey: anchor.tableKey, row0: -1, row1: lastRow, col0: anchor.col, col1: anchor.col });
+      else set({ tableKey: anchor.tableKey, row0: -1, row1: lastRow, col0: 0, col1: lastCol });
+      return true;
+    }
+    return {
+      set,
+      paint,
+      selectAround,
+      clear: () => {
+        if (range) set(null);
+      },
+      active,
+      range: () => active() ? range : null,
+      cells: () => {
+        if (!range || !active()) return [];
+        const table = host.table(range.tableKey);
+        return table ? cellsIn(range, table) : [];
+      }
+    };
   }
 
   // src/app.js
@@ -5316,7 +5537,7 @@
       if (matches2.length > 1) throw new Error("Ambiguous table-owned text " + componentId);
       return matches2.length ? state.tables[matches2[0]] : null;
     }
-    var { tableContexts, selectedTableContext, sourceTableModel, effectiveTable, ensureTable, tableCell, mutateSelectedTable, pasteTableGrid, startTableColumnResize } = createTableEditor({
+    var { tableContexts, selectedTableContext, sourceTableModel, effectiveTable, ensureTable, tableCell, mutateSelectedTable, deleteSpan, pasteTableGrid, startTableColumnResize } = createTableEditor({
       getState: function() {
         return state;
       },
@@ -5577,6 +5798,36 @@
         updateOverlay(slideId, componentId, key, value);
       },
       refreshTools: function() {
+        renderTools();
+      },
+      batch: function() {
+        return tableRange.cells().map(function(componentId) {
+          return { slideId: currentId, componentId };
+        });
+      }
+    });
+    var tableRange = createTableRange({
+      stage,
+      isEditMode: function() {
+        return editMode;
+      },
+      anchor: function() {
+        var cell = selected && selected.tableCell;
+        return cell ? { tableKey: cell.tableKey, row: cell.rowIndex, col: cell.columnIndex } : null;
+      },
+      table: function(tableKey) {
+        var slide = state && state.slides[tableKey.split("::table::")[0]];
+        if (!slide || slide.recipe !== "evidence-table") return null;
+        var context = tableContexts(slide).find(function(item) {
+          return (item._tableKey || item.id) === tableKey;
+        });
+        return context ? effectiveTable(context) : null;
+      },
+      selectCell: function(cell) {
+        var text = cell.querySelector(".semantic-component");
+        if (text) selectComponent(currentId, text.dataset.componentId, text);
+      },
+      changed: function() {
         renderTools();
       }
     });
@@ -5871,6 +6122,7 @@
         }
       }
       requestAnimationFrame(transforms.sync);
+      tableRange.paint();
       if (focusCreatedTitle === currentId) {
         focusCreatedTitle = null;
         var title = canvas.querySelector('[data-component-id="' + slide.headline + '"]');
@@ -5989,7 +6241,7 @@
       var component = selectedComponent();
       var textSelected = editMode && component && component.kind === "text";
       var imageSelected = editMode && component && component.kind === "image";
-      var format = textSelected ? formatting.toolState() : null;
+      var format = textSelected || tableRange.active() ? formatting.toolState() : null;
       [["[data-bold]", "bold"], ["[data-italic]", "italic"], ["[data-underline]", "underline"]].forEach(function(pair) {
         var button = document.querySelector(pair[0]);
         button.disabled = !format;
@@ -6029,6 +6281,9 @@
         button.disabled = disabled;
       });
       document.querySelector("[data-table-tools]").hidden = !tableSelected;
+      document.querySelectorAll("[data-table-select]").forEach(function(button) {
+        button.disabled = !tableSelected;
+      });
       var count2 = editMode ? transforms.keys().length : 0;
       document.querySelector("[data-arrange-toggle]").disabled = count2 < 1;
       if (count2 < 1) closeArrange();
@@ -6040,6 +6295,11 @@
       });
       if (count2 > 1) {
         selectedLabel.textContent = count2 + " objects selected \xB7 drag to move together \xB7 Shift-click adds or removes";
+        return;
+      }
+      var rangeCells = tableRange.cells().length;
+      if (rangeCells > 1) {
+        selectedLabel.textContent = rangeCells + " cells selected \xB7 format, Delete to clear, Row \u2212 / Col \u2212 to remove";
         return;
       }
       selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId + (textSelected ? " \xB7 drag to move \xB7 handles resize" : "") : objectSelected ? selected.slideId + " @ " + selected.objectId + " \xB7 " + selected.objectKind : "Select a component or visual object in edit mode";
@@ -6270,8 +6530,23 @@
       persist();
       showToast("Redid the change.");
     }
+    function clearRangeCells() {
+      var cells = tableRange.cells();
+      if (!cells.length) return false;
+      beginChange();
+      cells.forEach(function(componentId) {
+        if (effectiveComponent(state.slides[currentId], componentId).render === "latex") updateOverlay(currentId, componentId, "text", "");
+        else updateText(currentId, componentId, { text: "", marks: [] });
+      });
+      render();
+      persist();
+      tableRange.paint();
+      showToast(cells.length + " cells cleared. Undo restores them.");
+      return true;
+    }
     function deleteSelectedObject() {
       if (!editMode) return false;
+      if (clearRangeCells()) return true;
       var doomed = transforms.keys().length > 1 ? transforms.identities() : selected && selected.slideId === currentId ? [selected.visualObject ? { slideId: currentId, objectId: selected.objectId, objectKind: selected.objectKind } : { slideId: currentId, componentId: selected.componentId }] : [];
       doomed = doomed.filter(function(item) {
         return item.slideId === currentId;
@@ -6393,6 +6668,7 @@
     }
     paragraphToggle.addEventListener("click", function() {
       paragraphTools.hidden = !paragraphTools.hidden;
+      if (!paragraphTools.hidden) placeMenu(paragraphToggle, paragraphTools);
       paragraphToggle.setAttribute("aria-expanded", String(!paragraphTools.hidden));
     });
     document.addEventListener("pointerdown", function(event) {
@@ -6424,6 +6700,11 @@
         persist();
       });
     });
+    function placeMenu(toggle, panel) {
+      var r = toggle.getBoundingClientRect();
+      panel.style.top = r.bottom + 6 + "px";
+      panel.style.left = Math.max(8, Math.min(r.left, innerWidth - panel.offsetWidth - 8)) + "px";
+    }
     var arrangeToggle = document.querySelector("[data-arrange-toggle]"), arrangeTools = document.querySelector("[data-arrange-tools]");
     function closeArrange() {
       arrangeTools.hidden = true;
@@ -6432,6 +6713,7 @@
     arrangeToggle.addEventListener("click", function(event) {
       event.stopPropagation();
       arrangeTools.hidden = !arrangeTools.hidden;
+      if (!arrangeTools.hidden) placeMenu(arrangeToggle, arrangeTools);
       arrangeToggle.setAttribute("aria-expanded", String(!arrangeTools.hidden));
     });
     document.addEventListener("pointerdown", function(event) {
@@ -6474,9 +6756,31 @@
       render();
       persist();
     });
+    document.querySelectorAll("[data-table-select]").forEach(function(button) {
+      button.addEventListener("pointerdown", function(event) {
+        event.preventDefault();
+      });
+      button.addEventListener("click", function() {
+        tableRange.selectAround(button.dataset.tableSelect);
+      });
+    });
     document.querySelectorAll("[data-table-action]").forEach(function(button) {
       button.addEventListener("click", function() {
-        mutateSelectedTable(button.getAttribute("data-table-action"));
+        var action = button.getAttribute("data-table-action"), span = tableRange.range();
+        if (span && action === "row-delete") {
+          var rows = rowsIn(span);
+          tableRange.clear();
+          deleteSpan("row", rows.first, rows.last);
+          return;
+        }
+        if (span && action === "column-delete") {
+          var cols = columnsIn(span);
+          tableRange.clear();
+          deleteSpan("column", cols.first, cols.last);
+          return;
+        }
+        tableRange.clear();
+        mutateSelectedTable(action);
       });
     });
     document.addEventListener("keydown", function(event) {
@@ -6507,6 +6811,12 @@
         return;
       }
       if (typingTarget(event.target)) return;
+      var styleKey = { b: "bold", i: "italic", u: "underline" }[event.key.toLowerCase()];
+      if (editMode && styleKey && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && formatting.toggle(styleKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (editMode && (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "a") {
         var canvas = stage.querySelector(".slide-canvas");
         if (canvas) {
@@ -6527,6 +6837,11 @@
         requestAnimationFrame(function() {
           transforms.nudge(event);
         });
+        return;
+      }
+      if (event.key === "Escape" && editMode && tableRange.active()) {
+        event.preventDefault();
+        tableRange.clear();
         return;
       }
       if (event.key === "Escape" && editMode && transforms.selected()) {

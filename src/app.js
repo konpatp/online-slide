@@ -11,6 +11,7 @@ import {deletionKey, typingTarget} from './editor/keyboard';
 import {navigationOrder,visibleDestination} from './editor/navigation';
 import {textEdit, renderRichText, readRichText} from './editor/text';
 import {createTextFormatting} from './editor/formatting';
+import {createTableRange, rowsIn, columnsIn} from './editor/table-range';
 import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} from './editor/fit';
 /* ScientificSlideKit pilot: declarative recipes plus a bundled diagram engine. */
 (function () {
@@ -297,7 +298,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     return matches.length ? state.tables[matches[0]] : null;
   }
 
-  var {tableContexts,selectedTableContext,sourceTableModel,effectiveTable,ensureTable,tableCell,mutateSelectedTable,pasteTableGrid,startTableColumnResize} = createTableEditor({
+  var {tableContexts,selectedTableContext,sourceTableModel,effectiveTable,ensureTable,tableCell,mutateSelectedTable,deleteSpan,pasteTableGrid,startTableColumnResize} = createTableEditor({
     getState: function() {return state;}, getSelected: function() {return selected;},
     clearSelection: function() {selected = null;},
     isEditMode: function() {return editMode;}, stage, beginChange, render, persist, effectiveComponent, updateOverlay
@@ -481,7 +482,29 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     beginChange: beginChange, persist: persist, updateText: updateText,
     componentStyle: function(slideId, componentId) {return effectiveComponent(state.slides[slideId], componentId);},
     setComponentStyle: function(slideId, componentId, key, value) {updateOverlay(slideId, componentId, key, value);},
-    refreshTools: function() {renderTools();}
+    refreshTools: function() {renderTools();},
+    batch: function() {
+      return tableRange.cells().map(function(componentId) {return {slideId: currentId, componentId: componentId};});
+    }
+  });
+  // Cell ranges: several cells formatted, cleared or deleted as one change.
+  var tableRange = createTableRange({
+    stage: stage, isEditMode: function() {return editMode;},
+    anchor: function() {
+      var cell = selected && selected.tableCell;
+      return cell ? {tableKey: cell.tableKey, row: cell.rowIndex, col: cell.columnIndex} : null;
+    },
+    table: function(tableKey) {
+      var slide = state && state.slides[tableKey.split('::table::')[0]];
+      if (!slide || slide.recipe !== 'evidence-table') return null;
+      var context = tableContexts(slide).find(function(item) {return (item._tableKey || item.id) === tableKey;});
+      return context ? effectiveTable(context) : null;
+    },
+    selectCell: function(cell) {
+      var text = cell.querySelector('.semantic-component');
+      if (text) selectComponent(currentId, text.dataset.componentId, text);
+    },
+    changed: function() {renderTools();}
   });
   // Presses here belong to an object or a control, never to box selection.
   var MARQUEE_EXCLUDED = '[data-transform-target], [data-component-id], [data-visual-object-id], .native-chart, .jsxgraph-host, ' +
@@ -755,6 +778,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       }
     }
     requestAnimationFrame(transforms.sync);
+    tableRange.paint();
     if (focusCreatedTitle === currentId) {
       focusCreatedTitle = null;
       var title = canvas.querySelector('[data-component-id="' + slide.headline + '"]');
@@ -852,7 +876,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     var textSelected = editMode && component && component.kind === "text";
     var imageSelected = editMode && component && component.kind === "image";
     // Formatting state comes from the selected characters, not the object.
-    var format = textSelected ? formatting.toolState() : null;
+    var format = textSelected || tableRange.active() ? formatting.toolState() : null;
     [['[data-bold]','bold'],['[data-italic]','italic'],['[data-underline]','underline']].forEach(function(pair) {
       var button = document.querySelector(pair[0]);
       button.disabled = !format;
@@ -888,12 +912,15 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       button.disabled = disabled;
     });
     document.querySelector("[data-table-tools]").hidden = !tableSelected;
+    document.querySelectorAll('[data-table-select]').forEach(function(button) {button.disabled = !tableSelected;});
     var count = editMode ? transforms.keys().length : 0;
     document.querySelector('[data-arrange-toggle]').disabled = count < 1;
     if (count < 1) closeArrange();
     document.querySelectorAll('[data-align]').forEach(function(button) {button.disabled = count < 1;});
     document.querySelectorAll('[data-distribute]').forEach(function(button) {button.disabled = count < 3;});
     if (count > 1) {selectedLabel.textContent = count + ' objects selected · drag to move together · Shift-click adds or removes'; return;}
+    var rangeCells = tableRange.cells().length;
+    if (rangeCells > 1) {selectedLabel.textContent = rangeCells + ' cells selected · format, Delete to clear, Row − / Col − to remove'; return;}
     selectedLabel.textContent = component ? selected.slideId + " @ " + selected.componentId +
       (textSelected ? " · drag to move · handles resize" : "") :
       (objectSelected ? selected.slideId + " @ " + selected.objectId + " · " + selected.objectKind :
@@ -1086,8 +1113,23 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     showToast("Redid the change.");
   }
 
+  function clearRangeCells() {
+    var cells = tableRange.cells();
+    if (!cells.length) return false;
+    beginChange();
+    cells.forEach(function(componentId) {
+      // Math cells carry LaTeX source, which has no character formatting.
+      if (effectiveComponent(state.slides[currentId], componentId).render === 'latex') updateOverlay(currentId, componentId, 'text', '');
+      else updateText(currentId, componentId, {text: '', marks: []});
+    });
+    render(); persist(); tableRange.paint();
+    showToast(cells.length + ' cells cleared. Undo restores them.');
+    return true;
+  }
+
   function deleteSelectedObject() {
     if (!editMode) return false;
+    if (clearRangeCells()) return true;
     // A multi-selection deletes every selected object as one undoable change.
     var doomed = transforms.keys().length > 1 ? transforms.identities() :
       selected && selected.slideId === currentId ? [selected.visualObject ?
@@ -1175,6 +1217,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   function closeParagraph() { paragraphTools.hidden = true; paragraphToggle.setAttribute('aria-expanded', 'false'); }
   paragraphToggle.addEventListener('click', function() {
     paragraphTools.hidden = !paragraphTools.hidden;
+    if (!paragraphTools.hidden) placeMenu(paragraphToggle, paragraphTools);
     paragraphToggle.setAttribute('aria-expanded', String(!paragraphTools.hidden));
   });
   document.addEventListener('pointerdown', function(event) {
@@ -1199,11 +1242,18 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       render(); persist();
     });
   });
+  /** Menus float over the page so a scrolling toolbar never clips them. */
+  function placeMenu(toggle, panel) {
+    var r = toggle.getBoundingClientRect();
+    panel.style.top = (r.bottom + 6) + 'px';
+    panel.style.left = Math.max(8, Math.min(r.left, innerWidth - panel.offsetWidth - 8)) + 'px';
+  }
   var arrangeToggle = document.querySelector('[data-arrange-toggle]'), arrangeTools = document.querySelector('[data-arrange-tools]');
   function closeArrange() { arrangeTools.hidden = true; arrangeToggle.setAttribute('aria-expanded', 'false'); }
   arrangeToggle.addEventListener('click', function(event) {
     event.stopPropagation();
     arrangeTools.hidden = !arrangeTools.hidden;
+    if (!arrangeTools.hidden) placeMenu(arrangeToggle, arrangeTools);
     arrangeToggle.setAttribute('aria-expanded', String(!arrangeTools.hidden));
   });
   document.addEventListener('pointerdown', function(event) {
@@ -1233,9 +1283,17 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     beginChange();updateOverlay(selected.slideId,selected.componentId,'hidden',!component.hidden);
     render();persist();
   });
+  document.querySelectorAll('[data-table-select]').forEach(function(button) {
+    button.addEventListener('pointerdown', function(event) {event.preventDefault();});
+    button.addEventListener('click', function() {tableRange.selectAround(button.dataset.tableSelect);});
+  });
   document.querySelectorAll("[data-table-action]").forEach(function (button) {
     button.addEventListener("click", function () {
-      mutateSelectedTable(button.getAttribute("data-table-action"));
+      var action = button.getAttribute("data-table-action"), span = tableRange.range();
+      if (span && action === 'row-delete') { var rows = rowsIn(span); tableRange.clear(); deleteSpan('row', rows.first, rows.last); return; }
+      if (span && action === 'column-delete') { var cols = columnsIn(span); tableRange.clear(); deleteSpan('column', cols.first, cols.last); return; }
+      tableRange.clear();
+      mutateSelectedTable(action);
     });
   });
 
@@ -1256,6 +1314,12 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       event.preventDefault();stage.tabIndex=-1;stage.focus({preventScroll:true});return;
     }
     if (typingTarget(event.target)) return;
+    // Bold/italic/underline act on the selection even when no text is focused
+    // (a whole object, or a table cell range), as in PowerPoint.
+    var styleKey = {b: 'bold', i: 'italic', u: 'underline'}[event.key.toLowerCase()];
+    if (editMode && styleKey && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && formatting.toggle(styleKey)) {
+      event.preventDefault(); event.stopPropagation(); return;
+    }
     if (editMode && (event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'a') {
       var canvas = stage.querySelector('.slide-canvas');
       if (canvas) {event.preventDefault(); event.stopPropagation(); transforms.selectAll(canvas); return;}
@@ -1271,6 +1335,9 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       event.preventDefault(); event.stopPropagation();
       requestAnimationFrame(function() {transforms.nudge(event);});
       return;
+    }
+    if (event.key === "Escape" && editMode && tableRange.active()) {
+      event.preventDefault(); tableRange.clear(); return;
     }
     if (event.key === "Escape" && editMode && transforms.selected()) {
       event.preventDefault(); selectComponent(null, null); return;

@@ -22,6 +22,8 @@ interface FormattingHost {
   componentStyle(slideId: string, componentId: string): {color?: string; fontScale?: number};
   setComponentStyle(slideId: string, componentId: string, key: 'color' | 'fontScale', value: string | number | undefined): void;
   refreshTools(): void;
+  /** Several whole components at once (a table cell range), or empty. */
+  batch?(): {slideId: string; componentId: string}[];
 }
 export interface Scope {
   slideId: string; componentId: string; element: HTMLElement; value: RichText;
@@ -85,7 +87,31 @@ export function createTextFormatting(host: FormattingHost) {
       : style.textDecorationLine.includes('underline');
   };
 
+  /** Resolved batch members: every cell of a range, each as its whole text. */
+  function members() {
+    const list = host.batch?.() || [];
+    if (list.length < 2) return null;
+    return list.map(item => {
+      const element = host.element(item.slideId, item.componentId);
+      return element && element.dataset.latexSource === undefined ? {...item, element, value: readRichText(element)} : null;
+    }).filter((item): item is NonNullable<typeof item> => Boolean(item));
+  }
+  function batchCommit(list: NonNullable<ReturnType<typeof members>>, apply: (item: typeof list[number]) => RichText | null) {
+    host.beginChange();
+    for (const item of list) {
+      const next = apply(item);
+      if (next) { host.updateText(item.slideId, item.componentId, next); renderRichText(item.element, next); }
+    }
+    host.persist(); host.refreshTools();
+    return true;
+  }
   function toggle(key: 'bold' | 'italic' | 'underline') {
+    const batch = members();
+    if (batch) {
+      // On unless every cell already shows it, like a single range.
+      const on = !batch.every(item => rangeHas(item.value, 0, item.value.text.length, key, inherited(item.element, key)));
+      return batchCommit(batch, item => setMark(item.value, 0, item.value.text.length, key, on));
+    }
     const target = scope();
     if (!target || target.end <= target.start) return false;
     commit(target, toggleMark(target.value, target.start, target.end, key, inherited(target.element, key)));
@@ -95,6 +121,12 @@ export function createTextFormatting(host: FormattingHost) {
   const allText = (target: Scope) => target.whole || (target.start === 0 && target.end === target.value.text.length);
   /** Colour: selected characters get a mark; all of the text keeps the object's style. */
   function color(value: string) {
+    const batch = members();
+    if (batch) return batchCommit(batch, item => {
+      host.setComponentStyle(item.slideId, item.componentId, 'color', value);
+      item.element.style.color = value;
+      return setMark(item.value, 0, item.value.text.length, 'color', undefined);
+    });
     const target = scope();
     if (!target) return false;
     if (allText(target)) {
@@ -115,6 +147,13 @@ export function createTextFormatting(host: FormattingHost) {
     return Math.round((sizes[0] ?? 1) * 100);
   }
   function size(percent: number) {
+    const batch = members();
+    if (batch && Number.isFinite(percent)) {
+      const scale = Math.max(.7, Math.min(1.5, Math.round(percent) / 100));
+      return batchCommit(batch, item => {
+        host.setComponentStyle(item.slideId, item.componentId, 'fontScale', scale === 1 ? undefined : scale); return null;
+      });
+    }
     const target = scope();
     if (!target || !Number.isFinite(percent)) return false;
     if (allText(target)) {
@@ -128,6 +167,8 @@ export function createTextFormatting(host: FormattingHost) {
     return true;
   }
   function resize(deltaPercent: number) {
+    const batch = members();
+    if (batch) return size(Math.round((host.componentStyle(batch[0].slideId, batch[0].componentId).fontScale || 1) * 100) + deltaPercent);
     const target = scope();
     return target ? size(currentSize(target) + deltaPercent) : false;
   }
@@ -215,6 +256,13 @@ export function createTextFormatting(host: FormattingHost) {
 
   /** Pressed and current values for the toolbar. */
   function toolState() {
+    const batch = members();
+    if (batch) {
+      const all = (key: 'bold' | 'italic' | 'underline') => batch.every(item => rangeHas(item.value, 0, item.value.text.length, key, inherited(item.element, key)));
+      return {bold: all('bold'), italic: all('italic'), underline: all('underline'), paragraphs: false, align: 'left', list: null,
+        size: Math.round((host.componentStyle(batch[0].slideId, batch[0].componentId).fontScale || 1) * 100),
+        color: host.componentStyle(batch[0].slideId, batch[0].componentId).color};
+    }
     const target = scope();
     if (!target) return null;
     const range = {start: target.start, end: Math.max(target.end, target.start)};

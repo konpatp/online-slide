@@ -132,6 +132,39 @@ function addTableColumn(slide: TableSlide, afterIndex: number) {
   return insertAt;
 }
 
+/** Delete every row (or column) a range spans, keeping the table non-empty. */
+function deleteSpan(kind: 'row' | 'column', first: number, last: number) {
+  const selection = getSelected();
+  if (!selection?.tableCell) return false;
+  var slide = getState().slides[selection.slideId];
+  if (!slide || slide.recipe !== "evidence-table") return false;
+  slide = selectedTableContext(slide, selection.tableCell);
+  var table = ensureTable(slide);
+  if (kind === 'row' && last - first + 1 >= table.rows.length) return false;
+  if (kind === 'column' && last - first + 1 >= table.columns.length - 1) return false;
+  beginChange();
+  for (var index = last; index >= first; index--) {
+    if (kind === 'row') {
+      var removedRow = table.rows.splice(index, 1)[0];
+      retireTableComponent(table, removedRow.label);
+      removedRow.cells.forEach(function (componentId) { retireTableComponent(table, componentId); });
+    } else {
+      var removed = table.columns.splice(index, 1)[0];
+      table.rows.forEach(function (rowItem) {
+        var removedCell = rowItem.cells.splice(index - 1, 1)[0];
+        if (rowItem.best === removedCell) rowItem.best = null;
+        if (rowItem.globalBest === removedCell) rowItem.globalBest = null;
+        retireTableComponent(table, removedCell);
+      });
+      retireTableComponent(table, removed.label);
+    }
+  }
+  clearSelection();
+  render();
+  persist();
+  return true;
+}
+
 function mutateSelectedTable(action: string) {
   const selection = getSelected();
   if (!selection?.tableCell) return;
@@ -279,5 +312,5 @@ function finishTableColumnResize() {
 }
 
 
-return {tableContexts,selectedTableContext,sourceTableModel,effectiveTable,ensureTable,tableCell,mutateSelectedTable,pasteTableGrid,startTableColumnResize};
+return {tableContexts,selectedTableContext,sourceTableModel,effectiveTable,ensureTable,tableCell,mutateSelectedTable,deleteSpan,pasteTableGrid,startTableColumnResize};
 }

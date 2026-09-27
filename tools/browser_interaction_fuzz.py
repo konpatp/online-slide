@@ -162,6 +162,20 @@ class Session:
         cdp.detach()
         return 'compose ' + key
 
+    def cells(self):
+        """Drag across table cells, then one batch action on the range."""
+        cells = self.page.locator('[data-stage] [data-native-table] [data-table-cell]')
+        count = cells.count()
+        if count < 2: return 'cells-skipped'
+        a, b = cells.nth(self.rng.randrange(count)).bounding_box(), cells.nth(self.rng.randrange(count)).bounding_box()
+        self.drag(a['x'] + a['width'] / 2, a['y'] + a['height'] / 2, b['x'] - a['x'], b['y'] - a['y'])
+        action = self.rng.choice(['ControlOrMeta+b', 'ControlOrMeta+i', 'Delete', 'swatch'])
+        if action == 'swatch':
+            swatch = self.page.locator('[data-color="#2f6fed"]')
+            if swatch.is_enabled(): swatch.click()
+        else: self.page.keyboard.press(action)
+        return 'cells ' + action
+
     def undo(self):
         self.page.keyboard.press('Escape'); self.page.keyboard.press('Escape')
         self.page.keyboard.press('ControlOrMeta+z'); return 'undo'
@@ -170,7 +184,7 @@ class Session:
         self.page.keyboard.press('Escape'); return 'escape'
 
     OPERATIONS = {'select': 2, 'move': 4, 'resize': 4, 'nudge': 3, 'type': 2, 'undo': 2, 'escape': 1,
-                  'shift': 2, 'marquee': 2, 'arrange': 2, 'format': 2, 'paragraph': 2, 'paste': 1, 'redo': 1, 'compose': 1}
+                  'shift': 2, 'marquee': 2, 'arrange': 2, 'format': 2, 'paragraph': 2, 'paste': 1, 'redo': 1, 'compose': 1, 'cells': 2}
 
     def step(self):
         names = list(self.OPERATIONS)
