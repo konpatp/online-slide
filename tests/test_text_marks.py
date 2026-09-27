@@ -36,8 +36,51 @@ class TextMarksTests(unittest.TestCase):
 
     def test_marks_without_their_text_are_rejected(self):
         self.state['overlays'] = {self.sid:{self.key:{'marks':[{'start':0,'end':2,'bold':True}]}}}
-        with self.assertRaisesRegex(ContractError,'bind their exact text'):
+        with self.assertRaisesRegex(ContractError,'bind its exact text'):
             reconcile_state(self.state,self.catalog)
+
+    def test_rich_character_attributes_validate_by_type(self):
+        good = [{'start':0,'end':2,'italic':True,'underline':False},{'start':2,'end':4,'color':'#d46b32','size':1.5},
+                {'start':4,'end':5,'bold':True,'italic':True,'underline':True,'color':'#14233B','size':.5}]
+        self.state['overlays'] = {self.sid:{self.key:{'text':'12345','marks':good}}}
+        reconcile_state(self.state,self.catalog)
+        for marks in ([{'start':0,'end':2}],                                  # no attribute at all
+                      [{'start':0,'end':2,'italic':1}],
+                      [{'start':0,'end':2,'color':'red'}],
+                      [{'start':0,'end':2,'color':'#12345'}],
+                      [{'start':0,'end':2,'size':4}],
+                      [{'start':0,'end':2,'size':float('nan')}],
+                      [{'start':0,'end':2,'font':'Comic Sans'}]):             # theme fonts only
+            with self.subTest(marks=marks), self.assertRaises(ContractError):
+                self.state['overlays'] = {self.sid:{self.key:{'text':'12345','marks':marks}}}
+                reconcile_state(self.state,self.catalog)
+
+    def test_paragraphs_are_one_setting_per_line(self):
+        ok = [{'align':'center'},{'list':'bullet','level':1},{}]
+        self.state['overlays'] = {self.sid:{self.key:{'text':'a\nb\nc','marks':[],'paragraphs':ok}}}
+        reconcile_state(self.state,self.catalog)
+        for paragraphs in ([{},{}],                                            # wrong line count
+                           [{'align':'justify'},{},{}],
+                           [{'list':'star'},{},{}],
+                           [{'level':1},{},{}],                                # level only on list lines
+                           [{'list':'number','level':3},{},{}],
+                           [{'html':'<ul>'},{},{}]):
+            with self.subTest(paragraphs=paragraphs), self.assertRaises(ContractError):
+                self.state['overlays'] = {self.sid:{self.key:{'text':'a\nb\nc','marks':[],'paragraphs':paragraphs}}}
+                reconcile_state(self.state,self.catalog)
+        with self.assertRaisesRegex(ContractError,'bind its exact text'):
+            self.state['overlays'] = {self.sid:{self.key:{'paragraphs':[{'align':'right'}]}}}
+            reconcile_state(self.state,self.catalog)
+
+    def test_new_wording_must_restate_authored_paragraphs(self):
+        catalog = copy.deepcopy(self.catalog)
+        catalog[self.sid]['components'][self.key].update(text='x\ny', paragraphs=[{'list':'bullet'},{'list':'bullet'}])
+        self.state, _ = reconcile_state({'schema':'online-slide/state@4','revision':0,'order':[],'hidden':[],'overlays':{}}, catalog)
+        self.state['overlays'] = {self.sid:{self.key:{'text':'x\ny\nz','marks':[]}}}
+        with self.assertRaisesRegex(ContractError,'explicitly replace'):
+            reconcile_state(self.state,catalog)
+        self.state['overlays'][self.sid][self.key]['paragraphs'] = [{},{},{}]
+        reconcile_state(self.state,catalog)
 
     def test_authored_unicode_and_math(self):
         spec = copy.deepcopy(self.catalog[self.sid])

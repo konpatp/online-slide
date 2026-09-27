@@ -108,15 +108,31 @@
           <span class="workspace-hint" data-selected-component>Select text, a table cell, node, connector, or vector</span>
           <button class="tool-button" type="button" data-add-text hidden>Add text</button>
           <div class="component-tools" data-component-tools aria-label="Selected component controls">
-            <button class="tool-button" type="button" data-font-delta="-0.1" disabled aria-label="Decrease text size">A−</button>
-            <button class="tool-button" type="button" data-font-delta="0.1" disabled aria-label="Increase text size">A+</button>
-            <button class="tool-button" type="button" data-bold disabled aria-label="Bold selected text" aria-pressed="false">B</button>
+            <button class="tool-button" type="button" data-font-delta="-0.1" data-text-tool disabled aria-label="Decrease text size">A−</button>
+            <label class="size-field" title="Text size, % of the slide's own size"><input type="number" data-size-field min="50" max="300" step="5" disabled aria-label="Text size percent"><span>%</span></label>
+            <button class="tool-button" type="button" data-font-delta="0.1" data-text-tool disabled aria-label="Increase text size">A+</button>
+            <button class="tool-button" type="button" data-bold data-text-tool disabled aria-label="Bold selected text" aria-pressed="false" title="Bold (Ctrl/Cmd+B)">B</button>
+            <button class="tool-button tool-italic" type="button" data-italic data-text-tool disabled aria-label="Italic" aria-pressed="false" title="Italic (Ctrl/Cmd+I)">I</button>
+            <button class="tool-button tool-underline" type="button" data-underline data-text-tool disabled aria-label="Underline" aria-pressed="false" title="Underline (Ctrl/Cmd+U)">U</button>
             <span class="palette" aria-label="Theme colors">
-              <button type="button" data-color="#14233b" style="--swatch:#14233b" disabled aria-label="Ink"></button>
-              <button type="button" data-color="#2f6fed" style="--swatch:#2f6fed" disabled aria-label="Blue"></button>
-              <button type="button" data-color="#0f9d78" style="--swatch:#0f9d78" disabled aria-label="Green"></button>
-              <button type="button" data-color="#d46b32" style="--swatch:#d46b32" disabled aria-label="Orange"></button>
-              <button type="button" data-color="#8458c7" style="--swatch:#8458c7" disabled aria-label="Violet"></button>
+              <button type="button" data-color="#14233b" data-text-tool style="--swatch:#14233b" disabled aria-label="Ink"></button>
+              <button type="button" data-color="#2f6fed" data-text-tool style="--swatch:#2f6fed" disabled aria-label="Blue"></button>
+              <button type="button" data-color="#0f9d78" data-text-tool style="--swatch:#0f9d78" disabled aria-label="Green"></button>
+              <button type="button" data-color="#d46b32" data-text-tool style="--swatch:#d46b32" disabled aria-label="Orange"></button>
+              <button type="button" data-color="#8458c7" data-text-tool style="--swatch:#8458c7" disabled aria-label="Violet"></button>
+              <label class="custom-color" title="Any colour"><input type="color" data-custom-color value="#14233b" disabled aria-label="Custom text colour"></label>
+            </span>
+            <span class="paragraph-menu">
+              <button class="tool-button" type="button" data-paragraph-toggle data-text-tool disabled aria-haspopup="true" aria-expanded="false">Paragraph ▾</button>
+              <span class="paragraph-tools" data-paragraph-tools role="menu" aria-label="Paragraph" hidden>
+                <button class="tool-button" type="button" data-align-text="left" data-text-tool aria-label="Align text left" title="Align left (Ctrl/Cmd+Shift+L)">Left</button>
+                <button class="tool-button" type="button" data-align-text="center" data-text-tool aria-label="Center text" title="Center (Ctrl/Cmd+Shift+E)">Center</button>
+                <button class="tool-button" type="button" data-align-text="right" data-text-tool aria-label="Align text right" title="Align right (Ctrl/Cmd+Shift+R)">Right</button>
+                <button class="tool-button" type="button" data-list="bullet" data-text-tool aria-label="Bulleted list" title="Bullets (Ctrl/Cmd+Shift+8)">• List</button>
+                <button class="tool-button" type="button" data-list="number" data-text-tool aria-label="Numbered list" title="Numbers (Ctrl/Cmd+Shift+7)">1. List</button>
+                <button class="tool-button" type="button" data-indent="-1" data-text-tool aria-label="Decrease indent" title="Outdent (Shift+Tab)">⇤</button>
+                <button class="tool-button" type="button" data-indent="1" data-text-tool aria-label="Increase indent" title="Indent (Tab)">⇥</button>
+              </span>
             </span>
             <button class="tool-button" type="button" data-image-delta="-0.1" disabled aria-label="Shrink selected image">Image−</button>
             <button class="tool-button" type="button" data-image-delta="0.1" disabled aria-label="Grow selected image">Image+</button>

@@ -17,7 +17,9 @@ Strict TypeScript owns the editing behavior:
 | `editor/model.ts` | Text, table, snapshot and request contracts |
 | `editor/snapshot.ts` | Mutable snapshots and replay of post-request intent |
 | `editor/save-queue.ts` | One writer, coalescing, conflict/retry transitions |
-| `editor/text.ts` | Safe rendering and atomic wording-plus-formatting commands |
+| `editor/text.ts` | Rich text model (wording + character marks + per-line paragraphs, never HTML): mark and paragraph operations, splice, rendering, DOM read-back and caret offsets |
+| `editor/formatting.ts` | Formatting commands and their scope (selected characters; caret = whole text or its line; object = all), shortcuts, Enter/Tab list behaviour, toolbar state |
+| `editor/paste.ts` | Clipboard HTML to rich text: keeps bold, italic, underline, breaks and lists; drops everything else |
 | `editor/tables.ts` | Stable identities, structural commands, paste and resizing |
 | `editor/boxes.ts` | Pure box geometry: move, eight-handle and proportional resize, nudge, click-versus-drag, snapping (lines, equal spacing, matching sizes), align, distribute, group scaling |
 | `editor/transform.ts` | The one selection and move/resize layer for every box-shaped object: single and multiple selection (Shift-click, box select, select all), direct and group drag, handles, border and grip moves, snapping guides (Alt disables), nudge, align/distribute, click-to-edit text, change boundaries |
@@ -54,6 +56,16 @@ off) and `browser_snap_multiselect.py` prove each gesture with real input, and `
 step saved geometry must equal the painted editor and no other slide may
 change; undoing everything must restore the pristine deck; a reload must paint
 what was saved. A new gesture joins its operation table.
+
+Text formatting is data. Marks carry bold, italic, underline, colour and a
+size multiplier over UTF-16 ranges; paragraphs carry alignment and list kind
+and level, one entry per line. Wording, marks and paragraphs are one conflict
+domain in both merges, and the server validates every field. Lines render as
+blocks only when a paragraph is aligned or listed, so unformatted text keeps
+its exact inline rendering. Colour or size covering all of an object's text is
+the object's own style, not marks. Only theme fonts exist; there is no font
+field. `browser_text_formatting.py` proves the commands with real input, and
+the random test checks that drawn text equals saved text after every step.
 
 Each recipe has a module under `src/recipes/`. Recipes own spatial decisions,
 not persistence. JointJS, JSXGraph, KaTeX and Plotly retain native rendering

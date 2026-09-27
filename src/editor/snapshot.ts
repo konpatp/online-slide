@@ -16,19 +16,21 @@ function asMap(value: Json | undefined): JsonMap {
     throw new Error('Expected a semantic edit map');
   return value;
 }
+/** Wording and all formatting bound to its offsets are one conflict domain. */
+const TEXT_GROUP = ['text', 'marks', 'paragraphs'];
 function textGroup(value: JsonMap): JsonMap {
   const result: JsonMap = {};
-  for (const key of ['text', 'marks']) if (value[key] !== undefined) result[key] = value[key];
+  for (const key of TEXT_GROUP) if (value[key] !== undefined) result[key] = value[key];
   return result;
 }
 function merge(a: JsonMap, b: JsonMap, c: JsonMap, depth: number): JsonMap {
   const out = copy(c);
   let keys = Object.keys({...a, ...b});
-  if (depth === 1 && [a,b,c].some(value => value.marks !== undefined)) {
+  if (depth === 1 && [a,b,c].some(value => value.marks !== undefined || value.paragraphs !== undefined)) {
     if (changed(textGroup(a),textGroup(b))) {
-      delete out.text; delete out.marks; Object.assign(out,textGroup(b));
+      TEXT_GROUP.forEach(key => delete out[key]); Object.assign(out,textGroup(b));
     }
-    keys = keys.filter(key => key !== 'text' && key !== 'marks');
+    keys = keys.filter(key => !TEXT_GROUP.includes(key));
   }
   for (const key of keys) {
     if (!changed(a[key], b[key])) continue;

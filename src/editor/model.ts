@@ -3,16 +3,20 @@
  */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type JsonMap = { [key: string]: Json };
-export interface TextMark { start: number; end: number; bold: boolean }
-export interface RichText { text: string; marks: TextMark[] }
+/** Character attributes over `start..end`; only the attributes set apply. */
+export interface TextMark { start: number; end: number; bold?: boolean; italic?: boolean; underline?: boolean;
+  /** Theme or custom hex colour. */ color?: string; /** Multiplier of the element's own size. */ size?: number }
+/** Per-line settings; `level` indents list items (0–2). */
+export interface Paragraph { align?: 'left' | 'center' | 'right'; list?: 'bullet' | 'number'; level?: number }
+export interface RichText { text: string; marks: TextMark[]; paragraphs?: Paragraph[] }
 export interface Region { x: number; y: number; width: number; height: number }
 export interface TextStyle { color?: string; fontScale?: number; hidden?: boolean; deleted?: boolean; region?: Region }
 // Marks are offsets into THIS text, never an independent property command.
-export type TextOverlay = TextStyle & ({ text: string; marks?: TextMark[] } | { text?: never; marks?: never });
-export interface TextBox extends TextStyle { text: string; marks?: TextMark[]; region: Region }
+export type TextOverlay = TextStyle & ({ text: string; marks?: TextMark[]; paragraphs?: Paragraph[] } | { text?: never; marks?: never; paragraphs?: never });
+export interface TextBox extends TextStyle { text: string; marks?: TextMark[]; paragraphs?: Paragraph[]; region: Region }
 export interface TableColumn { id: string; label: string; width: number }
 export interface TableRow { id: string; label: string; cells: string[]; best: string | null; globalBest: string | null }
-export interface TextComponent extends TextStyle { kind: 'text'; text: string; role?: string; marks?: TextMark[]; render?: 'latex'; display?: 'block' }
+export interface TextComponent extends TextStyle { kind: 'text'; text: string; role?: string; marks?: TextMark[]; paragraphs?: Paragraph[]; render?: 'latex'; display?: 'block' }
 export interface TableModel { columns: TableColumn[]; rows: TableRow[]; components: Record<string, TextComponent> }
 /** Mutable transport maps are deliberately opaque outside their owner.
  * Recipe-specific validation remains at the existing server boundary.

@@ -141,11 +141,11 @@
     var style = getComputedStyle(element);
     var lineHeight = parseFloat(style.lineHeight) || best;
     var verticalPadding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-    var lineCount = Math.max(1, Math.round((element.scrollHeight - verticalPadding) / lineHeight));
+    var lineCount2 = Math.max(1, Math.round((element.scrollHeight - verticalPadding) / lineHeight));
     var contained = element.scrollWidth <= region.clientWidth + 1 && element.scrollHeight <= region.clientHeight + 1;
     element.dataset.fitMode = options.mode || "text-region";
     element.dataset.fitFontSize = best.toFixed(2);
-    element.dataset.fitLines = String(lineCount);
+    element.dataset.fitLines = String(lineCount2);
     element.dataset.fitOverflow = String(!contained);
   }
   function registerTextFit(element, region, options = {}) {
@@ -657,7 +657,9 @@
         if (!settling) return;
         settling = false;
         const primary = targets.get(selection[selection.length - 1]);
-        if (live(primary)) {
+        const active = document.activeElement;
+        const editing = Boolean(active?.isContentEditable && primary?.hits.some((hit) => hit.contains(active)));
+        if (live(primary) && !editing) {
           notifying = true;
           try {
             primary.select();
@@ -1380,21 +1382,21 @@
       throw new Error("Expected a semantic edit map");
     return value;
   }
+  var TEXT_GROUP = ["text", "marks", "paragraphs"];
   function textGroup(value) {
     const result = {};
-    for (const key of ["text", "marks"]) if (value[key] !== void 0) result[key] = value[key];
+    for (const key of TEXT_GROUP) if (value[key] !== void 0) result[key] = value[key];
     return result;
   }
   function merge(a, b, c, depth) {
     const out = copy(c);
     let keys = Object.keys({ ...a, ...b });
-    if (depth === 1 && [a, b, c].some((value) => value.marks !== void 0)) {
+    if (depth === 1 && [a, b, c].some((value) => value.marks !== void 0 || value.paragraphs !== void 0)) {
       if (changed(textGroup(a), textGroup(b))) {
-        delete out.text;
-        delete out.marks;
+        TEXT_GROUP.forEach((key) => delete out[key]);
         Object.assign(out, textGroup(b));
       }
-      keys = keys.filter((key) => key !== "text" && key !== "marks");
+      keys = keys.filter((key) => !TEXT_GROUP.includes(key));
     }
     for (const key of keys) {
       if (!changed(a[key], b[key])) continue;
@@ -4378,70 +4380,601 @@
   }
 
   // src/editor/text.ts
+  var KEYS = ["bold", "italic", "underline", "color", "size"];
+  var same = (a, b) => KEYS.every((key) => a[key] === b[key]);
+  var empty = (a) => KEYS.every((key) => a[key] === void 0);
+  var cleanParagraph = (p) => {
+    const out = {};
+    if (p.align && p.align !== "left") out.align = p.align;
+    if (p.list) {
+      out.list = p.list;
+      if (p.level) out.level = p.level;
+    }
+    return out;
+  };
+  var plain = (p) => !p.align && !p.list;
   function textEdit(value) {
-    return { text: value.text, marks: value.marks.map((mark) => ({ ...mark })) };
+    const edit = { text: value.text, marks: value.marks.map((mark) => ({ ...mark })) };
+    const paragraphs = compactParagraphs(value.text, value.paragraphs);
+    if (paragraphs) edit.paragraphs = paragraphs;
+    return edit;
   }
-  function toggleBold(value, start, end, inherited) {
-    const flags = Array(value.text.length).fill(null);
-    value.marks.forEach((mark) => flags.fill(mark.bold, mark.start, mark.end));
-    const makeBold = !flags.slice(start, end).every((flag) => flag === null ? inherited : flag);
-    flags.fill(makeBold, start, end);
+  function attrsOf(value) {
+    const out = Array.from({ length: value.text.length }, () => ({}));
+    for (const mark of value.marks || []) for (let i = mark.start; i < mark.end && i < out.length; i++)
+      for (const key of KEYS) if (mark[key] !== void 0) out[i][key] = mark[key];
+    return out;
+  }
+  function marksOf(attrs) {
     const marks = [];
-    flags.forEach((flag, index2) => {
-      if (flag === null) return;
+    attrs.forEach((a, index2) => {
+      if (empty(a)) return;
       const last = marks[marks.length - 1];
-      if (last && last.end === index2 && last.bold === flag) last.end++;
-      else marks.push({ start: index2, end: index2 + 1, bold: flag });
-    });
-    return { text: value.text, marks };
-  }
-  function renderMarkedText(element, component) {
-    element.textContent = "";
-    let offset = 0;
-    (component.marks || []).forEach((mark) => {
-      element.appendChild(document.createTextNode(component.text.slice(offset, mark.start)));
-      const span = document.createElement("span");
-      span.dataset.textBold = String(mark.bold);
-      span.style.fontWeight = mark.bold ? "700" : "400";
-      span.textContent = component.text.slice(mark.start, mark.end);
-      element.appendChild(span);
-      offset = mark.end;
-    });
-    element.appendChild(document.createTextNode(component.text.slice(offset)));
-    if (component.text.endsWith("\n")) element.appendChild(document.createElement("br"));
-  }
-  function readMarkedText(element) {
-    const text = element.textContent || "";
-    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-    const marks = [];
-    let node, offset = 0;
-    while (node = walker.nextNode()) {
-      const owner = node.parentElement?.closest("[data-text-bold],b,strong");
-      const start = offset, end = offset + (node.textContent || "").length;
-      if (owner && element.contains(owner) && end > start) {
-        const bold = owner.dataset.textBold !== "false", last = marks[marks.length - 1];
-        if (last && last.end === start && last.bold === bold) last.end = end;
-        else marks.push({ start, end, bold });
+      if (last && last.end === index2 && same(last, a)) last.end++;
+      else {
+        const mark = { start: index2, end: index2 + 1 };
+        for (const key of KEYS) if (a[key] !== void 0) mark[key] = a[key];
+        marks.push(mark);
       }
+    });
+    return marks;
+  }
+  function setMark(value, start, end, key, next) {
+    const attrs = attrsOf(value);
+    for (let i = start; i < end; i++) {
+      if (next === void 0) delete attrs[i][key];
+      else attrs[i][key] = next;
+    }
+    return { ...value, marks: marksOf(attrs) };
+  }
+  function toggleMark(value, start, end, key, inherited) {
+    const attrs = attrsOf(value);
+    const on2 = !attrs.slice(start, end).every((a) => a[key] ?? inherited);
+    return setMark(value, start, end, key, on2);
+  }
+  function rangeHas(value, start, end, key, inherited) {
+    const attrs = attrsOf(value).slice(start, Math.max(end, start + 1));
+    return attrs.length > 0 && attrs.every((a) => a[key] ?? inherited);
+  }
+  var lineCount = (text) => text.split("\n").length;
+  function lineAt(text, offset) {
+    let line = 0;
+    for (let i = 0; i < offset && i < text.length; i++) if (text[i] === "\n") line++;
+    return line;
+  }
+  function paragraphsOf(value) {
+    const count = lineCount(value.text);
+    return Array.from({ length: count }, (_, i) => ({ ...value.paragraphs?.[i] || {} }));
+  }
+  function compactParagraphs(text, paragraphs) {
+    if (!paragraphs) return void 0;
+    const count = lineCount(text);
+    const out = Array.from({ length: count }, (_, i) => cleanParagraph(paragraphs[i] || {}));
+    return out.every(plain) ? void 0 : out;
+  }
+  function setParagraphs(value, start, end, patch) {
+    const ps = paragraphsOf(value), first = lineAt(value.text, start), last = lineAt(value.text, Math.max(start, end));
+    for (let i = first; i <= last; i++) ps[i] = cleanParagraph(patch(ps[i]));
+    return { ...value, paragraphs: compactParagraphs(value.text, ps) };
+  }
+  function splice(value, start, end, insert) {
+    const attrs = attrsOf(value);
+    const around = attrs[start - 1] ?? attrs[end] ?? {};
+    const added = insert.marks?.length ? attrsOf(insert) : Array.from(insert.text, (ch) => ch === "\n" ? {} : { ...around });
+    const text = value.text.slice(0, start) + insert.text + value.text.slice(end);
+    const nextAttrs = [...attrs.slice(0, start), ...added, ...attrs.slice(end)];
+    const ps = paragraphsOf(value), first = lineAt(value.text, start), last = lineAt(value.text, end);
+    const incoming = lineCount(insert.text), own = insert.paragraphs;
+    const atLineStart = start === 0 || value.text[start - 1] === "\n";
+    const middle = Array.from({ length: incoming }, (_, i) => {
+      if (own?.[i] && (i > 0 || atLineStart) && !plain(own[i])) return { ...own[i] };
+      return i === 0 ? ps[first] : { ...own ? {} : ps[first] };
+    });
+    const paragraphs = [...ps.slice(0, first), ...middle, ...ps.slice(last + 1)];
+    return { text, marks: marksOf(nextAttrs), paragraphs: compactParagraphs(text, paragraphs) };
+  }
+  var BULLETS = ["\u2022", "\u25E6", "\u25AA"];
+  function applyAttrs(span, a) {
+    if (a.bold !== void 0) {
+      span.dataset.textBold = String(a.bold);
+      span.style.fontWeight = a.bold ? "700" : "400";
+    }
+    if (a.italic !== void 0) {
+      span.dataset.textItalic = String(a.italic);
+      span.style.fontStyle = a.italic ? "italic" : "normal";
+    }
+    if (a.underline !== void 0) {
+      span.dataset.textUnderline = String(a.underline);
+      span.style.textDecoration = a.underline ? "underline" : "none";
+    }
+    if (a.color !== void 0) {
+      span.dataset.textColor = a.color;
+      span.style.color = a.color;
+    }
+    if (a.size !== void 0) {
+      span.dataset.textSize = String(a.size);
+      span.style.fontSize = a.size + "em";
+    }
+  }
+  function appendRuns(parent2, value, from, to) {
+    let offset = from;
+    for (const mark of value.marks || []) {
+      const start = Math.max(mark.start, from), end = Math.min(mark.end, to);
+      if (end <= start) continue;
+      if (start > offset) parent2.appendChild(document.createTextNode(value.text.slice(offset, start)));
+      const span = document.createElement("span");
+      applyAttrs(span, mark);
+      span.textContent = value.text.slice(start, end);
+      parent2.appendChild(span);
       offset = end;
     }
-    return { text, marks };
+    if (offset < to) parent2.appendChild(document.createTextNode(value.text.slice(offset, to)));
   }
-  function insertPlainText(element, text) {
+  function renderRichText(element, component) {
+    element.textContent = "";
+    const paragraphs = compactParagraphs(component.text, component.paragraphs);
+    if (!paragraphs) {
+      appendRuns(element, component, 0, component.text.length);
+      if (component.text.endsWith("\n")) element.appendChild(document.createElement("br"));
+      return;
+    }
+    element.classList.add("rich-paragraphs");
+    const lines2 = component.text.split("\n");
+    const counters = [0, 0, 0];
+    let offset = 0;
+    lines2.forEach((line, index2) => {
+      const p = paragraphs[index2], div = document.createElement("div");
+      div.className = "text-line";
+      if (p.align) div.dataset.align = p.align;
+      if (p.list) {
+        const level = p.level || 0;
+        div.dataset.list = p.list;
+        div.dataset.level = String(level);
+        counters.fill(0, level + 1);
+        if (p.list === "number") div.dataset.marker = ++counters[level] + ".";
+        else {
+          counters[level] = 0;
+          div.dataset.marker = BULLETS[level];
+        }
+      } else counters.fill(0);
+      appendRuns(div, component, offset, offset + line.length);
+      if (!line.length) div.appendChild(document.createElement("br"));
+      element.appendChild(div);
+      offset += line.length + 1;
+    });
+  }
+  var lineBlocks = (element) => Array.from(element.children).filter(
+    (child) => child instanceof HTMLElement && child.classList.contains("text-line")
+  );
+  function readAttrs(node, root) {
+    const a = {};
+    for (let el = node.parentElement; el && el !== root && root.contains(el); el = el.parentElement) {
+      const d = el.dataset, tag = el.tagName;
+      if (a.bold === void 0) {
+        if (d.textBold !== void 0) a.bold = d.textBold !== "false";
+        else if (tag === "B" || tag === "STRONG") a.bold = true;
+      }
+      if (a.italic === void 0) {
+        if (d.textItalic !== void 0) a.italic = d.textItalic !== "false";
+        else if (tag === "I" || tag === "EM") a.italic = true;
+      }
+      if (a.underline === void 0) {
+        if (d.textUnderline !== void 0) a.underline = d.textUnderline !== "false";
+        else if (tag === "U") a.underline = true;
+      }
+      if (a.color === void 0 && d.textColor) a.color = d.textColor;
+      if (a.size === void 0 && d.textSize) a.size = Number(d.textSize);
+    }
+    return a;
+  }
+  function readRuns(container, root, text, attrs) {
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    let node;
+    while (node = walker.nextNode()) {
+      const value = node.textContent || "", a = readAttrs(node, root);
+      text.push(value);
+      for (let i = 0; i < value.length; i++) attrs.push(value[i] === "\n" ? {} : { ...a });
+    }
+  }
+  var paragraphOf = (div) => cleanParagraph({
+    align: div.dataset.align,
+    list: div.dataset.list,
+    level: div.dataset.level ? Number(div.dataset.level) : void 0
+  });
+  function readRichText(element) {
+    const blocks = lineBlocks(element), text = [], attrs = [];
+    if (!blocks.length) {
+      readRuns(element, element, text, attrs);
+      return { text: text.join(""), marks: marksOf(attrs) };
+    }
+    const paragraphs = [];
+    blocks.forEach((div, index2) => {
+      if (index2) {
+        text.push("\n");
+        attrs.push({});
+      }
+      const before = text.join("").length;
+      readRuns(div, element, text, attrs);
+      const inner = text.join("").slice(before);
+      for (let i = 0; i < lineCount(inner); i++) paragraphs.push(paragraphOf(div));
+    });
+    const joined = text.join("");
+    return { text: joined, marks: marksOf(attrs), paragraphs: compactParagraphs(joined, paragraphs) };
+  }
+  function offsetAt(element, node, nodeOffset) {
+    const blocks = lineBlocks(element);
+    const prefix = document.createRange();
+    prefix.selectNodeContents(element);
+    if (!blocks.length) {
+      prefix.setEnd(node, nodeOffset);
+      return prefix.toString().length;
+    }
+    let offset = 0;
+    for (const div of blocks) {
+      if (div === node || div.contains(node)) {
+        const inner = document.createRange();
+        inner.selectNodeContents(div);
+        inner.setEnd(node, nodeOffset);
+        return offset + inner.toString().length;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(div);
+      if (range.comparePoint(node, nodeOffset) < 0) return offset;
+      offset += (div.textContent || "").length + 1;
+    }
+    return Math.max(0, offset - 1);
+  }
+  function selectionOffsets(element) {
     const selection = getSelection();
-    if (!selection?.rangeCount) return;
+    if (!selection?.rangeCount) return null;
     const range = selection.getRangeAt(0);
-    if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return;
-    range.deleteContents();
-    const node = document.createTextNode(text);
-    range.insertNode(node);
-    if (element.textContent?.endsWith("\n") && element.lastChild?.nodeName !== "BR")
-      element.appendChild(document.createElement("br"));
-    range.setStart(node, node.length);
-    range.collapse(true);
+    if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+    const start = offsetAt(element, range.startContainer, range.startOffset);
+    const end = offsetAt(element, range.endContainer, range.endOffset);
+    return { start: Math.min(start, end), end: Math.max(start, end) };
+  }
+  function pointAt(element, offset) {
+    const blocks = lineBlocks(element);
+    const containers = blocks.length ? blocks : [element];
+    let remaining = offset;
+    for (const [index2, container] of containers.entries()) {
+      const length = (container.textContent || "").length;
+      if (remaining <= length || index2 === containers.length - 1) {
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+        let node, last = null;
+        while (node = walker.nextNode()) {
+          const size = (node.textContent || "").length;
+          if (remaining <= size) return { node, offset: remaining };
+          remaining -= size;
+          last = node;
+        }
+        return last ? { node: last, offset: (last.textContent || "").length } : { node: container, offset: 0 };
+      }
+      remaining -= length + 1;
+    }
+    return { node: element, offset: 0 };
+  }
+  function setSelectionOffsets(element, start, end = start) {
+    const selection = getSelection();
+    if (!selection) return;
+    const a = pointAt(element, start), b = pointAt(element, end), range = document.createRange();
+    range.setStart(a.node, a.offset);
+    range.setEnd(b.node, b.offset);
     selection.removeAllRanges();
     selection.addRange(range);
-    element.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  // src/editor/paste.ts
+  var BLOCK = /* @__PURE__ */ new Set([
+    "P",
+    "DIV",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "BLOCKQUOTE",
+    "PRE",
+    "SECTION",
+    "ARTICLE",
+    "HEADER",
+    "FOOTER",
+    "TR",
+    "TABLE",
+    "UL",
+    "OL",
+    "LI",
+    "DL",
+    "DT",
+    "DD",
+    "FIGCAPTION"
+  ]);
+  var SKIP = /* @__PURE__ */ new Set(["SCRIPT", "STYLE", "HEAD", "TITLE", "META", "TEMPLATE", "NOSCRIPT", "IMG", "SVG", "OBJECT", "IFRAME"]);
+  function styled(element, inherited) {
+    const a = { ...inherited }, tag = element.tagName, style = element.style;
+    if (style.fontWeight) a.bold = style.fontWeight === "bold" || Number(style.fontWeight) >= 600;
+    else if (tag === "B" || tag === "STRONG" || /^H[1-6]$/.test(tag)) a.bold = true;
+    if (style.fontStyle) a.italic = style.fontStyle === "italic" || style.fontStyle === "oblique";
+    else if (tag === "I" || tag === "EM") a.italic = true;
+    const decoration = style.textDecorationLine || style.textDecoration;
+    if (decoration) a.underline = decoration.includes("underline");
+    else if (tag === "U" || tag === "INS") a.underline = true;
+    for (const key of ["bold", "italic", "underline"]) if (a[key] === false) delete a[key];
+    return a;
+  }
+  function richFromHtml(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const chars = [], attrs = [], lines2 = [];
+    let current = {}, atLineStart = true;
+    const newline = () => {
+      chars.push("\n");
+      attrs.push({});
+      lines2.push(current);
+      current = {};
+      atLineStart = true;
+    };
+    const breakBlock = () => {
+      if (!atLineStart) newline();
+    };
+    function walk(node, a, lists, pre) {
+      node.childNodes.forEach((child) => {
+        if (child.nodeType === Node.TEXT_NODE) {
+          let value = child.textContent || "";
+          if (!pre) {
+            value = value.replace(/\s+/g, " ");
+            if (atLineStart) value = value.replace(/^ /, "");
+          }
+          for (const ch of value) {
+            if (ch === "\n") {
+              newline();
+              continue;
+            }
+            for (let i = 0; i < ch.length; i++) {
+              chars.push(ch[i]);
+              attrs.push({ ...a });
+            }
+            atLineStart = false;
+          }
+          return;
+        }
+        if (!(child instanceof HTMLElement) || SKIP.has(child.tagName)) return;
+        const tag = child.tagName, next = styled(child, a);
+        if (tag === "BR") {
+          newline();
+          return;
+        }
+        if (tag === "UL" || tag === "OL") {
+          breakBlock();
+          walk(child, next, [...lists, tag === "OL" ? "number" : "bullet"], pre);
+          breakBlock();
+          return;
+        }
+        if (tag === "LI") {
+          breakBlock();
+          current = { list: lists[lists.length - 1] || "bullet", ...lists.length > 1 ? { level: Math.min(2, lists.length - 1) } : {} };
+          walk(child, next, lists, pre);
+          breakBlock();
+          return;
+        }
+        if (BLOCK.has(tag)) {
+          breakBlock();
+          walk(child, next, lists, pre || tag === "PRE");
+          breakBlock();
+          return;
+        }
+        walk(child, next, lists, pre);
+      });
+    }
+    walk(doc.body, {}, [], false);
+    while (chars.length && chars[chars.length - 1] === "\n") {
+      chars.pop();
+      attrs.pop();
+      current = lines2.pop() || {};
+    }
+    lines2.push(current);
+    let text = chars.join("");
+    const keep = [];
+    let offset = 0;
+    text.split("\n").forEach((line, index2, all) => {
+      const trimmed = line.replace(/ +$/, "");
+      for (let i = 0; i < trimmed.length; i++) keep.push(offset + i);
+      if (index2 < all.length - 1) keep.push(offset + line.length);
+      offset += line.length + 1;
+    });
+    text = keep.map((i) => text[i]).join("");
+    const finalAttrs = keep.map((i) => attrs[i]);
+    return { text, marks: marksOf(finalAttrs), paragraphs: compactParagraphs(text, lines2) };
+  }
+
+  // src/editor/formatting.ts
+  function createTextFormatting(host) {
+    let pinned = null;
+    let remembered = null;
+    function scope(useRemembered = false) {
+      if (pinned) return pinned;
+      const chosen = host.selected();
+      if (!chosen || !host.isEditMode()) return null;
+      const element = host.element(chosen.slideId, chosen.componentId);
+      if (!element || element.dataset.latexSource !== void 0 || !element.isContentEditable) return null;
+      const value = readRichText(element);
+      const focused = document.activeElement === element || element.contains(document.activeElement);
+      let offsets = focused ? selectionOffsets(element) : null;
+      if (!offsets && useRemembered && remembered && remembered.slideId === chosen.slideId && remembered.componentId === chosen.componentId && remembered.end <= value.text.length)
+        offsets = { start: remembered.start, end: remembered.end };
+      if (!offsets) return { ...chosen, element, value, start: 0, end: value.text.length, whole: true, restore: null };
+      const { start, end } = offsets.start === offsets.end ? { start: 0, end: value.text.length } : offsets;
+      return { ...chosen, element, value, start, end, whole: false, restore: offsets };
+    }
+    function pin() {
+      pinned = null;
+      pinned = scope(true);
+    }
+    function unpin() {
+      pinned = null;
+    }
+    function remember() {
+      const chosen = host.selected(), element = chosen && host.element(chosen.slideId, chosen.componentId);
+      if (!chosen || !element || !(document.activeElement === element || element.contains(document.activeElement))) return;
+      const offsets = selectionOffsets(element);
+      if (offsets) remembered = { slideId: chosen.slideId, componentId: chosen.componentId, ...offsets };
+    }
+    function commit(target, next, restore = target.restore, group) {
+      host.beginChange(group);
+      host.updateText(target.slideId, target.componentId, next);
+      renderRichText(target.element, next);
+      if (restore) {
+        target.element.focus({ preventScroll: true });
+        setSelectionOffsets(target.element, restore.start, restore.end);
+      }
+      host.persist();
+      host.refreshTools();
+    }
+    const inherited = (element, key2) => {
+      const style = getComputedStyle(element);
+      return key2 === "bold" ? Number(style.fontWeight) >= 600 : key2 === "italic" ? style.fontStyle === "italic" : style.textDecorationLine.includes("underline");
+    };
+    function toggle(key2) {
+      const target = scope();
+      if (!target || target.end <= target.start) return false;
+      commit(target, toggleMark(target.value, target.start, target.end, key2, inherited(target.element, key2)));
+      return true;
+    }
+    const allText = (target) => target.whole || target.start === 0 && target.end === target.value.text.length;
+    function color(value) {
+      const target = scope();
+      if (!target) return false;
+      if (allText(target)) {
+        host.beginChange();
+        host.setComponentStyle(target.slideId, target.componentId, "color", value);
+        const cleared = setMark(target.value, 0, target.value.text.length, "color", void 0);
+        host.updateText(target.slideId, target.componentId, cleared);
+        renderRichText(target.element, cleared);
+        target.element.style.color = value;
+        host.persist();
+        host.refreshTools();
+        return true;
+      }
+      if (target.end <= target.start) return false;
+      commit(target, setMark(target.value, target.start, target.end, "color", value));
+      return true;
+    }
+    function currentSize(target) {
+      if (allText(target)) return Math.round((host.componentStyle(target.slideId, target.componentId).fontScale || 1) * 100);
+      const sizes = attrsOf(target.value).slice(target.start, Math.max(target.end, target.start + 1)).map((a) => a.size ?? 1);
+      return Math.round((sizes[0] ?? 1) * 100);
+    }
+    function size(percent) {
+      const target = scope();
+      if (!target || !Number.isFinite(percent)) return false;
+      if (allText(target)) {
+        const scale = Math.max(0.7, Math.min(1.5, Math.round(percent) / 100));
+        host.beginChange();
+        host.setComponentStyle(target.slideId, target.componentId, "fontScale", scale === 1 ? void 0 : scale);
+        host.persist();
+        host.refreshTools();
+        return true;
+      }
+      if (target.end <= target.start) return false;
+      const factor = Math.max(0.5, Math.min(3, Math.round(percent) / 100));
+      commit(target, setMark(target.value, target.start, target.end, "size", factor === 1 ? void 0 : factor));
+      return true;
+    }
+    function resize(deltaPercent) {
+      const target = scope();
+      return target ? size(currentSize(target) + deltaPercent) : false;
+    }
+    const paragraphCapable = (element) => getComputedStyle(element).display !== "inline" && !element.closest("[data-table-cell]");
+    function paragraphs(patch) {
+      const target = scope();
+      if (!target || !paragraphCapable(target.element)) return false;
+      const { start, end } = target.whole ? { start: 0, end: target.value.text.length } : target.restore || target;
+      commit(target, setParagraphs(target.value, start, end, patch));
+      return true;
+    }
+    const align = (mode) => paragraphs((p) => ({ ...p, align: mode }));
+    function list(kind) {
+      const target = scope();
+      if (!target) return false;
+      const line = lineAt(target.value.text, (target.restore || target).start);
+      const on2 = paragraphsOf(target.value)[line]?.list === kind;
+      return paragraphs((p) => on2 ? { ...p, list: void 0, level: void 0 } : { ...p, list: kind });
+    }
+    function indent(delta) {
+      return paragraphs((p) => {
+        if (!p.list) return p;
+        const level = (p.level || 0) + delta;
+        return level < 0 ? { ...p, list: void 0, level: void 0 } : { ...p, level: Math.min(2, level) };
+      });
+    }
+    function insert(element, slideId, componentId, rich, group) {
+      const value = readRichText(element), offsets = selectionOffsets(element) || { start: value.text.length, end: value.text.length };
+      const next = splice(value, offsets.start, offsets.end, rich);
+      const caret = offsets.start + rich.text.length;
+      commit(
+        { slideId, componentId, element, value, start: offsets.start, end: offsets.end, whole: false, restore: null },
+        next,
+        { start: caret, end: caret },
+        group
+      );
+    }
+    function enter(element, slideId, componentId) {
+      const value = readRichText(element), offsets = selectionOffsets(element);
+      if (offsets && offsets.start === offsets.end) {
+        const line = lineAt(value.text, offsets.start), lines2 = value.text.split("\n");
+        const paragraph = paragraphsOf(value)[line];
+        if (paragraph?.list && !lines2[line].length) {
+          const next = setParagraphs(value, offsets.start, offsets.start, (p) => ({ ...p, list: void 0, level: void 0 }));
+          commit({ slideId, componentId, element, value, start: offsets.start, end: offsets.end, whole: false, restore: offsets }, next);
+          return;
+        }
+      }
+      insert(element, slideId, componentId, { text: "\n", marks: [] }, "text:" + slideId + ":" + componentId);
+    }
+    function paste(event, element, slideId, componentId) {
+      const html = event.clipboardData?.getData("text/html");
+      const text = event.clipboardData?.getData("text/plain");
+      if (!html && (text === void 0 || text === null)) return false;
+      event.preventDefault();
+      let rich = html ? richFromHtml(html) : { text: (text || "").replace(/\r\n?/g, "\n"), marks: [] };
+      if (!paragraphCapable(element)) rich = { text: rich.text, marks: rich.marks };
+      insert(element, slideId, componentId, rich);
+      return true;
+    }
+    function key(event, element) {
+      if (event.isComposing) return false;
+      const mod = event.metaKey || event.ctrlKey, k = event.key.toLowerCase();
+      if (mod && !event.shiftKey && !event.altKey && (k === "b" || k === "i" || k === "u"))
+        return toggle(k === "b" ? "bold" : k === "i" ? "italic" : "underline");
+      if (mod && event.shiftKey && (event.code === "Digit7" || event.code === "Digit8"))
+        return list(event.code === "Digit7" ? "number" : "bullet");
+      if (mod && event.shiftKey && (k === "l" || k === "e" || k === "r"))
+        return align(k === "l" ? "left" : k === "e" ? "center" : "right");
+      if (event.key === "Tab" && !mod && !event.altKey && !element.closest("[data-table-cell]")) {
+        const value = readRichText(element), offsets = selectionOffsets(element);
+        if (!offsets || !paragraphsOf(value)[lineAt(value.text, offsets.start)]?.list) return false;
+        return indent(event.shiftKey ? -1 : 1);
+      }
+      return false;
+    }
+    function toolState() {
+      const target = scope();
+      if (!target) return null;
+      const range = { start: target.start, end: Math.max(target.end, target.start) };
+      const lines2 = paragraphsOf(target.value);
+      const line = lines2[lineAt(target.value.text, (target.restore || target).start)] || {};
+      return {
+        bold: rangeHas(target.value, range.start, range.end, "bold", inherited(target.element, "bold")),
+        italic: rangeHas(target.value, range.start, range.end, "italic", inherited(target.element, "italic")),
+        underline: rangeHas(target.value, range.start, range.end, "underline", inherited(target.element, "underline")),
+        size: currentSize(target),
+        align: line.align || "left",
+        list: line.list || null,
+        paragraphs: paragraphCapable(target.element),
+        color: allText(target) ? host.componentStyle(target.slideId, target.componentId).color : attrsOf(target.value)[target.start]?.color
+      };
+    }
+    return { scope, pin, unpin, remember, toggle, color, size, resize, align, list, indent, insert, enter, paste, key, toolState };
   }
 
   // src/app.js
@@ -4737,14 +5270,18 @@
       var overlay = overlayFor(slideId, componentId, true);
       if (source[key] === value || value === void 0 || value === null) delete overlay[key];
       else overlay[key] = value;
-      if (Object.prototype.hasOwnProperty.call(overlay, "marks") && !Object.prototype.hasOwnProperty.call(overlay, "text"))
+      if ((Object.prototype.hasOwnProperty.call(overlay, "marks") || Object.prototype.hasOwnProperty.call(overlay, "paragraphs")) && !Object.prototype.hasOwnProperty.call(overlay, "text"))
         overlay.text = source.text;
       cleanOverlay(slideId, componentId);
     }
     function updateText(slideId, componentId, value) {
       var edit = textEdit(value);
+      var source = (state.slides[slideId].components || {})[componentId];
       updateOverlay(slideId, componentId, "text", edit.text);
       updateOverlay(slideId, componentId, "marks", edit.marks);
+      updateOverlay(slideId, componentId, "paragraphs", edit.paragraphs || (source && source.paragraphs ? edit.text.split("\n").map(function() {
+        return {};
+      }) : void 0));
     }
     function insertedTableOwner(slideId, componentId) {
       var matches2 = Object.keys(state.tables || {}).filter(function(key) {
@@ -4874,43 +5411,6 @@
       if (component.color) element.style.color = component.color;
       if (component.fontScale) element.style.setProperty("--component-scale", component.fontScale);
     }
-    function toggleTextBold(slideId, componentId, element) {
-      if (!editMode || !element || element.dataset.latexSource !== void 0) return;
-      var value = readMarkedText(element), selection = window.getSelection();
-      var start = 0, end = value.text.length;
-      if (selection.rangeCount && !selection.isCollapsed) {
-        var range = selection.getRangeAt(0);
-        if (element.contains(range.startContainer) && element.contains(range.endContainer)) {
-          var prefix = document.createRange();
-          prefix.selectNodeContents(element);
-          prefix.setEnd(range.startContainer, range.startOffset);
-          start = prefix.toString().length;
-          end = start + range.toString().length;
-        }
-      }
-      if (end <= start) return;
-      var formatted = toggleBold(value, start, end, Number(getComputedStyle(element).fontWeight) >= 600);
-      beginChange();
-      updateText(slideId, componentId, formatted);
-      renderMarkedText(element, formatted);
-      var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0;
-      var restored = document.createRange(), started = false;
-      while (node = walker.nextNode()) {
-        if (!started && start <= offset + node.length) {
-          restored.setStart(node, start - offset);
-          started = true;
-        }
-        if (started && end <= offset + node.length) {
-          restored.setEnd(node, end - offset);
-          break;
-        }
-        offset += node.length;
-      }
-      selection.removeAllRanges();
-      selection.addRange(restored);
-      element.dispatchEvent(new Event("input", { bubbles: true }));
-      renderTools();
-    }
     function editableText(slide, componentId, tag, className) {
       var component = effectiveComponent(slide, componentId);
       var element = document.createElement(tag || "div");
@@ -4921,7 +5421,7 @@
         window.ScientificMathRuntime.renderLatex(element, component.text, { displayMode: component.display === "block" });
         element.setAttribute("data-latex-source", component.text);
       } else {
-        renderMarkedText(element, component);
+        renderRichText(element, component);
       }
       element.setAttribute("data-component-id", componentId);
       element.setAttribute("data-component-kind", "text");
@@ -4937,7 +5437,7 @@
       });
       element.addEventListener("input", function() {
         if (!editMode || isLatex) return;
-        var value = readMarkedText(element);
+        var value = readRichText(element);
         typingGroup = "text:" + slide.id + ":" + componentId;
         beginChange(typingGroup);
         updateText(slide.id, componentId, value);
@@ -4950,16 +5450,16 @@
       element.addEventListener("paste", function(event) {
         if (!editMode || isLatex) return;
         var raw = event.clipboardData && event.clipboardData.getData("text/plain");
-        if (raw === null || raw === void 0) return;
-        event.preventDefault();
-        if ((raw.includes("	") || raw.includes("\n")) && pasteTableGrid(slide, componentId, raw)) return;
-        insertPlainText(element, raw.replace(/\r\n?/g, "\n"));
+        if (raw && (raw.includes("	") || raw.includes("\n")) && element.closest("[data-table-cell]")) {
+          event.preventDefault();
+          if (pasteTableGrid(slide, componentId, raw)) return;
+        }
+        formatting.paste(event, element, slide.id, componentId);
       });
       element.addEventListener("keydown", function(event) {
-        if (editMode && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+        if (editMode && !isLatex && formatting.key(event, element)) {
           event.preventDefault();
           event.stopPropagation();
-          toggleTextBold(slide.id, componentId, element);
           return;
         }
         if (!editMode || event.key !== "Tab" || !element.closest("[data-table-cell]")) return;
@@ -4974,12 +5474,13 @@
       element.addEventListener("beforeinput", function(event) {
         if (editMode && !isLatex && ["insertParagraph", "insertLineBreak"].includes(event.inputType)) {
           event.preventDefault();
-          insertPlainText(element, "\n");
+          formatting.enter(element, slide.id, componentId);
           return;
         }
-        if (event.inputType === "formatBold") {
+        var native = { formatBold: "bold", formatItalic: "italic", formatUnderline: "underline" }[event.inputType];
+        if (native) {
           event.preventDefault();
-          toggleTextBold(slide.id, componentId, element);
+          formatting.toggle(native);
         }
       });
       element.addEventListener("dblclick", function(event) {
@@ -5012,6 +5513,29 @@
     function regionKey(slideId, componentId) {
       return slideId + "@" + componentId;
     }
+    var formatting = createTextFormatting({
+      isEditMode: function() {
+        return editMode;
+      },
+      selected: function() {
+        return selected && !selected.visualObject && selected.slideId === currentId ? selected : null;
+      },
+      element: function(slideId, componentId) {
+        return slideId === currentId ? stage.querySelector('[data-component-id="' + componentId + '"]') : null;
+      },
+      beginChange,
+      persist,
+      updateText,
+      componentStyle: function(slideId, componentId) {
+        return effectiveComponent(state.slides[slideId], componentId);
+      },
+      setComponentStyle: function(slideId, componentId, key, value) {
+        updateOverlay(slideId, componentId, key, value);
+      },
+      refreshTools: function() {
+        renderTools();
+      }
+    });
     var MARQUEE_EXCLUDED = "[data-transform-target], [data-component-id], [data-visual-object-id], .native-chart, .jsxgraph-host, .joint-paper, [data-native-table], .gallery-cell, button, input, select, textarea, [data-transform-control], .accessibility-line-controls";
     function objectKey(slideId, objectId) {
       return slideId + "@object:" + objectId;
@@ -5421,16 +5945,29 @@
       var component = selectedComponent();
       var textSelected = editMode && component && component.kind === "text";
       var imageSelected = editMode && component && component.kind === "image";
-      var boldButton = document.querySelector("[data-bold]");
-      boldButton.disabled = !textSelected || component.render === "latex";
-      boldButton.setAttribute("aria-pressed", String(Boolean(textSelected && (component.marks || []).some(function(mark) {
-        return mark.bold;
-      }))));
-      document.querySelectorAll("[data-font-delta], [data-color]").forEach(function(button) {
-        button.disabled = !textSelected;
+      var format = textSelected ? formatting.toolState() : null;
+      [["[data-bold]", "bold"], ["[data-italic]", "italic"], ["[data-underline]", "underline"]].forEach(function(pair) {
+        var button = document.querySelector(pair[0]);
+        button.disabled = !format;
+        button.setAttribute("aria-pressed", String(Boolean(format && format[pair[1]])));
+      });
+      document.querySelectorAll("[data-font-delta], [data-color], [data-custom-color], [data-size-field]").forEach(function(control) {
+        control.disabled = !format;
+      });
+      var sizeInput = document.querySelector("[data-size-field]");
+      if (document.activeElement !== sizeInput) sizeInput.value = format ? String(format.size) : "";
+      var paragraphButton = document.querySelector("[data-paragraph-toggle]");
+      paragraphButton.disabled = !(format && format.paragraphs);
+      if (paragraphButton.disabled) closeParagraph();
+      document.querySelectorAll("[data-align-text]").forEach(function(button) {
+        button.setAttribute("aria-pressed", String(Boolean(format && format.align === button.dataset.alignText)));
+      });
+      document.querySelectorAll("[data-list]").forEach(function(button) {
+        button.setAttribute("aria-pressed", String(Boolean(format && format.list === button.dataset.list)));
       });
       document.querySelectorAll("[data-image-delta]").forEach(function(button) {
         button.disabled = !imageSelected;
+        button.hidden = !imageSelected;
       });
       var objectSelected = Boolean(editMode && selected && selected.visualObject);
       document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected)) || Boolean(selected && ((state.textBoxes || {})[selected.slideId] || {})[selected.componentId]);
@@ -5732,36 +6269,85 @@
       if (!document.fullscreenElement && document.body.classList.contains("present-only") && !enteredFromPresentationUrl) setPresentationMode(false);
     });
     undoButton.addEventListener("click", undo);
-    document.querySelector("[data-bold]").addEventListener("pointerdown", function(event) {
-      event.preventDefault();
+    var toolFrame = 0;
+    document.addEventListener("selectionchange", function() {
+      if (editMode) formatting.remember();
+      if (!editMode || toolFrame) return;
+      toolFrame = requestAnimationFrame(function() {
+        toolFrame = 0;
+        renderTools();
+      });
     });
-    document.querySelector("[data-bold]").addEventListener("click", function() {
-      if (!selected) return;
-      toggleTextBold(
-        selected.slideId,
-        selected.componentId,
-        stage.querySelector('[data-component-id="' + selected.componentId + '"]')
-      );
+    document.querySelectorAll("[data-text-tool]").forEach(function(control) {
+      control.addEventListener("pointerdown", function(event) {
+        event.preventDefault();
+      });
+    });
+    [["[data-bold]", "bold"], ["[data-italic]", "italic"], ["[data-underline]", "underline"]].forEach(function(pair) {
+      document.querySelector(pair[0]).addEventListener("click", function() {
+        formatting.toggle(pair[1]);
+      });
     });
     document.querySelectorAll("[data-font-delta]").forEach(function(button) {
       button.addEventListener("click", function() {
-        var component = selectedComponent();
-        if (!component || component.kind !== "text") return;
-        beginChange();
-        var next = Math.max(0.7, Math.min(1.5, (component.fontScale || 1) + Number(button.getAttribute("data-font-delta"))));
-        updateOverlay(selected.slideId, selected.componentId, "fontScale", Math.round(next * 10) / 10);
-        render();
-        persist();
+        formatting.resize(Number(button.getAttribute("data-font-delta")) * 100);
       });
     });
     document.querySelectorAll("[data-color]").forEach(function(button) {
       button.addEventListener("click", function() {
-        var component = selectedComponent();
-        if (!component || component.kind !== "text") return;
-        beginChange();
-        updateOverlay(selected.slideId, selected.componentId, "color", button.getAttribute("data-color"));
-        render();
-        persist();
+        formatting.color(button.getAttribute("data-color"));
+      });
+    });
+    var sizeField = document.querySelector("[data-size-field]"), customColor = document.querySelector("[data-custom-color]");
+    [sizeField, customColor].forEach(function(control) {
+      control.addEventListener("pointerdown", function() {
+        formatting.pin();
+      });
+      control.addEventListener("focus", function() {
+        formatting.pin();
+      });
+      control.addEventListener("blur", function() {
+        formatting.unpin();
+      });
+    });
+    sizeField.addEventListener("change", function() {
+      formatting.size(Number(sizeField.value));
+    });
+    sizeField.addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        formatting.size(Number(sizeField.value));
+        formatting.unpin();
+      }
+    });
+    customColor.addEventListener("input", function() {
+      formatting.color(customColor.value);
+    });
+    var paragraphToggle = document.querySelector("[data-paragraph-toggle]"), paragraphTools = document.querySelector("[data-paragraph-tools]");
+    function closeParagraph() {
+      paragraphTools.hidden = true;
+      paragraphToggle.setAttribute("aria-expanded", "false");
+    }
+    paragraphToggle.addEventListener("click", function() {
+      paragraphTools.hidden = !paragraphTools.hidden;
+      paragraphToggle.setAttribute("aria-expanded", String(!paragraphTools.hidden));
+    });
+    document.addEventListener("pointerdown", function(event) {
+      if (!paragraphTools.hidden && !event.target.closest(".paragraph-menu")) closeParagraph();
+    });
+    document.querySelectorAll("[data-align-text]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        formatting.align(button.dataset.alignText);
+      });
+    });
+    document.querySelectorAll("[data-list]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        formatting.list(button.dataset.list);
+      });
+    });
+    document.querySelectorAll("[data-indent]").forEach(function(button) {
+      button.addEventListener("click", function() {
+        formatting.indent(Number(button.dataset.indent));
       });
     });
     document.querySelectorAll("[data-image-delta]").forEach(function(button) {

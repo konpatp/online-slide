@@ -14,7 +14,7 @@ COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 ALLOWED_OVERLAY_KEYS = {
-    "text", "color", "fontScale", "src", "imageScale", "region", "chartLayout", "hidden", "deleted", "marks",
+    "text", "color", "fontScale", "src", "imageScale", "region", "chartLayout", "hidden", "deleted", "marks", "paragraphs",
 }
 
 

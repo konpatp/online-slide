@@ -10,6 +10,9 @@ class EditConflict(ContractError):
     """An edited target changed since the caller observed it."""
 
 
+TEXT_GROUP = ('text', 'marks', 'paragraphs')
+
+
 def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
                          catalog: dict[str, dict[str, Any]],
                          base_sources: Any, revisions: dict[str, str] | None = None) -> dict[str, Any]:
@@ -51,15 +54,15 @@ def merge_state_snapshot(base: Any, candidate: Any, current: dict[str, Any],
                   path: tuple[str, ...]) -> dict:
         merged = copy.deepcopy(remote)
         keys = old.keys() | new.keys()
-        if depth == 1 and path[0] == 'overlays' and any('marks' in value for value in (old,new,remote)):
-            # Ranges and the text they index form one conflict domain. A
-            # concurrent wording edit must not move bold onto other words.
-            group = lambda value: {key:value[key] for key in ('text','marks') if key in value}
+        if depth == 1 and path[0] == 'overlays' and any({'marks','paragraphs'} & set(value) for value in (old,new,remote)):
+            # Ranges, line settings and the text they index form one conflict
+            # domain. A concurrent wording edit must not move formatting.
+            group = lambda value: {key:value[key] for key in TEXT_GROUP if key in value}
             chosen = choose(group(old),group(new),group(remote),(*path,'text'))
-            for key in ('text','marks'):
+            for key in TEXT_GROUP:
                 merged.pop(key,None)
             merged.update(copy.deepcopy(chosen))
-            keys -= {'text','marks'}
+            keys -= set(TEXT_GROUP)
         for key in keys:
             before, after = old.get(key, missing), new.get(key, missing)
             actual = remote.get(key, missing)

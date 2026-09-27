@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {copy, snapshot, carryForward, saveRequest} from '../../src/editor/snapshot';
-import {textEdit, toggleBold} from '../../src/editor/text';
+import {textEdit, toggleMark} from '../../src/editor/text';
 import {SaveQueue} from '../../src/editor/save-queue';
 import type {SaveResponse} from '../../src/editor/save-queue';
 import type {RevisionedSnapshot, SaveRequest, TextOverlay} from '../../src/editor/model';
@@ -20,10 +20,10 @@ test('marks cannot be authored without their exact text', () => {
 });
 test('range toggle preserves multiline UTF-16 offsets and inherited bold', () => {
   const value = {text:'x\n😀 word',marks:[]};
-  const edited = toggleBold(value,5,9,false);
+  const edited = toggleMark(value,5,9,'bold',false);
   assert.deepEqual(edited.marks,[{start:5,end:9,bold:true}]);
-  assert.deepEqual(toggleBold(edited,5,9,false).marks,[{start:5,end:9,bold:false}]);
-  assert.deepEqual(toggleBold({text:'best',marks:[]},0,4,true).marks,[{start:0,end:4,bold:false}]);
+  assert.deepEqual(toggleMark(edited,5,9,'bold',false).marks,[{start:5,end:9,bold:false}]);
+  assert.deepEqual(toggleMark({text:'best',marks:[]},0,4,'bold',true).marks,[{start:0,end:4,bold:false}]);
 });
 test('pending order, visibility, formatting and removals merge without erasing remote edits', () => {
   const base=state(),local=copy(base),remote=copy(base);

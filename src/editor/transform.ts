@@ -269,7 +269,12 @@ export function createTransformLayer(host: LayerHost) {
       if (!settling) return;
       settling = false;
       const primary = targets.get(selection[selection.length - 1]);
-      if (live(primary)) { notifying = true; try { primary.select(); } finally { notifying = false; } }
+      // Someone who just clicked into the object's text is editing it: keep
+      // their caret and the editor's text selection rather than re-selecting
+      // the object (which would take focus away from the text).
+      const active = document.activeElement as HTMLElement | null;
+      const editing = Boolean(active?.isContentEditable && primary?.hits.some(hit => hit.contains(active)));
+      if (live(primary) && !editing) { notifying = true; try { primary.select(); } finally { notifying = false; } }
       sync();
     };
     const onClick = () => setTimeout(release, 0);

@@ -5,7 +5,7 @@ import itertools
 import math
 from typing import Any
 from .common import (_validate_text_region, ContractError, _require, _component_ids, _recipe_visual_objects, _finite_number, SLIDE_SCHEMA, RECIPES, COMPONENT_ID, SLIDE_ID, HEX_COLOR)
-from .overlays import (validate_objects, validate_text_marks)
+from .overlays import (validate_objects, validate_text_formatting)
 
 def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any]:
     _require(isinstance(spec, dict), f"{source}: slide must be an object")
@@ -43,8 +43,7 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         if kind == "text":
             _require(isinstance(component.get("text"), str),
                      f"{source}: text component {component_id!r} needs text")
-            if 'marks' in component:
-                validate_text_marks(component['marks'], component)
+            validate_text_formatting(component)
             render = component.get("render", "plain")
             _require(render in {"plain", "latex"},
                      f"{source}: text component {component_id!r} has invalid renderer")

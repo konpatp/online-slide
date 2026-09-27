@@ -115,6 +115,38 @@ class Session:
         if self.page.locator('[data-arrange-tools]').is_visible(): toggle.click()
         return 'arrange ' + name
 
+    def editing(self):
+        """Focus a random editable text and select a random span in it."""
+        texts = [k for k in self.targets() if 'object:' not in k]
+        key = self.rng.choice(texts); x, y = self.center(key)
+        self.page.mouse.click(x, y)
+        if not self.page.evaluate('document.activeElement.isContentEditable'): return None
+        self.page.keyboard.press('ControlOrMeta+Home')
+        for _ in range(self.rng.randint(0, 6)): self.page.keyboard.press('ArrowRight')
+        for _ in range(self.rng.randint(0, 8)): self.page.keyboard.press('Shift+ArrowRight')
+        return key
+
+    def format(self):
+        key = self.editing()
+        if not key: return 'format-skipped'
+        chord = self.rng.choice(['ControlOrMeta+b', 'ControlOrMeta+i', 'ControlOrMeta+u'])
+        self.page.keyboard.press(chord); return f'format {key} {chord}'
+
+    def paragraph(self):
+        key = self.editing()
+        if not key: return 'paragraph-skipped'
+        chord = self.rng.choice(['ControlOrMeta+Shift+Digit8', 'ControlOrMeta+Shift+Digit7', 'ControlOrMeta+Shift+e',
+                                 'ControlOrMeta+Shift+r', 'Enter', 'Tab'])
+        self.page.keyboard.press(chord); return f'paragraph {key} {chord}'
+
+    def paste(self):
+        key = self.editing()
+        if not key: return 'paste-skipped'
+        html = self.rng.choice(['<b>B</b> <i>i</i>', '<ul><li>x</li><li>y</li></ul>', '<p style="color:red">plain</p>'])
+        self.page.evaluate("""html => {const d = new DataTransfer(); d.setData('text/html', html); d.setData('text/plain', 'p');
+          document.activeElement.dispatchEvent(new ClipboardEvent('paste', {clipboardData: d, bubbles: true, cancelable: true}));}""", html)
+        return f'paste {key} {html!r}'
+
     def undo(self):
         self.page.keyboard.press('Escape'); self.page.keyboard.press('Escape')
         self.page.keyboard.press('ControlOrMeta+z'); return 'undo'
@@ -123,7 +155,7 @@ class Session:
         self.page.keyboard.press('Escape'); return 'escape'
 
     OPERATIONS = {'select': 2, 'move': 4, 'resize': 4, 'nudge': 3, 'type': 2, 'undo': 2, 'escape': 1,
-                  'shift': 2, 'marquee': 2, 'arrange': 2}
+                  'shift': 2, 'marquee': 2, 'arrange': 2, 'format': 2, 'paragraph': 2, 'paste': 1}
 
     def step(self):
         names = list(self.OPERATIONS)
@@ -139,6 +171,17 @@ class Session:
             errors.append('another slide changed')
         if page.locator('.transform-frame').count() > 1: errors.append('more than one frame')
         if page.locator('.transform-marquee, .transform-guides').count(): errors.append('marquee or guides left behind')
+        # Saved wording is exactly what the editor draws (render/read parity).
+        drawn = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('[data-stage] [data-component-id]')]
+          .filter(e => e.isContentEditable).map(e => {
+            const lines = [...e.children].filter(c => c.classList.contains('text-line'));
+            return [e.dataset.componentId, lines.length ? lines.map(l => l.textContent).join('\\n') : e.textContent];
+          }))""")
+        saved_text = {cid: o['text'] for cid, o in state['overlays'].get(SLIDE, {}).items() if 'text' in o}
+        saved_text.update({cid: b['text'] for cid, b in state.get('textBoxes', {}).get(SLIDE, {}).items() if not b.get('deleted')})
+        for cid, text in saved_text.items():
+            if cid in drawn and drawn[cid] != text:
+                errors.append(f'{cid} draws {drawn[cid]!r} but saved {text!r}')
         # Saved region sizes are what the editor paints.
         painted = page.evaluate("""sid=>Object.fromEntries([...document.querySelectorAll('[data-stage] [data-text-region-for]')]
           .map(e=>{const c=e.closest('.slide-canvas').getBoundingClientRect(),r=e.getBoundingClientRect(),s=c.width/1920;

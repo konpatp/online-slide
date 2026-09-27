@@ -46,10 +46,9 @@ def validate_tables(tables: Any, catalog: dict[str, dict[str, Any]]) -> None:
                      isinstance(component.get("text"), str) and len(component["text"]) <= 800,
                      f"inserted table component must be text: {slide_id}@{component_id}")
             _require(set(component) <= {
-                "kind", "text", "role", "render", "display", "color", "fontScale", "region", "hidden", "deleted", "marks",
+                "kind", "text", "role", "render", "display", "color", "fontScale", "region", "hidden", "deleted", "marks", "paragraphs",
             }, f"unsupported inserted table component fields: {slide_id}@{component_id}")
-            if 'marks' in component:
-                validate_text_marks(component['marks'], component)
+            validate_text_formatting(component)
             if 'hidden' in component:
                 _require(isinstance(component['hidden'],bool), 'inserted component hidden state must be boolean')
             if 'deleted' in component:
@@ -216,7 +215,7 @@ def validate_text_boxes(boxes: Any, catalog: dict[str, dict[str, Any]]) -> None:
                      key.startswith('text-box-') and key not in catalog[sid]['components'] and
                      key not in _visual_objects(catalog[sid]), "text box identity collides or is invalid")
             _require(isinstance(value, dict) and {'text', 'region'} <= set(value) and
-                     set(value) <= {'text', 'region', 'marks', 'color', 'fontScale', 'hidden', 'deleted'},
+                     set(value) <= {'text', 'region', 'marks', 'paragraphs', 'color', 'fontScale', 'hidden', 'deleted'},
                      "text box needs bounded text and supported formatting")
             validate_overlays({sid:{key:value}}, {sid:{'components':{key:{'kind':'text','text':''}}}})
 
@@ -234,11 +233,14 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
             _require(set(overlay) <= ALLOWED_OVERLAY_KEYS,
                      f"unsupported overlay fields on {slide_id}@{component_id}")
             component = catalog[slide_id]["components"][component_id]
-            if 'marks' in overlay:
-                _require('text' in overlay, 'text marks must bind their exact text')
-                validate_text_marks(overlay['marks'], {**component, **overlay})
-            elif 'text' in overlay and 'marks' in component:
-                _require(False, 'replacement text must explicitly replace its authored marks')
+            if 'text' in overlay:
+                # Authored offsets index the authored wording; new wording
+                # must state its own formatting rather than inherit stale ranges.
+                _require(({'marks', 'paragraphs'} & set(component)) <= set(overlay),
+                         'replacement text must explicitly replace its authored formatting')
+            if {'marks', 'paragraphs'} & set(overlay):
+                _require('text' in overlay, 'text formatting must bind its exact text')
+                validate_text_formatting({**component, **overlay})
             if 'hidden' in overlay:
                 _require(isinstance(overlay['hidden'],bool), 'component hidden state must be boolean')
             if 'deleted' in overlay:
@@ -276,6 +278,34 @@ def validate_overlays(overlays: Any, catalog: dict[str, dict[str, Any]]) -> None
                 )
 
 
+MARK_ATTRIBUTES = {'bold', 'italic', 'underline', 'color', 'size'}
+PARAGRAPH_FIELDS = {'align', 'list', 'level'}
+
+
+def validate_text_formatting(component: dict) -> None:
+    """Every text formatting field present on a (possibly merged) component."""
+    if 'marks' in component:
+        validate_text_marks(component['marks'], component)
+    if 'paragraphs' in component:
+        validate_text_paragraphs(component['paragraphs'], component)
+
+
+def validate_text_paragraphs(paragraphs: Any, component: dict) -> None:
+    """One settings object per line: alignment and list kind/level, never markup."""
+    _require(component.get('kind') == 'text' and component.get('render', 'plain') == 'plain',
+             'paragraph formatting requires plain text')
+    _require(isinstance(component.get('text'), str), 'formatted text must be a string')
+    _require(isinstance(paragraphs, list) and len(paragraphs) == component['text'].count('\n') + 1
+             and len(paragraphs) <= 400, 'paragraphs must list exactly one entry per line')
+    for paragraph in paragraphs:
+        _require(isinstance(paragraph, dict) and set(paragraph) <= PARAGRAPH_FIELDS, 'invalid paragraph fields')
+        _require(paragraph.get('align', 'left') in {'left', 'center', 'right'}, 'invalid paragraph alignment')
+        _require(paragraph.get('list') in {None, 'bullet', 'number'}, 'invalid list kind')
+        if 'level' in paragraph:
+            _require('list' in paragraph and type(paragraph['level']) is int and 0 <= paragraph['level'] <= 2,
+                     'list level must be 0-2 on a list line')
+
+
 def validate_text_marks(marks: Any, component: dict) -> None:
     """Plain-text formatting ranges, never executable HTML; offsets use DOM UTF-16."""
     _require(component.get('kind') == 'text' and component.get('render', 'plain') == 'plain',
@@ -285,11 +315,18 @@ def validate_text_marks(marks: Any, component: dict) -> None:
     length = len(component['text'].encode('utf-16-le')) // 2
     previous = 0
     for mark in marks:
-        _require(isinstance(mark, dict) and set(mark) == {'start', 'end', 'bold'}, 'invalid text mark fields')
+        _require(isinstance(mark, dict) and {'start', 'end'} <= set(mark) and
+                 set(mark) - {'start', 'end'} and set(mark) - {'start', 'end'} <= MARK_ATTRIBUTES,
+                 'invalid text mark fields')
         start, end = mark['start'], mark['end']
         _require(type(start) is int and type(end) is int and previous <= start < end <= length,
                  'text marks overlap or exceed the text')
-        _require(type(mark['bold']) is bool, 'bold mark must be boolean')
+        for key in ('bold', 'italic', 'underline'):
+            _require(key not in mark or type(mark[key]) is bool, f'{key} mark must be boolean')
+        _require('color' not in mark or (isinstance(mark['color'], str) and HEX_COLOR.fullmatch(mark['color'])),
+                 'mark colour must be a hex colour')
+        _require('size' not in mark or (type(mark['size']) in (int, float) and math.isfinite(mark['size'])
+                 and .5 <= mark['size'] <= 3), 'mark size must be between 0.5 and 3')
         previous = end
 
 

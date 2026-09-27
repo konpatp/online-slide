@@ -9,7 +9,8 @@ import {createSidebarOrder} from './editor/sidebar-order';
 import {EditHistory} from './editor/history';
 import {deletionKey, typingTarget} from './editor/keyboard';
 import {navigationOrder,visibleDestination} from './editor/navigation';
-import {textEdit, toggleBold, renderMarkedText, readMarkedText, insertPlainText} from './editor/text';
+import {textEdit, renderRichText, readRichText} from './editor/text';
+import {createTextFormatting} from './editor/formatting';
 import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} from './editor/fit';
 /* ScientificSlideKit pilot: declarative recipes plus a bundled diagram engine. */
 (function () {
@@ -267,15 +268,20 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     else overlay[key] = value;
     // Formatting and its exact wording are one conflict domain. Even when
     // wording equals the source, marks may not be persisted without that bind.
-    if (Object.prototype.hasOwnProperty.call(overlay, 'marks') && !Object.prototype.hasOwnProperty.call(overlay, 'text'))
+    if ((Object.prototype.hasOwnProperty.call(overlay, 'marks') || Object.prototype.hasOwnProperty.call(overlay, 'paragraphs')) &&
+        !Object.prototype.hasOwnProperty.call(overlay, 'text'))
       overlay.text = source.text;
     cleanOverlay(slideId, componentId);
   }
 
   function updateText(slideId, componentId, value) {
     var edit = textEdit(value);
+    var source = (state.slides[slideId].components || {})[componentId];
     updateOverlay(slideId, componentId, 'text', edit.text);
     updateOverlay(slideId, componentId, 'marks', edit.marks);
+    // Removing authored paragraph settings is stated explicitly as plain lines.
+    updateOverlay(slideId, componentId, 'paragraphs', edit.paragraphs ||
+      (source && source.paragraphs ? edit.text.split('\n').map(function() {return {};}) : undefined));
   }
 
   function insertedTableOwner(slideId, componentId) {
@@ -367,36 +373,6 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     if (component.fontScale) element.style.setProperty("--component-scale", component.fontScale);
   }
 
-  function toggleTextBold(slideId, componentId, element) {
-    if (!editMode || !element || element.dataset.latexSource !== undefined) return;
-    var value = readMarkedText(element), selection = window.getSelection();
-    var start = 0, end = value.text.length;
-    if (selection.rangeCount && !selection.isCollapsed) {
-      var range = selection.getRangeAt(0);
-      if (element.contains(range.startContainer) && element.contains(range.endContainer)) {
-        var prefix = document.createRange(); prefix.selectNodeContents(element); prefix.setEnd(range.startContainer, range.startOffset);
-        start = prefix.toString().length; end = start + range.toString().length;
-      }
-    }
-    if (end <= start) return;
-    var formatted = toggleBold(value, start, end, Number(getComputedStyle(element).fontWeight) >= 600);
-    beginChange();
-    updateText(slideId, componentId, formatted);
-    renderMarkedText(element, formatted);
-    // Preserve the highlighted range so a second toggle or continued typing
-    // operates on the same text, rather than unexpectedly formatting the cell.
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), node, offset = 0;
-    var restored = document.createRange(), started = false;
-    while ((node = walker.nextNode())) {
-      if (!started && start <= offset + node.length) {restored.setStart(node, start-offset); started = true;}
-      if (started && end <= offset + node.length) {restored.setEnd(node, end-offset); break;}
-      offset += node.length;
-    }
-    selection.removeAllRanges(); selection.addRange(restored);
-    element.dispatchEvent(new Event('input', {bubbles:true}));
-    renderTools();
-  }
-
   function editableText(slide, componentId, tag, className) {
     var component = effectiveComponent(slide, componentId);
     var element = document.createElement(tag || "div");
@@ -407,7 +383,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       window.ScientificMathRuntime.renderLatex(element, component.text, {displayMode: component.display === "block"});
       element.setAttribute("data-latex-source", component.text);
     } else {
-      renderMarkedText(element, component);
+      renderRichText(element, component);
     }
     element.setAttribute("data-component-id", componentId);
     element.setAttribute("data-component-kind", "text");
@@ -423,7 +399,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     });
     element.addEventListener("input", function () {
       if (!editMode || isLatex) return;
-      var value = readMarkedText(element);
+      var value = readRichText(element);
       typingGroup = 'text:'+slide.id+':'+componentId;
       beginChange(typingGroup);
       updateText(slide.id, componentId, value);
@@ -433,15 +409,16 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     element.addEventListener("paste", function (event) {
       if (!editMode || isLatex) return;
       var raw = event.clipboardData && event.clipboardData.getData("text/plain");
-      if (raw === null || raw === undefined) return;
-      event.preventDefault();
-      if ((raw.includes('\t') || raw.includes('\n')) && pasteTableGrid(slide, componentId, raw)) return;
-      insertPlainText(element,raw.replace(/\r\n?/g,'\n'));
+      // A spreadsheet grid fills table cells; everything else pastes as text.
+      if (raw && (raw.includes('\t') || raw.includes('\n')) && element.closest('[data-table-cell]')) {
+        event.preventDefault();
+        if (pasteTableGrid(slide, componentId, raw)) return;
+      }
+      formatting.paste(event, element, slide.id, componentId);
     });
     element.addEventListener("keydown", function (event) {
-      if (editMode && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
-        event.preventDefault(); event.stopPropagation();
-        toggleTextBold(slide.id,componentId,element); return;
+      if (editMode && !isLatex && formatting.key(event, element)) {
+        event.preventDefault(); event.stopPropagation(); return;
       }
       if (!editMode || event.key !== "Tab" || !element.closest("[data-table-cell]")) return;
       event.preventDefault();
@@ -454,11 +431,10 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     });
     element.addEventListener('beforeinput', function(event) {
       if (editMode && !isLatex && ['insertParagraph','insertLineBreak'].includes(event.inputType)) {
-        event.preventDefault(); insertPlainText(element,'\n'); return;
+        event.preventDefault(); formatting.enter(element, slide.id, componentId); return;
       }
-      if (event.inputType === 'formatBold') {
-        event.preventDefault(); toggleTextBold(slide.id,componentId,element);
-      }
+      var native = {formatBold: 'bold', formatItalic: 'italic', formatUnderline: 'underline'}[event.inputType];
+      if (native) { event.preventDefault(); formatting.toggle(native); }
     });
     element.addEventListener("dblclick", function (event) {
       if (!editMode || !isLatex) return;
@@ -479,6 +455,17 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     focusObject: function() {stage.tabIndex=-1; stage.focus({preventScroll:true});},
     selectionChanged: function() {renderTools();}});
   function regionKey(slideId, componentId) { return slideId + '@' + componentId; }
+  var formatting = createTextFormatting({
+    isEditMode: function() {return editMode;},
+    selected: function() {return selected && !selected.visualObject && selected.slideId === currentId ? selected : null;},
+    element: function(slideId, componentId) {
+      return slideId === currentId ? stage.querySelector('[data-component-id="' + componentId + '"]') : null;
+    },
+    beginChange: beginChange, persist: persist, updateText: updateText,
+    componentStyle: function(slideId, componentId) {return effectiveComponent(state.slides[slideId], componentId);},
+    setComponentStyle: function(slideId, componentId, key, value) {updateOverlay(slideId, componentId, key, value);},
+    refreshTools: function() {renderTools();}
+  });
   // Presses here belong to an object or a control, never to box selection.
   var MARQUEE_EXCLUDED = '[data-transform-target], [data-component-id], [data-visual-object-id], .native-chart, .jsxgraph-host, ' +
     '.joint-paper, [data-native-table], .gallery-cell, button, input, select, textarea, [data-transform-control], .accessibility-line-controls';
@@ -846,11 +833,27 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     var component = selectedComponent();
     var textSelected = editMode && component && component.kind === "text";
     var imageSelected = editMode && component && component.kind === "image";
-    var boldButton = document.querySelector('[data-bold]');
-    boldButton.disabled = !textSelected || component.render === 'latex';
-    boldButton.setAttribute('aria-pressed', String(Boolean(textSelected && (component.marks || []).some(function(mark) {return mark.bold;}))));
-    document.querySelectorAll("[data-font-delta], [data-color]").forEach(function (button) { button.disabled = !textSelected; });
-    document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; });
+    // Formatting state comes from the selected characters, not the object.
+    var format = textSelected ? formatting.toolState() : null;
+    [['[data-bold]','bold'],['[data-italic]','italic'],['[data-underline]','underline']].forEach(function(pair) {
+      var button = document.querySelector(pair[0]);
+      button.disabled = !format;
+      button.setAttribute('aria-pressed', String(Boolean(format && format[pair[1]])));
+    });
+    document.querySelectorAll("[data-font-delta], [data-color], [data-custom-color], [data-size-field]").forEach(function (control) { control.disabled = !format; });
+    var sizeInput = document.querySelector('[data-size-field]');
+    if (document.activeElement !== sizeInput) sizeInput.value = format ? String(format.size) : '';
+    var paragraphButton = document.querySelector('[data-paragraph-toggle]');
+    paragraphButton.disabled = !(format && format.paragraphs);
+    if (paragraphButton.disabled) closeParagraph();
+    document.querySelectorAll('[data-align-text]').forEach(function(button) {
+      button.setAttribute('aria-pressed', String(Boolean(format && format.align === button.dataset.alignText)));
+    });
+    document.querySelectorAll('[data-list]').forEach(function(button) {
+      button.setAttribute('aria-pressed', String(Boolean(format && format.list === button.dataset.list)));
+    });
+    // Image sizing appears only for an image, keeping the toolbar compact.
+    document.querySelectorAll("[data-image-delta]").forEach(function (button) { button.disabled = !imageSelected; button.hidden = !imageSelected; });
     var objectSelected = Boolean(editMode && selected && selected.visualObject);
     document.querySelector("[data-reset-component]").disabled = !(editMode && (component || objectSelected)) || Boolean(selected && ((state.textBoxes || {})[selected.slideId] || {})[selected.componentId]);
     var hideButton=document.querySelector('[data-hide-component]');
@@ -1105,31 +1108,55 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
         !enteredFromPresentationUrl) setPresentationMode(false);
   });
   undoButton.addEventListener("click", undo);
-  document.querySelector('[data-bold]').addEventListener('pointerdown', function(event) {event.preventDefault();});
-  document.querySelector('[data-bold]').addEventListener('click', function() {
-    if (!selected) return;
-    toggleTextBold(selected.slideId, selected.componentId,
-      stage.querySelector('[data-component-id="' + selected.componentId + '"]'));
+  // Pressed states follow the text selection as the caret moves.
+  var toolFrame = 0;
+  document.addEventListener('selectionchange', function() {
+    if (editMode) formatting.remember();
+    if (!editMode || toolFrame) return;
+    toolFrame = requestAnimationFrame(function() {toolFrame = 0; renderTools();});
   });
-
+  // Text controls never take focus from the text they format.
+  document.querySelectorAll('[data-text-tool]').forEach(function(control) {
+    control.addEventListener('pointerdown', function(event) {event.preventDefault();});
+  });
+  [['[data-bold]','bold'],['[data-italic]','italic'],['[data-underline]','underline']].forEach(function(pair) {
+    document.querySelector(pair[0]).addEventListener('click', function() {formatting.toggle(pair[1]);});
+  });
   document.querySelectorAll("[data-font-delta]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      var component = selectedComponent();
-      if (!component || component.kind !== "text") return;
-      beginChange();
-      var next = Math.max(.7, Math.min(1.5, (component.fontScale || 1) + Number(button.getAttribute("data-font-delta"))));
-      updateOverlay(selected.slideId, selected.componentId, "fontScale", Math.round(next * 10) / 10);
-      render(); persist();
-    });
+    button.addEventListener("click", function () {formatting.resize(Number(button.getAttribute("data-font-delta")) * 100);});
   });
   document.querySelectorAll("[data-color]").forEach(function (button) {
-    button.addEventListener("click", function () {
-      var component = selectedComponent();
-      if (!component || component.kind !== "text") return;
-      beginChange();
-      updateOverlay(selected.slideId, selected.componentId, "color", button.getAttribute("data-color"));
-      render(); persist();
-    });
+    button.addEventListener("click", function () {formatting.color(button.getAttribute("data-color"));});
+  });
+  // Controls that take focus remember the text selection they were opened on.
+  var sizeField = document.querySelector('[data-size-field]'), customColor = document.querySelector('[data-custom-color]');
+  [sizeField, customColor].forEach(function(control) {
+    control.addEventListener('pointerdown', function() {formatting.pin();});
+    control.addEventListener('focus', function() {formatting.pin();});
+    control.addEventListener('blur', function() {formatting.unpin();});
+  });
+  sizeField.addEventListener('change', function() {formatting.size(Number(sizeField.value));});
+  sizeField.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter') {event.preventDefault(); formatting.size(Number(sizeField.value)); formatting.unpin();}
+  });
+  customColor.addEventListener('input', function() {formatting.color(customColor.value);});
+  var paragraphToggle = document.querySelector('[data-paragraph-toggle]'), paragraphTools = document.querySelector('[data-paragraph-tools]');
+  function closeParagraph() { paragraphTools.hidden = true; paragraphToggle.setAttribute('aria-expanded', 'false'); }
+  paragraphToggle.addEventListener('click', function() {
+    paragraphTools.hidden = !paragraphTools.hidden;
+    paragraphToggle.setAttribute('aria-expanded', String(!paragraphTools.hidden));
+  });
+  document.addEventListener('pointerdown', function(event) {
+    if (!paragraphTools.hidden && !event.target.closest('.paragraph-menu')) closeParagraph();
+  });
+  document.querySelectorAll('[data-align-text]').forEach(function(button) {
+    button.addEventListener('click', function() {formatting.align(button.dataset.alignText);});
+  });
+  document.querySelectorAll('[data-list]').forEach(function(button) {
+    button.addEventListener('click', function() {formatting.list(button.dataset.list);});
+  });
+  document.querySelectorAll('[data-indent]').forEach(function(button) {
+    button.addEventListener('click', function() {formatting.indent(Number(button.dataset.indent));});
   });
   document.querySelectorAll("[data-image-delta]").forEach(function (button) {
     button.addEventListener("click", function () {
