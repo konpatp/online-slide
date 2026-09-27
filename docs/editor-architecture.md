@@ -28,9 +28,14 @@ Strict TypeScript owns the editing behavior:
 | `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
 | `editor/navigation.ts` | Visible-only audience sequence, counters, and hidden-route resolution |
 | `editor/order.ts`, `editor/sidebar-order.ts` | Identity-based reorder commands and SortableJS gesture adapter |
-| `editor/history.ts`, `editor/keyboard.ts` | Bounded semantic undo history and text-versus-object shortcut ownership |
+| `editor/history.ts`, `editor/keyboard.ts` | Bounded semantic undo and redo (a new edit ends the redo line; both refuse when another editor changed the values) and text-versus-object shortcut ownership |
 
-Acknowledging our own save does not reconstruct unchanged slide DOM. Only
+Acknowledging our own save does not reconstruct unchanged slide DOM. Equal
+edits compare equal whatever order their keys were written in (the server and
+the editor order them differently); an order-sensitive comparison used to
+re-render the slide after every formatted save. Characters being composed by
+an input method are not text: nothing is read, saved or re-rendered until the
+composition ends. Only
 changed remote content/source requires rendering. The browser keeps the active
 editing node and caret; `browser_save_lifecycle.py` exercises delayed ACKs.
 Autosave does not clear undo history. An inverse edit is replayed over current

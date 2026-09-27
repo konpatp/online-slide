@@ -355,7 +355,7 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
   [data-fullscreen-toggle] { order: -1; }
   .save-state { width: 12px; font-size: 0; }
   .save-state::before { width: 8px; height: 8px; }
-  [data-undo] { display: none; }
+  [data-undo], [data-redo] { display: none; }
   .button { padding: 8px 10px; font-size: 12px; }
   .app-shell { position: relative; height: auto; min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0,1fr); }
   .filmstrip { display: none; position: absolute; inset: 0 auto 0 0; width: min(320px, 88vw); z-index: 20; border-right: 1px solid var(--line); overscroll-behavior: contain; }

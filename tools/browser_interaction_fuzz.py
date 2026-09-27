@@ -147,6 +147,21 @@ class Session:
           document.activeElement.dispatchEvent(new ClipboardEvent('paste', {clipboardData: d, bubbles: true, cancelable: true}));}""", html)
         return f'paste {key} {html!r}'
 
+    def redo(self):
+        self.page.keyboard.press('Escape'); self.page.keyboard.press('Escape')
+        self.page.keyboard.press(self.rng.choice(['ControlOrMeta+Shift+z', 'Control+y'])); return 'redo'
+
+    def compose(self):
+        """Type through the browser's input-method interface, as IMEs do."""
+        key = self.editing()
+        if not key: return 'compose-skipped'
+        cdp = self.page.context.new_cdp_session(self.page)
+        for partial in ('か', 'かん'):
+            cdp.send('Input.imeSetComposition', {'text': partial, 'selectionStart': len(partial), 'selectionEnd': len(partial)})
+        cdp.send('Input.insertText', {'text': '漢'})
+        cdp.detach()
+        return 'compose ' + key
+
     def undo(self):
         self.page.keyboard.press('Escape'); self.page.keyboard.press('Escape')
         self.page.keyboard.press('ControlOrMeta+z'); return 'undo'
@@ -155,7 +170,7 @@ class Session:
         self.page.keyboard.press('Escape'); return 'escape'
 
     OPERATIONS = {'select': 2, 'move': 4, 'resize': 4, 'nudge': 3, 'type': 2, 'undo': 2, 'escape': 1,
-                  'shift': 2, 'marquee': 2, 'arrange': 2, 'format': 2, 'paragraph': 2, 'paste': 1}
+                  'shift': 2, 'marquee': 2, 'arrange': 2, 'format': 2, 'paragraph': 2, 'paste': 1, 'redo': 1, 'compose': 1}
 
     def step(self):
         names = list(self.OPERATIONS)
@@ -170,6 +185,7 @@ class Session:
         if others != {k: v for k, v in initial['overlays'].items() if k != SLIDE}:
             errors.append('another slide changed')
         if page.locator('.transform-frame').count() > 1: errors.append('more than one frame')
+        if any(ch in json.dumps(state, ensure_ascii=False) for ch in ('か',)): errors.append('partial composition was saved')
         if page.locator('.transform-marquee, .transform-guides').count(): errors.append('marquee or guides left behind')
         # Saved wording is exactly what the editor draws (render/read parity).
         drawn = page.evaluate("""() => Object.fromEntries([...document.querySelectorAll('[data-stage] [data-component-id]')]

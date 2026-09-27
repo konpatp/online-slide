@@ -48,6 +48,9 @@ export function createTextFormatting(host: FormattingHost) {
     const value = readRichText(element);
     const focused = document.activeElement === element || element.contains(document.activeElement);
     let offsets = focused ? selectionOffsets(element) : null;
+    // A control that took focus still sees the text's own selection, which is
+    // current; the remembered copy (updated asynchronously) is only a fallback.
+    if (!offsets && useRemembered) offsets = selectionOffsets(element);
     if (!offsets && useRemembered && remembered && remembered.slideId === chosen.slideId &&
         remembered.componentId === chosen.componentId && remembered.end <= value.text.length)
       offsets = {start: remembered.start, end: remembered.end};

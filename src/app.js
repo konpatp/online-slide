@@ -2,7 +2,7 @@ import {createViewport,CANONICAL_SLIDE_WIDTH,CANONICAL_SLIDE_HEIGHT} from './edi
 import {createTextRegions} from './editor/regions';
 import {createTransformLayer} from './editor/transform';
 import {createTableEditor} from './editor/tables';
-import {copy, snapshot, sameSnapshot} from './editor/snapshot';
+import {copy, snapshot, sameSnapshot, canonical} from './editor/snapshot';
 import {SaveQueue} from './editor/save-queue';
 import {moveManyBefore} from './editor/order';
 import {createSidebarOrder} from './editor/sidebar-order';
@@ -32,7 +32,12 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var editToggle = document.querySelector("[data-edit-toggle]");
   var fullscreenToggle = document.querySelector("[data-fullscreen-toggle]");
   var presentationExit = document.querySelector("[data-presentation-exit]");
-  var undoButton = document.querySelector("[data-undo]");
+  var undoButton = document.querySelector("[data-undo]"), redoButton = document.querySelector("[data-redo]");
+  // Undo and Redo reflect the history, never guess from other state.
+  function syncHistoryButtons() {
+    undoButton.disabled = !editHistory.available();
+    redoButton.disabled = !editHistory.redoAvailable();
+  }
   var draftButton = document.querySelector("[data-conflict-draft]");
   var draftKey = "slidekit-conflict-draft:" + location.pathname;
   var toast = document.querySelector("[data-toast]");
@@ -46,7 +51,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   var selected = null;
   var editMode = false;
   var editHistory = new EditHistory();
-  var inputTimer = null, typingGroup = null;
+  var inputTimer = null, typingGroup = null, composing = false;
   var toastTimer = null;
   var loadedSlides = new Map();
   var slideRequests = new Map();
@@ -303,14 +308,14 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     // save must not fire later and close that other change's undo step.
     if (inputTimer && group !== typingGroup) {clearTimeout(inputTimer); inputTimer = null;}
     editHistory.begin(state, group);
-    undoButton.disabled = false;
+    undoButton.disabled = false; redoButton.disabled = true;
     setStatus("Saving…", "saving");
   }
 
   function persist() {
     if (previewMode) return;
     editHistory.commit(state);
-    undoButton.disabled = !editHistory.available();
+    syncHistoryButtons();
     retainDraft('Changes saved on this device; awaiting server acknowledgement.');
     setStatus("Saving…", "saving");
     saves.enqueue();
@@ -335,8 +340,8 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       if (accepted.sourceRevision !== remote.sourceRevision) editHistory.clear();
       state = current; accepted = remote;
       if (clean) {
-        if (deferredRemoteRender) {deferredRemoteRender = false; render();}
-        else {renderThumbs(); renderTools(); undoButton.disabled = !editHistory.available();}
+        if (deferredRemoteRender && !composing) {deferredRemoteRender = false; render();}
+        else {renderThumbs(); renderTools(); syncHistoryButtons();}
         setStatus('Saved','saved');
         try {localStorage.removeItem(draftKey);} catch (_) {}
         draftButton.hidden = true;
@@ -397,8 +402,16 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       event.stopPropagation();
       selectComponent(slide.id, componentId, element);
     });
-    element.addEventListener("input", function () {
-      if (!editMode || isLatex) return;
+    // Characters being composed (Chinese, Japanese, accents) are not yet text:
+    // nothing is read, saved or re-drawn until the composition ends.
+    element.addEventListener("compositionstart", function () {composing = true;});
+    element.addEventListener("compositionend", function () {
+      composing = false;
+      element.dispatchEvent(new Event('input', {bubbles: true}));
+      if (deferredRemoteRender && !saves.pending && !saves.inFlight) {deferredRemoteRender = false; render();}
+    });
+    element.addEventListener("input", function (event) {
+      if (!editMode || isLatex || composing || event.isComposing) return;
       var value = readRichText(element);
       typingGroup = 'text:'+slide.id+':'+componentId;
       beginChange(typingGroup);
@@ -432,6 +445,10 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     element.addEventListener('beforeinput', function(event) {
       if (editMode && !isLatex && ['insertParagraph','insertLineBreak'].includes(event.inputType)) {
         event.preventDefault(); formatting.enter(element, slide.id, componentId); return;
+      }
+      // The browser's own undo would rewrite the text behind the editor's back.
+      if (event.inputType === 'historyUndo' || event.inputType === 'historyRedo') {
+        event.preventDefault(); if (event.inputType === 'historyUndo') undo(); else redo(); return;
       }
       var native = {formatBold: 'bold', formatItalic: 'italic', formatUnderline: 'underline'}[event.inputType];
       if (native) { event.preventDefault(); formatting.toggle(native); }
@@ -754,7 +771,8 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     count.textContent = String(state.order.length);
     state.order.forEach(function (id, index) {
       var slide = slideById(id);
-      var key = JSON.stringify([state.slideRevisions[id],state.overlays[id],(state.tables||{})[id],
+      // Key order differs between server and editor copies of equal edits.
+      var key = canonical([state.slideRevisions[id],state.overlays[id],(state.tables||{})[id],
         (state.objects||{})[id],(state.textBoxes||{})[id],state.hidden.includes(id)]);
       var retained = existing.get(id);
       if (retained && retained.dataset.previewKey === key) {
@@ -937,7 +955,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       stage.textContent = error.message;
       setStatus('Slide unavailable · reload', 'error');
     });
-    undoButton.disabled = !editHistory.available();
+    syncHistoryButtons();
     editToggle.textContent = editMode ? "Done editing" : "Enable edit";
     editToggle.classList.toggle("active", editMode);
     document.querySelector('[data-add-text]').hidden = !editMode;
@@ -1056,6 +1074,18 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     showToast("Undid the last change.");
   }
 
+  function redo() {
+    clearTimeout(inputTimer); inputTimer = null;
+    var next;
+    try {next=editHistory.redo(state);} catch(error) {showToast(error.message);return;}
+    if (!next) return;
+    state = next;
+    selected = null; transforms.select(null);
+    render();
+    persist();
+    showToast("Redid the change.");
+  }
+
   function deleteSelectedObject() {
     if (!editMode) return false;
     // A multi-selection deletes every selected object as one undoable change.
@@ -1108,6 +1138,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
         !enteredFromPresentationUrl) setPresentationMode(false);
   });
   undoButton.addEventListener("click", undo);
+  redoButton.addEventListener("click", redo);
   // Pressed states follow the text selection as the caret moves.
   var toolFrame = 0;
   document.addEventListener('selectionchange', function() {
@@ -1211,9 +1242,12 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   document.addEventListener("keydown", function (event) {
     if (document.querySelector('dialog[open]')) return;
     if(event.isComposing) return;
-    if((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase()==='z' &&
-      (!typingTarget(event.target) || stage.contains(event.target))) {
+    var historyKey = (event.metaKey || event.ctrlKey) && (!typingTarget(event.target) || stage.contains(event.target));
+    if(historyKey && !event.shiftKey && event.key.toLowerCase()==='z') {
       event.preventDefault(); event.stopPropagation(); undo(); return;
+    }
+    if(historyKey && ((event.shiftKey && event.key.toLowerCase()==='z') || (event.ctrlKey && !event.shiftKey && event.key.toLowerCase()==='y'))) {
+      event.preventDefault(); event.stopPropagation(); redo(); return;
     }
     // Canvas libraries can return focus to body after a pointer gesture. The
     // semantic selection still owns canvas keys, but never a toolbar/input.
@@ -1230,6 +1264,13 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     // Focus may sit on a toolbar button after Arrange; it is still the selection's keys.
     if (editMode && transforms.nudge(event)) {
       event.preventDefault(); event.stopPropagation(); return;
+    }
+    // With a selection, arrows never change slides; if the selected object is
+    // re-registering after a re-render, nudge it on the next frame instead.
+    if (editMode && transforms.keys().length && event.key.indexOf('Arrow') === 0 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault(); event.stopPropagation();
+      requestAnimationFrame(function() {transforms.nudge(event);});
+      return;
     }
     if (event.key === "Escape" && editMode && transforms.selected()) {
       event.preventDefault(); selectComponent(null, null); return;

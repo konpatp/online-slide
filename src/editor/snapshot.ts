@@ -6,10 +6,16 @@ export function snapshot(value: Snapshot): Snapshot {
     overlays: copy(value.overlays), tables: copy(value.tables || {}),
     textBoxes: copy(value.textBoxes || {}), objects: copy(value.objects || {})};
 }
-export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
-  return JSON.stringify(snapshot(a)) === JSON.stringify(snapshot(b));
+/** JSON with object keys in a fixed order: equal data compares equal however
+ * it was built (the server and the editor order keys differently). */
+export function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item)
+    ? Object.fromEntries(Object.keys(item).sort().map(key => [key, (item as Record<string, unknown>)[key]])) : item);
 }
-const changed = (a: unknown, b: unknown) => JSON.stringify(a) !== JSON.stringify(b);
+export function sameSnapshot(a: Snapshot, b: Snapshot): boolean {
+  return canonical(snapshot(a)) === canonical(snapshot(b));
+}
+const changed = (a: unknown, b: unknown) => canonical(a) !== canonical(b);
 function asMap(value: Json | undefined): JsonMap {
   if (value === undefined) return {};
   if (value === null || typeof value !== 'object' || Array.isArray(value))

@@ -33,3 +33,25 @@ test('one drag is one history entry; pending text is committed before deletion',
   h.begin(s);s.overlays={a:{title:{text:'typed',deleted:true}}};h.commit(s);
   assert.deepEqual(h.undo(s)!.overlays,{a:{title:{text:'typed'}}});
 });
+
+test('redo re-applies undone edits in order; a new edit ends the redo line',()=>{
+  const h=new EditHistory();let s=seed();
+  h.begin(s,'text:a:title');s.overlays={a:{title:{text:'one'}}};h.commit(s);const one=copy(s);
+  h.begin(s);s.hidden=['b'];h.commit(s);const two=copy(s);
+  s=h.undo(s)!;s=h.undo(s)!;assert.deepEqual(s,seed());assert.equal(h.redoAvailable(),true);
+  s=h.redo(s)!;assert.deepEqual(s,one);
+  s=h.redo(s)!;assert.deepEqual(s,two);assert.equal(h.redoAvailable(),false);
+  s=h.undo(s)!;assert.deepEqual(s,one);
+  h.begin(s);s.order=['b','a'];h.commit(s);
+  assert.equal(h.redoAvailable(),false);assert.equal(h.redo(s),null);
+});
+test('redo keeps independent remote edits and refuses when the target changed',()=>{
+  const h=new EditHistory();let s=seed();
+  h.begin(s);s.overlays={a:{title:{text:'mine'}}};h.commit(s);
+  s=h.undo(s)!;
+  s.overlays.b={title:{text:'remote'}};
+  s=h.redo(s)!;assert.deepEqual(s.overlays,{a:{title:{text:'mine'}},b:{title:{text:'remote'}}});
+  s=h.undo(s)!;s.overlays.a={title:{text:'other editor'}};
+  assert.throws(()=>h.redo(s),/changed since the undo/);
+  assert.equal(h.redoAvailable(),true);
+});

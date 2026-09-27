@@ -91,3 +91,13 @@ test('network retry retains latest pending intent; stale runtime stops writing',
   f.setStale();f.calls[1].reject(new Error('runtime changed'));await settle();
   assert.equal(f.events[f.events.length-1],'stale');f.queue.flush();assert.equal(f.calls.length,2);
 });
+
+import {sameSnapshot as same, canonical} from '../../src/editor/snapshot';
+test('equal edits compare equal whatever order their keys were written in', () => {
+  const base = state();
+  const a = {...base, overlays: {a: {title: {marks: [], text: 'x', paragraphs: [{list: 'bullet'}]}}}};
+  const b = {...base, overlays: {a: {title: {text: 'x', marks: [], paragraphs: [{list: 'bullet'}]}}}};
+  assert.equal(same(a, b), true);
+  assert.equal(canonical({b: 1, a: [{d: 1, c: 2}]}), '{"a":[{"c":2,"d":1}],"b":1}');
+  assert.equal(same(a, {...b, overlays: {a: {title: {text: 'y', marks: []}}}}), false);
+});

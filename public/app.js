@@ -1372,10 +1372,13 @@
       objects: copy(value.objects || {})
     };
   }
-  function sameSnapshot(a, b) {
-    return JSON.stringify(snapshot(a)) === JSON.stringify(snapshot(b));
+  function canonical(value) {
+    return JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item) ? Object.fromEntries(Object.keys(item).sort().map((key) => [key, item[key]])) : item);
   }
-  var changed = (a, b) => JSON.stringify(a) !== JSON.stringify(b);
+  function sameSnapshot(a, b) {
+    return canonical(snapshot(a)) === canonical(snapshot(b));
+  }
+  var changed = (a, b) => canonical(a) !== canonical(b);
   function asMap(value) {
     if (value === void 0) return {};
     if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -4320,6 +4323,7 @@
     constructor(limit = 100) {
       this.limit = limit;
       this.entries = [];
+      this.redone = [];
       this.pending = null;
     }
     begin(state, group) {
@@ -4338,12 +4342,17 @@
         last.time = time;
       } else this.entries.push({ before, after: snapshot(state), group, time });
       if (this.entries.length > this.limit) this.entries.shift();
+      this.redone = [];
     }
     available() {
       return Boolean(this.pending || this.entries.length);
     }
+    redoAvailable() {
+      return !this.pending && this.redone.length > 0;
+    }
     clear() {
       this.entries = [];
+      this.redone = [];
       this.pending = null;
     }
     undo(current) {
@@ -4354,8 +4363,20 @@
         throw new Error("Cannot undo: this object changed in another editor. Your current edits were kept.");
       const next = carryForward(entry.after, entry.before, current);
       this.entries.pop();
+      this.redone.push({ ...entry, group: void 0 });
       const previous = this.entries[this.entries.length - 1];
       if (previous) previous.group = void 0;
+      return next;
+    }
+    redo(current) {
+      this.commit(current);
+      const entry = this.redone[this.redone.length - 1];
+      if (!entry) return null;
+      if (!sameSnapshot(carryForward(entry.after, entry.before, current), current))
+        throw new Error("Cannot redo: this object changed since the undo. Your current edits were kept.");
+      const next = carryForward(entry.before, entry.after, current);
+      this.redone.pop();
+      this.entries.push({ ...entry, time: Date.now() });
       return next;
     }
   };
@@ -4800,6 +4821,7 @@
       const value = readRichText(element);
       const focused = document.activeElement === element || element.contains(document.activeElement);
       let offsets = focused ? selectionOffsets(element) : null;
+      if (!offsets && useRemembered) offsets = selectionOffsets(element);
       if (!offsets && useRemembered && remembered && remembered.slideId === chosen.slideId && remembered.componentId === chosen.componentId && remembered.end <= value.text.length)
         offsets = { start: remembered.start, end: remembered.end };
       if (!offsets) return { ...chosen, element, value, start: 0, end: value.text.length, whole: true, restore: null };
@@ -4996,7 +5018,11 @@
     var editToggle = document.querySelector("[data-edit-toggle]");
     var fullscreenToggle = document.querySelector("[data-fullscreen-toggle]");
     var presentationExit = document.querySelector("[data-presentation-exit]");
-    var undoButton = document.querySelector("[data-undo]");
+    var undoButton = document.querySelector("[data-undo]"), redoButton = document.querySelector("[data-redo]");
+    function syncHistoryButtons() {
+      undoButton.disabled = !editHistory.available();
+      redoButton.disabled = !editHistory.redoAvailable();
+    }
     var draftButton = document.querySelector("[data-conflict-draft]");
     var draftKey = "slidekit-conflict-draft:" + location.pathname;
     var toast = document.querySelector("[data-toast]");
@@ -5009,7 +5035,7 @@
     var selected = null;
     var editMode = false;
     var editHistory = new EditHistory();
-    var inputTimer = null, typingGroup = null;
+    var inputTimer = null, typingGroup = null, composing = false;
     var toastTimer = null;
     var loadedSlides = /* @__PURE__ */ new Map();
     var slideRequests = /* @__PURE__ */ new Map();
@@ -5317,12 +5343,13 @@
       }
       editHistory.begin(state, group);
       undoButton.disabled = false;
+      redoButton.disabled = true;
       setStatus("Saving\u2026", "saving");
     }
     function persist() {
       if (previewMode) return;
       editHistory.commit(state);
-      undoButton.disabled = !editHistory.available();
+      syncHistoryButtons();
       retainDraft("Changes saved on this device; awaiting server acknowledgement.");
       setStatus("Saving\u2026", "saving");
       saves.enqueue();
@@ -5356,13 +5383,13 @@
         state = current;
         accepted = remote;
         if (clean) {
-          if (deferredRemoteRender) {
+          if (deferredRemoteRender && !composing) {
             deferredRemoteRender = false;
             render();
           } else {
             renderThumbs();
             renderTools();
-            undoButton.disabled = !editHistory.available();
+            syncHistoryButtons();
           }
           setStatus("Saved", "saved");
           try {
@@ -5435,8 +5462,19 @@
         event.stopPropagation();
         selectComponent(slide.id, componentId, element);
       });
-      element.addEventListener("input", function() {
-        if (!editMode || isLatex) return;
+      element.addEventListener("compositionstart", function() {
+        composing = true;
+      });
+      element.addEventListener("compositionend", function() {
+        composing = false;
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+        if (deferredRemoteRender && !saves.pending && !saves.inFlight) {
+          deferredRemoteRender = false;
+          render();
+        }
+      });
+      element.addEventListener("input", function(event) {
+        if (!editMode || isLatex || composing || event.isComposing) return;
         var value = readRichText(element);
         typingGroup = "text:" + slide.id + ":" + componentId;
         beginChange(typingGroup);
@@ -5475,6 +5513,12 @@
         if (editMode && !isLatex && ["insertParagraph", "insertLineBreak"].includes(event.inputType)) {
           event.preventDefault();
           formatting.enter(element, slide.id, componentId);
+          return;
+        }
+        if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+          event.preventDefault();
+          if (event.inputType === "historyUndo") undo();
+          else redo();
           return;
         }
         var native = { formatBold: "bold", formatItalic: "italic", formatUnderline: "underline" }[event.inputType];
@@ -5851,7 +5895,7 @@
       count.textContent = String(state.order.length);
       state.order.forEach(function(id, index2) {
         var slide = slideById(id);
-        var key = JSON.stringify([
+        var key = canonical([
           state.slideRevisions[id],
           state.overlays[id],
           (state.tables || {})[id],
@@ -6077,7 +6121,7 @@
         stage.textContent = error.message;
         setStatus("Slide unavailable \xB7 reload", "error");
       });
-      undoButton.disabled = !editHistory.available();
+      syncHistoryButtons();
       editToggle.textContent = editMode ? "Done editing" : "Enable edit";
       editToggle.classList.toggle("active", editMode);
       document.querySelector("[data-add-text]").hidden = !editMode;
@@ -6208,6 +6252,24 @@
       persist();
       showToast("Undid the last change.");
     }
+    function redo() {
+      clearTimeout(inputTimer);
+      inputTimer = null;
+      var next;
+      try {
+        next = editHistory.redo(state);
+      } catch (error) {
+        showToast(error.message);
+        return;
+      }
+      if (!next) return;
+      state = next;
+      selected = null;
+      transforms.select(null);
+      render();
+      persist();
+      showToast("Redid the change.");
+    }
     function deleteSelectedObject() {
       if (!editMode) return false;
       var doomed = transforms.keys().length > 1 ? transforms.identities() : selected && selected.slideId === currentId ? [selected.visualObject ? { slideId: currentId, objectId: selected.objectId, objectKind: selected.objectKind } : { slideId: currentId, componentId: selected.componentId }] : [];
@@ -6269,6 +6331,7 @@
       if (!document.fullscreenElement && document.body.classList.contains("present-only") && !enteredFromPresentationUrl) setPresentationMode(false);
     });
     undoButton.addEventListener("click", undo);
+    redoButton.addEventListener("click", redo);
     var toolFrame = 0;
     document.addEventListener("selectionchange", function() {
       if (editMode) formatting.remember();
@@ -6419,10 +6482,17 @@
     document.addEventListener("keydown", function(event) {
       if (document.querySelector("dialog[open]")) return;
       if (event.isComposing) return;
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === "z" && (!typingTarget(event.target) || stage.contains(event.target))) {
+      var historyKey = (event.metaKey || event.ctrlKey) && (!typingTarget(event.target) || stage.contains(event.target));
+      if (historyKey && !event.shiftKey && event.key.toLowerCase() === "z") {
         event.preventDefault();
         event.stopPropagation();
         undo();
+        return;
+      }
+      if (historyKey && (event.shiftKey && event.key.toLowerCase() === "z" || event.ctrlKey && !event.shiftKey && event.key.toLowerCase() === "y")) {
+        event.preventDefault();
+        event.stopPropagation();
+        redo();
         return;
       }
       if ((stage.contains(event.target) || event.target === document.body) && deletionKey(event) && deleteSelectedObject()) {
@@ -6449,6 +6519,14 @@
       if (editMode && transforms.nudge(event)) {
         event.preventDefault();
         event.stopPropagation();
+        return;
+      }
+      if (editMode && transforms.keys().length && event.key.indexOf("Arrow") === 0 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        event.stopPropagation();
+        requestAnimationFrame(function() {
+          transforms.nudge(event);
+        });
         return;
       }
       if (event.key === "Escape" && editMode && transforms.selected()) {
