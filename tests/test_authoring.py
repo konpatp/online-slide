@@ -1,4 +1,5 @@
 """Agent-authoring helpers share the build's rules and the renderer's metrics."""
+# test-tier: every-time
 import json
 from pathlib import Path
 import shutil
