@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -37,12 +38,22 @@ def check_sources(source: Path) -> tuple[dict, dict]:
     seed, _ = reconcile_state(seed, catalog)
     # Assets are owned by the contribution, not recovered by a central builder.
     assets = source / "assets"
+    bound = assets.resolve()
+    # One walk lists the plain files; resolving ~5,000 image paths one by one
+    # took ~1 s. Anything not plainly listed (symlinks, odd spellings) still
+    # gets the exact resolve-and-bound test.
+    plain = set()
+    for directory, _, names in os.walk(assets):
+        for name in names:
+            path = Path(directory) / name
+            if not path.is_symlink():
+                plain.add(path.relative_to(source).as_posix())
     for spec in catalog.values():
         for component in spec["components"].values():
-            if component["kind"] != "image":
+            if component["kind"] != "image" or os.path.normpath(component["src"]) in plain:
                 continue
             path = (source / component["src"]).resolve()
-            if not path.is_relative_to(assets.resolve()) or not path.is_file():
+            if not path.is_relative_to(bound) or not path.is_file():
                 raise ValueError(f"{spec['id']}: missing or out-of-bound source asset: {component['src']}")
     return catalog, seed
 

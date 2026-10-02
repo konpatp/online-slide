@@ -46,6 +46,29 @@ class SourceCheckTests(unittest.TestCase):
                 check_sources(source)
 
 
+    def test_asset_bounds_hold_on_the_fast_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp)
+            (source / 'slides').mkdir(); (source / 'assets').mkdir()
+            (source / 'assets/plot.png').write_bytes(b'png')
+            (source / 'outside.png').write_bytes(b'png')
+            spec = make_starter('evidence-figure', 'figure', '2026-01-01T00:00:00Z')
+            for src, ok in (('assets/plot.png', True), ('./assets/plot.png', True),
+                            ('assets/../outside.png', False), ('assets/missing.png', False)):
+                spec['components']['figure']['src'] = src
+                (source / 'slides/figure.json').write_text(json.dumps(spec))
+                if ok:
+                    check_sources(source)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'out-of-bound'):
+                        check_sources(source)
+            (source / 'assets/link.png').symlink_to(source / 'outside.png')
+            spec['components']['figure']['src'] = 'assets/link.png'
+            (source / 'slides/figure.json').write_text(json.dumps(spec))
+            with self.assertRaisesRegex(ValueError, 'out-of-bound'):
+                check_sources(source)
+
+
 @unittest.skipUnless(shutil.which('fc-match'), 'fontconfig resolves the renderer font')
 class FitTests(unittest.TestCase):
     def test_metrics_come_from_the_stylesheet(self):
