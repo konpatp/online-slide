@@ -55,3 +55,14 @@ test('redo keeps independent remote edits and refuses when the target changed',(
   assert.throws(()=>h.redo(s),/changed since the undo/);
   assert.equal(h.redoAvailable(),true);
 });
+
+test('a source change on one slide drops only the steps that edited it',()=>{
+  const h=new EditHistory();let s=seed();
+  h.begin(s);s.overlays={a:{title:{text:'on a'}}};h.commit(s);
+  h.begin(s);s.overlays={...s.overlays,b:{title:{text:'on b'}}};h.commit(s);
+  h.begin(s);s.hidden=['b'];h.commit(s);
+  h.dropTouching(['a']);
+  s=h.undo(s)!;assert.deepEqual(s.hidden,[]);
+  s=h.undo(s)!;assert.equal(s.overlays.b,undefined);assert.deepEqual(s.overlays.a,{title:{text:'on a'}});
+  assert.equal(h.available(),false);
+});

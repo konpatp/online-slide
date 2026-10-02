@@ -2,7 +2,8 @@ import {createViewport,CANONICAL_SLIDE_WIDTH,CANONICAL_SLIDE_HEIGHT} from './edi
 import {createTextRegions} from './editor/regions';
 import {createTransformLayer} from './editor/transform';
 import {createTableEditor} from './editor/tables';
-import {copy, snapshot, sameSnapshot, canonical} from './editor/snapshot';
+import {copy, snapshot, sameSnapshot, canonical, carryForward} from './editor/snapshot';
+import {createLiveUpdates} from './editor/live';
 import {SaveQueue} from './editor/save-queue';
 import {moveManyBefore} from './editor/order';
 import {createSidebarOrder} from './editor/sidebar-order';
@@ -323,6 +324,26 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   }
 
   var deferredRemoteRender = false;
+  /** Local edits survive a republished slide only if every source part they
+   * target (components, and the recipe data behind visual objects) is
+   * unchanged; textBoxes are human-owned and always safe. */
+  function rebaseSafe(base, local, remote) {
+    var safe = true;
+    Object.keys(remote.slideRevisions || {}).forEach(function(sid) {
+      if (!safe || base.slideRevisions[sid] === remote.slideRevisions[sid]) return;
+      var before = base.slides[sid], after = remote.slides[sid];
+      var edited = function(field) {return canonical((base[field] || {})[sid]) !== canonical((local[field] || {})[sid]);};
+      var editedTables = Object.keys(Object.assign({}, base.tables, local.tables)).some(function(key) {
+        return (key === sid || key.indexOf(sid + '::table::') === 0) && canonical((base.tables || {})[key]) !== canonical((local.tables || {})[key]);
+      });
+      if (!edited('overlays') && !edited('objects') && !editedTables) return;
+      if (!before || !after || !before.components || !after.components) { safe = false; return; }
+      var ids = Object.keys(Object.assign({}, (base.overlays || {})[sid], (local.overlays || {})[sid]));
+      if (ids.some(function(id) {return canonical(before.components[id]) !== canonical(after.components[id]);})) safe = false;
+      if ((edited('objects') || editedTables) && canonical(before.data) !== canonical(after.data)) safe = false;
+    });
+    return safe;
+  }
   var saves = new SaveQueue({
     current: function() {return state;},
     accepted: function() {return accepted;},
@@ -338,10 +359,11 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     acceptedResult: function(remote, current, clean) {
       // Acknowledging our own edit is not a reason to destroy live editor DOM.
       deferredRemoteRender = deferredRemoteRender || !sameSnapshot(state,current) || accepted.sourceRevision !== remote.sourceRevision;
-      if (accepted.sourceRevision !== remote.sourceRevision) editHistory.clear();
+      // Undo survives agent changes except on the slides the agent rewrote.
+      if (accepted.sourceRevision !== remote.sourceRevision) editHistory.dropTouching(sourceChangedSlides(accepted, remote));
       state = current; accepted = remote;
       if (clean) {
-        if (deferredRemoteRender && !composing) {deferredRemoteRender = false; render();}
+        if (deferredRemoteRender) renderWhenIdle();
         else {renderThumbs(); renderTools(); syncHistoryButtons();}
         setStatus('Saved','saved');
         try {localStorage.removeItem(draftKey);} catch (_) {}
@@ -349,6 +371,15 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       } else setStatus('Saving…','saving');
     },
     conflict: function(remote,message) {
+      // An agent republished a slide I am editing. When it changed none of
+      // the parts I edited, adopt its version and replay my edits on top.
+      if (/^source changed for edited slide/.test(message) && rebaseSafe(accepted, state, remote)) {
+        var merged = carryForward(accepted, state, remote);
+        accepted = remote; state = merged;
+        saves.enqueue(); renderWhenIdle();
+        showToast('This slide was updated by an agent; your edits were kept.');
+        return;
+      }
       deferredRemoteRender = false;
       retainDraft(message);
       accepted = remote; state = copy(remote); editHistory.clear(); selected = null;
@@ -409,7 +440,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     element.addEventListener("compositionend", function () {
       composing = false;
       element.dispatchEvent(new Event('input', {bubbles: true}));
-      if (deferredRemoteRender && !saves.pending && !saves.inFlight) {deferredRemoteRender = false; render();}
+      if (deferredRemoteRender && !saves.pending && !saves.inFlight) renderWhenIdle();
     });
     element.addEventListener("input", function (event) {
       if (!editMode || isLatex || composing || event.isComposing) return;
@@ -1386,12 +1417,68 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       showToast('Renderer updated. Your unsaved edits are retained on this device; download them before reloading.');
     } else if (!previewMode) location.reload();
   });
-  function checkRuntime() {
-    if (!previewMode && !document.hidden)
-      window.slidekitRequest('api/runtime', {cache:'no-store'}).catch(function() {});
+  // Live updates: the deck follows agent publications and other editors
+  // without a refresh. A renderer change still reloads (or retains a draft)
+  // through the runtime check every request performs.
+  var currentSignature = function() {
+    return canonical([state.slideRevisions[currentId], (state.overlays || {})[currentId], (state.objects || {})[currentId],
+      (state.textBoxes || {})[currentId], Object.keys(state.tables || {}).filter(function(key) {return key === currentId || key.indexOf(currentId + '::table::') === 0;})
+        .map(function(key) {return state.tables[key];}), state.hidden.indexOf(currentId) >= 0]);
+  };
+  /** Someone is mid-edit on this slide: changing it under them would lose their place. */
+  function busyEditing() {
+    var active = document.activeElement;
+    return composing || Boolean(active && active.isContentEditable && stage.contains(active)) ||
+      document.body.classList.contains('transform-moving') || document.body.classList.contains('transform-resizing') ||
+      document.body.classList.contains('selecting-table-range');
   }
-  window.addEventListener('focus', checkRuntime);
-  if (!previewMode) setInterval(checkRuntime, 30000);
+  /** The one path for deferred re-renders: now if nobody is mid-edit,
+   * otherwise when they leave the text they are editing. */
+  function renderWhenIdle() {
+    if (!busyEditing()) { deferredRemoteRender = false; render(); return; }
+    deferredRemoteRender = true;
+    var active = document.activeElement;
+    if (active) active.addEventListener('blur', function() {
+      setTimeout(function() { if (deferredRemoteRender && !busyEditing()) { deferredRemoteRender = false; render(); } }, 0);
+    }, {once: true});
+  }
+  /** Slides whose agent-owned source differs between two accepted decks. */
+  function sourceChangedSlides(before, remote) {
+    return Object.keys(remote.slideRevisions).filter(function(id) {
+      return before.slideRevisions[id] !== undefined && before.slideRevisions[id] !== remote.slideRevisions[id];
+    });
+  }
+  function pullRemote() {
+    // Our own save in flight will bring the newer deck back with its reply.
+    if (!state || saves.pending || saves.inFlight) return null;
+    return window.slidekitRequest('api/bootstrap?slide=' + encodeURIComponent(currentId), {cache: 'no-store'})
+      .then(function(response) {if (!response.ok) throw new Error('Could not refresh the deck'); return response.json();})
+      .then(function(payload) {
+        if (saves.pending || saves.inFlight) return;
+        var before = accepted, beforeCurrent = currentSignature();
+        var remote = acceptPayload(payload);
+        var changedSlides = sourceChangedSlides(before, remote);
+        var added = remote.order.filter(function(id) {return before.order.indexOf(id) < 0;});
+        // Unsaved local edits replay on top of the newer deck.
+        var merged = carryForward(before, state, remote);
+        if (changedSlides.length) editHistory.dropTouching(changedSlides);
+        accepted = remote; state = merged;
+        if (state.order.indexOf(currentId) < 0) currentId = state.order[0];
+        syncHistoryButtons();
+        if (currentSignature() !== beforeCurrent) renderWhenIdle();
+        else { renderThumbs(); renderTools(); updatePosition(); }
+        if (changedSlides.length || added.length)
+          showToast([added.length ? added.length + ' new slide' + (added.length > 1 ? 's' : '') : '',
+            changedSlides.length ? changedSlides.length + ' slide' + (changedSlides.length > 1 ? 's' : '') + ' updated' : '']
+            .filter(Boolean).join(' · ') + '.');
+      });
+  }
+  var live = createLiveUpdates({
+    token: function() {return accepted ? accepted.revision + ':' + accepted.sourceRevision : null;},
+    request: function(url) {return window.slidekitRequest(url, {cache: 'no-store'});},
+    changed: function() {return pullRemote();},
+    enabled: function() {return !previewMode && !window.slidekitRuntimeStale();}
+  });
   window.slidekitBoot.then(function (payload) {
     accepted = acceptPayload(payload);
     state = copy(payload);
@@ -1410,6 +1497,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       return;
     }
     creator.refresh();
+    live.start();
     var starter = new URLSearchParams(location.search).get('new');
     if (starter) {
       var cleanUrl = new URL(location.href); cleanUrl.searchParams.delete('new');

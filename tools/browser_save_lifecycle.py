@@ -78,7 +78,10 @@ def main():
                 held[1].fulfill(response=held[1].fetch())
                 page.wait_for_function("document.querySelector('[data-save-state]').textContent==='Saved'")
                 assert cell.text_content() == 'Local latest'
-                assert page.locator('[data-stage] [data-component-id="random-low"]').text_content() == 'Remote'
+                # The remote edit waits for the typist to stop, then renders.
+                assert page.evaluate("document.activeElement === document.querySelector('[data-stage] [data-component-id=\"random-mid\"]')"), 'typing focus was taken'
+                page.keyboard.press('Escape')
+                page.wait_for_function("document.querySelector('[data-stage] [data-component-id=\"random-low\"]')?.textContent === 'Remote'", timeout=5000)
                 assert not errors, errors
                 browser.close()
         finally:

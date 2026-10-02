@@ -29,6 +29,7 @@ Strict TypeScript owns the editing behavior:
 | `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
 | `editor/navigation.ts` | Visible-only audience sequence, counters, and hidden-route resolution |
 | `editor/order.ts`, `editor/sidebar-order.ts` | Identity-based reorder commands and SortableJS gesture adapter |
+| `editor/live.ts` | Live deck updates: a short version check (`/api/changes`) every 3 s while the tab is visible, immediate on focus/visibility/online, backing off while the server is unreachable |
 | `editor/history.ts`, `editor/keyboard.ts` | Bounded semantic undo and redo (a new edit ends the redo line; both refuse when another editor changed the values) and text-versus-object shortcut ownership |
 
 Acknowledging our own save does not reconstruct unchanged slide DOM. Equal
@@ -41,8 +42,25 @@ changed remote content/source requires rendering. The browser keeps the active
 editing node and caret; `browser_save_lifecycle.py` exercises delayed ACKs.
 Autosave does not clear undo history. An inverse edit is replayed over current
 state only if its affected values still match; unrelated remote changes survive.
-Explicit source changes and conflicts reset session history rather than allowing
-stale inverses. Deletion is a source-bound `deleted` tombstone on a component or
+A source change drops only the history entries touching the slides the agent
+rewrote; a conflict resets session history rather than allowing stale inverses.
+
+The open editor follows the deck live. `/api/changes` answers at once with the
+saved-state revision and the source revision (each check re-reads the source
+files), so the network is idle between checks and page tooling that waits for
+an idle network keeps working; a held long-poll broke that. When the version
+moved, the editor fetches the deck, replays unsaved local edits on top
+(`carryForward`), and redraws: slides it is not showing redraw at once, the
+shown slide waits until typing, composition, a drag or a range selection ends
+(`renderWhenIdle`), so focus and caret are never taken. If an agent republishes
+the slide being edited, the server refuses the save; the editor rebases the
+edits automatically when the agent changed none of the components (and, for
+object or table edits, none of the slide data) the edits target, otherwise it is
+an ordinary conflict with the draft retained. A renderer release is detected by
+the request layer's runtime header, which every check carries.
+`browser_live_updates.py` proves agent publication of the shown slide, another
+slide and a new slide, another editor's save, protected typing, the automatic
+rebase, the same-text conflict, kept undo and reconnecting across a restart. Deletion is a source-bound `deleted` tombstone on a component or
 visual object, not removal of scientific source. Renderers preserve layout and
 hide the deleted object in both editor and presentation modes.
 

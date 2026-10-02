@@ -221,6 +221,9 @@ def make_server(
             payload["slides"] = sources.catalog
         return payload
 
+    def version() -> dict[str, Any]:
+        return {"revision": state["revision"], "sourceRevision": sources.revision, "runtimeRevision": asset_revision}
+
     def bootstrap(requested):
         catalog = sources.catalog
         payload = deck_payload(compact=True)
@@ -268,8 +271,18 @@ def make_server(
         def do_GET(self) -> None:  # noqa: N802
             if not self.runtime_matches():
                 return
-            if urlsplit(self.path).path == '/api/runtime':
-                response(self, 200, {'runtimeRevision': asset_revision}, 'no-store')
+            if urlsplit(self.path).path == '/api/changes':
+                # Live updates: a tiny, immediate version check. Browsers poll
+                # it while visible; the stat signature makes an unchanged deck
+                # nearly free, and published slide files are noticed here.
+                try:
+                    with lock:
+                        refresh_sources()
+                        current = version()
+                except (ContractError, OSError, json.JSONDecodeError) as exc:
+                    response(self, 503, {"error": f"source contract failed: {exc}"})
+                    return
+                response(self, 200, {**current, 'token': '{revision}:{sourceRevision}'.format(**current)}, 'no-store')
                 return
             route = urlsplit(self.path).path
             query = parse_qs(urlsplit(self.path).query)

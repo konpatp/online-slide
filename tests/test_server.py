@@ -4,6 +4,7 @@ import gzip
 import re
 import tempfile
 import threading
+import time
 import shutil
 import unittest
 import uuid
@@ -98,11 +99,11 @@ class ServerProtocolTests(unittest.TestCase):
 
     def test_runtime_fence_rejects_stale_source_reads_and_edits(self):
         _, before = self.get('/api/deck-state')
-        with self.get_response('/api/runtime') as reply:
+        with self.get_response('/api/changes') as reply:
             revision = reply.headers['X-Slidekit-Runtime']
             self.assertEqual(json.load(reply)['runtimeRevision'], revision)
         self.assertEqual(before['runtimeRevision'], revision)
-        for method, path in [('GET', '/api/bootstrap'), ('POST', '/api/deck-state')]:
+        for method, path in [('GET', '/api/bootstrap'), ('GET', '/api/changes'), ('POST', '/api/deck-state')]:
             request = Request(self.base + path, method=method,
                               data=b'{}' if method == 'POST' else None,
                               headers={'X-Slidekit-Runtime': 'previous-renderer'})
@@ -206,6 +207,23 @@ class ServerProtocolTests(unittest.TestCase):
                       {'plotly-basic.min.js', 'plotly.min.js'})
         with self.get_response('/plotly-basic.min.js') as response:
             self.assertIn(b'plotly.js (basic - minified) v2.35.2', response.read()[:200])
+
+    def test_live_version_reflects_saves_and_published_sources_at_once(self):
+        _, first = self.get('/api/changes')
+        self.assertEqual(first['token'], f"{first['revision']}:{first['sourceRevision']}")
+        _, state = self.get('/api/deck-state')
+        changed = self.mutable_snapshot(state); changed['hidden'] = ['mock-angle-evidence']
+        self.merge_save(state, changed)
+        _, saved = self.get('/api/changes')
+        self.assertEqual(saved['revision'], first['revision'] + 1)
+        # A published source file is noticed by the check itself.
+        source = next(self.slides_path.glob('*.json'))
+        spec = json.loads(source.read_text()); spec['components'][spec['headline']]['text'] = 'Published by an agent'
+        source.write_text(json.dumps(spec))
+        _, published = self.get('/api/changes')
+        self.assertNotEqual(published['sourceRevision'], saved['sourceRevision'])
+        with self.get_response('/api/changes') as reply:
+            self.assertEqual(reply.headers['Cache-Control'], 'no-store')
 
     def test_static_page_catalog_and_state_are_available(self):
         status, state = self.get("/api/deck-state")

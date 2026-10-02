@@ -1,5 +1,5 @@
 import type {Snapshot} from './model';
-import {snapshot, sameSnapshot, carryForward} from './snapshot';
+import {snapshot, sameSnapshot, carryForward, canonical} from './snapshot';
 
 interface Entry {before: Snapshot; after: Snapshot; group?: string; time: number}
 /** Session-local undo and redo, independent of save ACKs. Store only
@@ -34,6 +34,17 @@ export class EditHistory {
   available(): boolean {return Boolean(this.pending || this.entries.length);}
   redoAvailable(): boolean {return !this.pending && this.redone.length > 0;}
   clear(): void {this.entries=[];this.redone=[];this.pending=null;}
+  /** Forget only steps that edited slides whose source just changed (an agent
+   * republished them); every other step stays undoable. */
+  dropTouching(slideIds: string[]): void {
+    const touched = new Set(slideIds);
+    const touches = (entry: Entry) => [...touched].some(id => (['overlays', 'objects', 'textBoxes'] as const)
+      .some(field => canonical(entry.before[field]?.[id]) !== canonical(entry.after[field]?.[id])) ||
+      Object.keys({...entry.before.tables, ...entry.after.tables}).some(key => (key === id || key.startsWith(id + '::table::')) &&
+        canonical(entry.before.tables?.[key]) !== canonical(entry.after.tables?.[key])));
+    this.entries = this.entries.filter(entry => !touches(entry));
+    this.redone = this.redone.filter(entry => !touches(entry));
+  }
   undo<T extends Snapshot>(current: T): T | null {
     this.commit(current);
     const entry = this.entries[this.entries.length-1];

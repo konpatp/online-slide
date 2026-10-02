@@ -1478,6 +1478,53 @@
     };
   }
 
+  // src/editor/live.ts
+  var LIVE_INTERVAL_MS = 3e3;
+  function createLiveUpdates(host, interval = LIVE_INTERVAL_MS) {
+    let timer, checking = false, failures = 0;
+    function schedule(delay) {
+      clearTimeout(timer);
+      if (host.enabled() && !document.hidden) timer = setTimeout(check, delay);
+    }
+    async function check() {
+      if (checking || !host.enabled() || document.hidden) return;
+      const token = host.token();
+      if (!token) {
+        schedule(500);
+        return;
+      }
+      checking = true;
+      let delay = interval;
+      try {
+        const response = await host.request("api/changes");
+        if (!response.ok) throw new Error("live update status " + response.status);
+        const version2 = await response.json();
+        failures = 0;
+        if (version2.token !== host.token()) await host.changed(version2);
+      } catch {
+        failures++;
+        delay = Math.min(3e4, interval * 2 ** Math.min(failures - 1, 4));
+      } finally {
+        checking = false;
+        schedule(delay);
+      }
+    }
+    const now = () => {
+      clearTimeout(timer);
+      check();
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) now();
+      else clearTimeout(timer);
+    });
+    window.addEventListener("focus", now);
+    window.addEventListener("online", () => {
+      failures = 0;
+      now();
+    });
+    return { start: now };
+  }
+
   // src/editor/save-queue.ts
   var SaveQueue = class {
     constructor(host) {
@@ -4388,6 +4435,14 @@
       this.redone = [];
       this.pending = null;
     }
+    /** Forget only steps that edited slides whose source just changed (an agent
+     * republished them); every other step stays undoable. */
+    dropTouching(slideIds) {
+      const touched = new Set(slideIds);
+      const touches = (entry) => [...touched].some((id) => ["overlays", "objects", "textBoxes"].some((field) => canonical(entry.before[field]?.[id]) !== canonical(entry.after[field]?.[id])) || Object.keys({ ...entry.before.tables, ...entry.after.tables }).some((key) => (key === id || key.startsWith(id + "::table::")) && canonical(entry.before.tables?.[key]) !== canonical(entry.after.tables?.[key])));
+      this.entries = this.entries.filter((entry) => !touches(entry));
+      this.redone = this.redone.filter((entry) => !touches(entry));
+    }
     undo(current) {
       this.commit(current);
       const entry = this.entries[this.entries.length - 1];
@@ -5576,6 +5631,30 @@
       saves.enqueue();
     }
     var deferredRemoteRender = false;
+    function rebaseSafe(base, local, remote) {
+      var safe = true;
+      Object.keys(remote.slideRevisions || {}).forEach(function(sid) {
+        if (!safe || base.slideRevisions[sid] === remote.slideRevisions[sid]) return;
+        var before = base.slides[sid], after = remote.slides[sid];
+        var edited = function(field) {
+          return canonical((base[field] || {})[sid]) !== canonical((local[field] || {})[sid]);
+        };
+        var editedTables = Object.keys(Object.assign({}, base.tables, local.tables)).some(function(key) {
+          return (key === sid || key.indexOf(sid + "::table::") === 0) && canonical((base.tables || {})[key]) !== canonical((local.tables || {})[key]);
+        });
+        if (!edited("overlays") && !edited("objects") && !editedTables) return;
+        if (!before || !after || !before.components || !after.components) {
+          safe = false;
+          return;
+        }
+        var ids = Object.keys(Object.assign({}, (base.overlays || {})[sid], (local.overlays || {})[sid]));
+        if (ids.some(function(id) {
+          return canonical(before.components[id]) !== canonical(after.components[id]);
+        })) safe = false;
+        if ((edited("objects") || editedTables) && canonical(before.data) !== canonical(after.data)) safe = false;
+      });
+      return safe;
+    }
     var saves = new SaveQueue({
       current: function() {
         return state;
@@ -5600,14 +5679,12 @@
       },
       acceptedResult: function(remote, current, clean) {
         deferredRemoteRender = deferredRemoteRender || !sameSnapshot(state, current) || accepted.sourceRevision !== remote.sourceRevision;
-        if (accepted.sourceRevision !== remote.sourceRevision) editHistory.clear();
+        if (accepted.sourceRevision !== remote.sourceRevision) editHistory.dropTouching(sourceChangedSlides(accepted, remote));
         state = current;
         accepted = remote;
         if (clean) {
-          if (deferredRemoteRender && !composing) {
-            deferredRemoteRender = false;
-            render();
-          } else {
+          if (deferredRemoteRender) renderWhenIdle();
+          else {
             renderThumbs();
             renderTools();
             syncHistoryButtons();
@@ -5621,6 +5698,15 @@
         } else setStatus("Saving\u2026", "saving");
       },
       conflict: function(remote, message) {
+        if (/^source changed for edited slide/.test(message) && rebaseSafe(accepted, state, remote)) {
+          var merged = carryForward(accepted, state, remote);
+          accepted = remote;
+          state = merged;
+          saves.enqueue();
+          renderWhenIdle();
+          showToast("This slide was updated by an agent; your edits were kept.");
+          return;
+        }
         deferredRemoteRender = false;
         retainDraft(message);
         accepted = remote;
@@ -5689,10 +5775,7 @@
       element.addEventListener("compositionend", function() {
         composing = false;
         element.dispatchEvent(new Event("input", { bubbles: true }));
-        if (deferredRemoteRender && !saves.pending && !saves.inFlight) {
-          deferredRemoteRender = false;
-          render();
-        }
+        if (deferredRemoteRender && !saves.pending && !saves.inFlight) renderWhenIdle();
       });
       element.addEventListener("input", function(event) {
         if (!editMode || isLatex || composing || event.isComposing) return;
@@ -6893,13 +6976,92 @@
         showToast("Renderer updated. Your unsaved edits are retained on this device; download them before reloading.");
       } else if (!previewMode) location.reload();
     });
-    function checkRuntime() {
-      if (!previewMode && !document.hidden)
-        window.slidekitRequest("api/runtime", { cache: "no-store" }).catch(function() {
-        });
+    var currentSignature = function() {
+      return canonical([
+        state.slideRevisions[currentId],
+        (state.overlays || {})[currentId],
+        (state.objects || {})[currentId],
+        (state.textBoxes || {})[currentId],
+        Object.keys(state.tables || {}).filter(function(key) {
+          return key === currentId || key.indexOf(currentId + "::table::") === 0;
+        }).map(function(key) {
+          return state.tables[key];
+        }),
+        state.hidden.indexOf(currentId) >= 0
+      ]);
+    };
+    function busyEditing() {
+      var active = document.activeElement;
+      return composing || Boolean(active && active.isContentEditable && stage.contains(active)) || document.body.classList.contains("transform-moving") || document.body.classList.contains("transform-resizing") || document.body.classList.contains("selecting-table-range");
     }
-    window.addEventListener("focus", checkRuntime);
-    if (!previewMode) setInterval(checkRuntime, 3e4);
+    function renderWhenIdle() {
+      if (!busyEditing()) {
+        deferredRemoteRender = false;
+        render();
+        return;
+      }
+      deferredRemoteRender = true;
+      var active = document.activeElement;
+      if (active) active.addEventListener("blur", function() {
+        setTimeout(function() {
+          if (deferredRemoteRender && !busyEditing()) {
+            deferredRemoteRender = false;
+            render();
+          }
+        }, 0);
+      }, { once: true });
+    }
+    function sourceChangedSlides(before, remote) {
+      return Object.keys(remote.slideRevisions).filter(function(id) {
+        return before.slideRevisions[id] !== void 0 && before.slideRevisions[id] !== remote.slideRevisions[id];
+      });
+    }
+    function pullRemote() {
+      if (!state || saves.pending || saves.inFlight) return null;
+      return window.slidekitRequest("api/bootstrap?slide=" + encodeURIComponent(currentId), { cache: "no-store" }).then(function(response) {
+        if (!response.ok) throw new Error("Could not refresh the deck");
+        return response.json();
+      }).then(function(payload) {
+        if (saves.pending || saves.inFlight) return;
+        var before = accepted, beforeCurrent = currentSignature();
+        var remote = acceptPayload(payload);
+        var changedSlides = sourceChangedSlides(before, remote);
+        var added = remote.order.filter(function(id) {
+          return before.order.indexOf(id) < 0;
+        });
+        var merged = carryForward(before, state, remote);
+        if (changedSlides.length) editHistory.dropTouching(changedSlides);
+        accepted = remote;
+        state = merged;
+        if (state.order.indexOf(currentId) < 0) currentId = state.order[0];
+        syncHistoryButtons();
+        if (currentSignature() !== beforeCurrent) renderWhenIdle();
+        else {
+          renderThumbs();
+          renderTools();
+          updatePosition();
+        }
+        if (changedSlides.length || added.length)
+          showToast([
+            added.length ? added.length + " new slide" + (added.length > 1 ? "s" : "") : "",
+            changedSlides.length ? changedSlides.length + " slide" + (changedSlides.length > 1 ? "s" : "") + " updated" : ""
+          ].filter(Boolean).join(" \xB7 ") + ".");
+      });
+    }
+    var live = createLiveUpdates({
+      token: function() {
+        return accepted ? accepted.revision + ":" + accepted.sourceRevision : null;
+      },
+      request: function(url) {
+        return window.slidekitRequest(url, { cache: "no-store" });
+      },
+      changed: function() {
+        return pullRemote();
+      },
+      enabled: function() {
+        return !previewMode && !window.slidekitRuntimeStale();
+      }
+    });
     window.slidekitBoot.then(function(payload) {
       accepted = acceptPayload(payload);
       state = copy(payload);
@@ -6919,6 +7081,7 @@
         return;
       }
       creator.refresh();
+      live.start();
       var starter = new URLSearchParams(location.search).get("new");
       if (starter) {
         var cleanUrl = new URL(location.href);
