@@ -1,0 +1,7 @@
+{
+  "schema": "online-slide/toolkit@1",
+  "description": "What a caller needs to run this toolkit's Python tools (build_deck.py, tools/*.py).",
+  "python": {
+    "modules": ["PIL", "playwright"]
+  }
+}

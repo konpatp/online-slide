@@ -430,13 +430,20 @@ canvas containment, fitting, images, and math; the author still inspects the
 PNG for scientific meaning and readability. Full interaction tests belong at
 shared-editor changes, not every content edit.
 
-Copy the closest file from [`slides/`](slides/) and change:
+Start from a starter rather than copying an old slide:
+`slide_templates.make_starter(recipe, id, created_at, after, authoring=True,
+footer=True)` returns a valid source for every recipe, including a
+`chart-panels` starter with a named chart and annotation (the lab's
+`presentation.py new` writes it). Then change the semantic `components` and the
+recipe's `data`; keep `id` permanent and set `placement.after` to the intended
+narrative anchor.
 
-- `id` to a new permanent id;
-- `createdAt` for deterministic simultaneous insertion;
-- `placement.after` to the intended narrative anchor;
-- semantic `components`; and
-- the selected recipe's `data`.
+Before any render, `build_deck.check_sources(deck)` applies every rule the
+build applies, and `slidekit.fit.headline_fit(text)` predicts the headline's
+line count and one-line capacity from `public/styles.css` and the font this
+host's Chromium uses (an estimate for that renderer, proved against real line
+boxes by `tools/browser_text_fit.py`). `toolkit.json` declares the Python
+modules a caller's interpreter needs to run these tools.
 
 Do not edit `data/live-state.json`. The service owns reconciliation and the
 human owns the accepted order.

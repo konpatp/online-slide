@@ -23,12 +23,14 @@ def copy_build_tree(source: Path, destination: Path, **options) -> None:
             directory.chmod(0o755)
 
 
-def build(source: Path, output: Path) -> dict:
-    source, output = source.resolve(), output.resolve()
-    if output == source or source.is_relative_to(output):
-        raise ValueError("output must be a separate generated directory")
-    if (output / "data" / "live-state.json").exists():
-        raise ValueError("refusing to rebuild over live authoring state")
+def check_sources(source: Path) -> tuple[dict, dict]:
+    """Every source rule the build enforces, without writing anything.
+
+    Returns the validated catalog and reconciled seed. ``build`` calls this
+    first, and authoring tools call it directly, so a fast check and the build
+    can never disagree about what is valid.
+    """
+    source = source.resolve()
     catalog = load_catalog(source / "slides")
     seed_path = source / "seed-state.json"
     seed = json.loads(seed_path.read_text()) if seed_path.exists() else empty_state()
@@ -41,7 +43,18 @@ def build(source: Path, output: Path) -> dict:
                 continue
             path = (source / component["src"]).resolve()
             if not path.is_relative_to(assets.resolve()) or not path.is_file():
-                raise ValueError(f"missing or out-of-bound source asset: {component['src']}")
+                raise ValueError(f"{spec['id']}: missing or out-of-bound source asset: {component['src']}")
+    return catalog, seed
+
+
+def build(source: Path, output: Path) -> dict:
+    source, output = source.resolve(), output.resolve()
+    if output == source or source.is_relative_to(output):
+        raise ValueError("output must be a separate generated directory")
+    if (output / "data" / "live-state.json").exists():
+        raise ValueError("refusing to rebuild over live authoring state")
+    catalog, seed = check_sources(source)
+    assets = source / "assets"
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".slide-build-", dir=output.parent) as temp:
         staging = Path(temp) / "site"
