@@ -536,3 +536,23 @@ body.preview-only .stage-loading { display: none; }
 /* Table cell ranges. */
 .edit-mode .table-range-cell { background-image: linear-gradient(rgba(47, 111, 237, .16), rgba(47, 111, 237, .16)) !important; box-shadow: inset 0 0 0 2px rgba(47, 111, 237, .75); }
 body.selecting-table-range, body.selecting-table-range * { user-select: none !important; cursor: cell !important; }
+
+/* Sliders keep their historical 600px default; layouts may narrow them. */
+.gallery-slider { width: var(--gallery-slider-width, 600px); max-width: 70vw; accent-color: #2f6fed; }
+
+/* Grouped cells (data.cellImages): each grid cell is one condition's small
+   image sub-grid with its caption beneath. Tighter frame than the default
+   gallery so the evidence, not chrome, takes the canvas height. */
+/* Selections are stated by the controls themselves; the summary would only repeat them. */
+.hierarchical-gallery-body.grouped-gallery { top: 14.5%; bottom: 8.5%; grid-template-columns: minmax(0, 1fr); grid-template-rows: 64px minmax(0, 1fr); gap: 10px 28px; }
+.grouped-gallery .gallery-summary { display: none; }
+.grouped-gallery .gallery-controls { align-items: center; gap: 48px; --gallery-slider-width: 440px; }
+.grouped-gallery .gallery-selector { display: flex; align-items: center; gap: 14px; }
+.grouped-gallery .gallery-option-row { align-items: center; gap: 16px; }
+.grouped-gallery .gallery-option-row output { min-width: 8.5em; font-size: 28px; font-weight: 800; color: #24364f; white-space: nowrap; }
+.grouped-gallery .hierarchical-gallery-grid { grid-template-columns: minmax(170px, 10%) repeat(var(--gallery-columns), minmax(0, 1fr)); grid-template-rows: minmax(52px, auto) repeat(var(--gallery-rows), minmax(0, 1fr)); gap: 14px 22px; }
+.gallery-cell-group { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; gap: 6px; }
+.gallery-group-images { height: 100%; max-width: 100%; min-height: 0; aspect-ratio: var(--group-columns) / var(--group-rows); display: grid; grid-template-columns: repeat(var(--group-columns), minmax(0, 1fr)); grid-template-rows: repeat(var(--group-rows), minmax(0, 1fr)); gap: 4px; }
+.gallery-group-images .gallery-cell { width: 100%; height: 100%; border-radius: .45cqw; box-shadow: none; }
+.gallery-group-caption-frame { width: 100%; height: 40px; display: flex; align-items: center; justify-content: center; }
+.gallery-group-caption { color: #24364f; font-size: 28px; font-weight: 800; white-space: nowrap; font-variant-numeric: tabular-nums; }

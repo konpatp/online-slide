@@ -1105,6 +1105,7 @@
       var body = document.createElement("div");
       body.className = "recipe-body hierarchical-gallery-body";
       if (slide.data.paired) body.classList.add("paired-gallery");
+      if (slide.data.cellImages) body.classList.add("grouped-gallery");
       if (!slide.data.selectors.length && Object.values(slide.data.pageSets).every(function(pages) {
         return pages.length === 1;
       })) body.classList.add("static-gallery");
@@ -1293,9 +1294,39 @@
           if (row.detail) frame.appendChild(editableText(slide, row.detail, "div", "gallery-row-detail"));
           grid.appendChild(frame);
           bindTextRegion(slide, row.label, label, frame, { alwaysFit: true, fitMode: "gallery-identity-region", minSize: 30 });
-          row.images.forEach(function(componentId) {
-            grid.appendChild(galleryImage(slide, componentId));
-          });
+          var group2 = slide.data.cellImages;
+          if (!group2) {
+            row.images.forEach(function(componentId) {
+              grid.appendChild(galleryImage(slide, componentId));
+            });
+            return;
+          }
+          var size = group2.columns * group2.rows;
+          for (var start = 0; start < row.images.length; start += size) {
+            var ids = row.images.slice(start, start + size);
+            var cell = document.createElement("div");
+            cell.className = "gallery-cell-group";
+            var tiles = document.createElement("div");
+            tiles.className = "gallery-group-images";
+            tiles.style.setProperty("--group-columns", String(group2.columns));
+            tiles.style.setProperty("--group-rows", String(group2.rows));
+            ids.forEach(function(componentId) {
+              var tile = galleryImage(slide, componentId);
+              tile.querySelector(".gallery-caption-frame")?.remove();
+              tiles.appendChild(tile);
+            });
+            cell.appendChild(tiles);
+            var captionId = effectiveComponent(slide, ids[0]).caption;
+            if (captionId) {
+              var captionFrame = document.createElement("div");
+              captionFrame.className = "gallery-group-caption-frame";
+              var caption = editableText(slide, captionId, "div", "gallery-group-caption");
+              captionFrame.appendChild(caption);
+              cell.appendChild(captionFrame);
+              bindTextRegion(slide, captionId, caption, captionFrame, { alwaysFit: true, minSize: 22, fitMode: "group-caption" });
+            }
+            grid.appendChild(cell);
+          }
         });
         viewHost.appendChild(grid);
       }
@@ -1345,9 +1376,7 @@
           input.step = "1";
           input.value = String(Math.max(0, selector.options.findIndex((option) => option.value === selection[selector.id])));
           input.setAttribute("aria-label", effectiveComponent(slide, selector.label).text);
-          input.style.width = "600px";
-          input.style.maxWidth = "70vw";
-          input.style.accentColor = "#2f6fed";
+          input.className = "gallery-slider";
           var output = document.createElement("output");
           showValue2();
           var lastValue = input.value;

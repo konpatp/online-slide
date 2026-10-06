@@ -6,6 +6,7 @@ function hierarchicalGallery(canvas, slide) {
   var body = document.createElement("div");
   body.className = "recipe-body hierarchical-gallery-body";
   if (slide.data.paired) body.classList.add("paired-gallery");
+  if (slide.data.cellImages) body.classList.add("grouped-gallery");
   if (!slide.data.selectors.length && Object.values(slide.data.pageSets).every(function (pages) { return pages.length === 1; })) body.classList.add("static-gallery");
   var controls = document.createElement("div");
   controls.className = "gallery-controls";
@@ -153,7 +154,35 @@ function hierarchicalGallery(canvas, slide) {
       if (row.detail) frame.appendChild(editableText(slide,row.detail,"div","gallery-row-detail"));
       grid.appendChild(frame);
       bindTextRegion(slide,row.label,label,frame,{alwaysFit:true,fitMode:"gallery-identity-region",minSize:30});
-      row.images.forEach(function (componentId) { grid.appendChild(galleryImage(slide, componentId)); });
+      var group = slide.data.cellImages;
+      if (!group) {
+        row.images.forEach(function (componentId) { grid.appendChild(galleryImage(slide, componentId)); });
+        return;
+      }
+      // Grouped cells: consecutive images form one condition's sub-grid; the
+      // first image's caption labels the whole cell below it, never over it.
+      var size = group.columns * group.rows;
+      for (var start = 0; start < row.images.length; start += size) {
+        var ids = row.images.slice(start, start + size);
+        var cell = document.createElement("div"); cell.className = "gallery-cell-group";
+        var tiles = document.createElement("div"); tiles.className = "gallery-group-images";
+        tiles.style.setProperty("--group-columns", String(group.columns));
+        tiles.style.setProperty("--group-rows", String(group.rows));
+        ids.forEach(function (componentId) {
+          var tile = galleryImage(slide, componentId);
+          tile.querySelector(".gallery-caption-frame")?.remove();
+          tiles.appendChild(tile);
+        });
+        cell.appendChild(tiles);
+        var captionId = effectiveComponent(slide, ids[0]).caption;
+        if (captionId) {
+          var captionFrame = document.createElement("div"); captionFrame.className = "gallery-group-caption-frame";
+          var caption = editableText(slide, captionId, "div", "gallery-group-caption");
+          captionFrame.appendChild(caption); cell.appendChild(captionFrame);
+          bindTextRegion(slide, captionId, caption, captionFrame, {alwaysFit:true, minSize:22, fitMode:"group-caption"});
+        }
+        grid.appendChild(cell);
+      }
     });
     viewHost.appendChild(grid);
   }

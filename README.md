@@ -197,6 +197,14 @@ preserved. Clicking or keyboard-activating a pair opens both original display
 sources together in a native dialog; Escape returns to the unchanged wall.
 The renderer never selects or reorders scientific samples. Authors must verify
 the matched identities and disclose any ranked selection.
+
+For a condition grid whose cells each hold several samples (for example rows of
+methods × columns of model sizes, four seeds per cell), set
+`data.cellImages: {"columns": 2, "rows": 2}`. Every consecutive group of
+`columns × rows` images in a row forms one cell's sub-grid; the first image's
+caption labels the cell beneath it rather than covering the evidence. The
+layout uses a tighter frame and hides the summary, because its sliders and
+buttons already state the selection. It cannot combine with `paired`.
 | `target-accessibility` | Two qualitative target decompositions with nested B4/R3 reach | Aligned component bars, stable reach spans, one shared legend, KaTeX decomposition |
 
 The source gives scientific intent and data. The recipe owns repeated spatial

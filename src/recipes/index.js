@@ -24,7 +24,7 @@ global.renderScientificFacetControls = function (host, slide, selectors, selecti
       input.min='0'; input.max=String(selector.options.length-1); input.step='1';
       input.value=String(Math.max(0,selector.options.findIndex(option=>option.value===selection[selector.id])));
       input.setAttribute('aria-label',effectiveComponent(slide,selector.label).text);
-      input.style.width='600px'; input.style.maxWidth='70vw'; input.style.accentColor='#2f6fed';
+      input.className='gallery-slider';
       var output=document.createElement('output');
       function showValue() {
         var option=selector.options[Number(input.value)];

@@ -468,6 +468,14 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         if data.get("paired"):
             _require(data["paired"] is True and len(columns) % 2 == 0,
                      f"{source}: paired gallery requires an even number of columns")
+        group = data.get("cellImages")
+        per_cell = 1
+        if group is not None:
+            _require(not data.get("paired"), f"{source}: cellImages cannot combine with paired")
+            _require(isinstance(group, dict) and set(group) == {"columns", "rows"}
+                     and all(isinstance(group[k], int) and 1 <= group[k] <= 4 for k in group),
+                     f"{source}: cellImages needs integer columns and rows in 1..4")
+            per_cell = group["columns"] * group["rows"]
         _require(isinstance(selectors, list), f"{source}: gallery selectors must be a list")
         _require(isinstance(views, list) and views, f"{source}: gallery needs views")
         _require(isinstance(page_sets, dict) and page_sets, f"{source}: gallery needs pageSets")
@@ -510,12 +518,14 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                     if row.get("detail"):
                         ref(row["detail"], "gallery row detail")
                     images = row.get("images")
-                    _require(isinstance(images, list) and 0 < len(images) <= len(columns),
+                    _require(isinstance(images, list) and 0 < len(images) <= len(columns) * per_cell,
                              f"{source}: gallery row {row_index} must fit the declared columns")
+                    _require(len(images) % per_cell == 0,
+                             f"{source}: grouped gallery row {row_index} must fill whole cells")
                     if data.get("paired"):
                         _require(len(images) % 2 == 0,
                                  f"{source}: paired gallery cannot leave an unmatched image")
-                    _require(len(images) == len(columns) or row_index == len(rows) - 1,
+                    _require(len(images) == len(columns) * per_cell or row_index == len(rows) - 1,
                              f"{source}: only the final gallery row may be partial")
                     for cell_index, component_id in enumerate(images):
                         ref(component_id,
