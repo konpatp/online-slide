@@ -27,3 +27,22 @@ def test_grouped_cells_stay_inside_their_grid_cell_and_caption_does_not_cover_im
         })""")
         assert ok
         browser.close()
+
+
+def test_grouped_controls_fit_two_sliders_and_buttons_inside_the_stage():
+    css = (Path(__file__).resolve().parents[1]/'public/styles.css').read_text()
+    slider = ('<div class="gallery-selector"><span class="gallery-selector-label">Inference budget</span>'
+              '<div class="gallery-option-row"><input type="range" class="gallery-slider"><output>4,096 GFLOPs</output></div></div>')
+    buttons = ('<div class="gallery-selector"><span class="gallery-selector-label">Guidance</span>'
+               '<div class="gallery-option-row"><button>CFG off</button><button>Best CFG</button></div></div>')
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={'width': 1920, 'height': 1080})
+        page.set_content('<style>'+css+'</style><div class="hierarchical-gallery-body grouped-gallery" '
+            'style="position:absolute;left:96px;right:96px"><div class="gallery-controls">' + slider*2 + buttons +
+            '</div><div class="gallery-summary"></div><div class="hierarchical-gallery-view"></div></div>')
+        right = page.evaluate("""() => Math.max(...[...document.querySelectorAll('.gallery-controls *')]
+            .map(e => e.getBoundingClientRect().right))""")
+        widths = page.locator('.gallery-slider').evaluate_all('ns => ns.map(n => n.getBoundingClientRect().width)')
+        assert right <= 1920 - 96 + 1 and min(widths) >= 160
+        browser.close()

@@ -546,7 +546,12 @@ body.selecting-table-range, body.selecting-table-range * { user-select: none !im
 /* Selections are stated by the controls themselves; the summary would only repeat them. */
 .hierarchical-gallery-body.grouped-gallery { top: 14.5%; bottom: 8.5%; grid-template-columns: minmax(0, 1fr); grid-template-rows: 64px minmax(0, 1fr); gap: 10px 28px; }
 .grouped-gallery .gallery-summary { display: none; }
-.grouped-gallery .gallery-controls { align-items: center; gap: 48px; --gallery-slider-width: 440px; }
+.grouped-gallery .gallery-controls { align-items: center; gap: 40px; min-width: 0; }
+/* Sliders take the width the button groups leave; buttons keep their natural size. */
+.grouped-gallery .gallery-selector { flex: 0 0 auto; min-width: 0; }
+.grouped-gallery .gallery-selector:has(.gallery-slider) { flex: 1 1 0; }
+.grouped-gallery .gallery-option-row { min-width: 0; flex: 1 1 auto; }
+.grouped-gallery .gallery-slider { width: auto; flex: 1 1 auto; min-width: 160px; max-width: 520px; }
 .grouped-gallery .gallery-selector { display: flex; align-items: center; gap: 14px; }
 .grouped-gallery .gallery-option-row { align-items: center; gap: 16px; }
 .grouped-gallery .gallery-option-row output { min-width: 8.5em; font-size: 28px; font-weight: 800; color: #24364f; white-space: nowrap; }
