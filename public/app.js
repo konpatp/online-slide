@@ -1481,13 +1481,13 @@
   // src/editor/live.ts
   var LIVE_INTERVAL_MS = 3e3;
   function createLiveUpdates(host, interval = LIVE_INTERVAL_MS) {
-    let timer, checking = false, failures = 0;
+    let timer, checking = false, failures = 0, stopped = false;
     function schedule(delay) {
       clearTimeout(timer);
-      if (host.enabled() && !document.hidden) timer = setTimeout(check, delay);
+      if (!stopped && host.enabled() && !document.hidden) timer = setTimeout(check, delay);
     }
     async function check() {
-      if (checking || !host.enabled() || document.hidden) return;
+      if (stopped || checking || !host.enabled() || document.hidden) return;
       const token = host.token();
       if (!token) {
         schedule(500);
@@ -1500,7 +1500,7 @@
         if (!response.ok) throw new Error("live update status " + response.status);
         const version2 = await response.json();
         failures = 0;
-        if (version2.token !== host.token()) await host.changed(version2);
+        if (host.token() === token && version2.token !== token) await host.changed(version2);
       } catch {
         failures++;
         delay = Math.min(3e4, interval * 2 ** Math.min(failures - 1, 4));
@@ -1522,7 +1522,10 @@
       failures = 0;
       now();
     });
-    return { start: now };
+    return { start: now, stop: () => {
+      stopped = true;
+      clearTimeout(timer);
+    } };
   }
 
   // src/editor/save-queue.ts
@@ -7017,12 +7020,12 @@
       });
     }
     function pullRemote() {
-      if (!state || saves.pending || saves.inFlight) return null;
+      if (!state || saves.pending || saves.inFlight || creator && creator.busy()) return null;
       return window.slidekitRequest("api/bootstrap?slide=" + encodeURIComponent(currentId), { cache: "no-store" }).then(function(response) {
         if (!response.ok) throw new Error("Could not refresh the deck");
         return response.json();
       }).then(function(payload) {
-        if (saves.pending || saves.inFlight) return;
+        if (saves.pending || saves.inFlight || creator && creator.busy()) return;
         var before = accepted, beforeCurrent = currentSignature();
         var remote = acceptPayload(payload);
         var changedSlides = sourceChangedSlides(before, remote);

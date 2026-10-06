@@ -19,14 +19,14 @@ interface LiveHost {
 export const LIVE_INTERVAL_MS = 3000;
 
 export function createLiveUpdates(host: LiveHost, interval = LIVE_INTERVAL_MS) {
-  let timer: ReturnType<typeof setTimeout> | undefined, checking = false, failures = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined, checking = false, failures = 0, stopped = false;
 
   function schedule(delay: number) {
     clearTimeout(timer);
-    if (host.enabled() && !document.hidden) timer = setTimeout(check, delay);
+    if (!stopped && host.enabled() && !document.hidden) timer = setTimeout(check, delay);
   }
   async function check() {
-    if (checking || !host.enabled() || document.hidden) return;
+    if (stopped || checking || !host.enabled() || document.hidden) return;
     const token = host.token();
     if (!token) { schedule(500); return; }
     checking = true;
@@ -36,7 +36,9 @@ export function createLiveUpdates(host: LiveHost, interval = LIVE_INTERVAL_MS) {
       if (!response.ok) throw new Error('live update status ' + response.status);
       const version = await response.json() as LiveVersion;
       failures = 0;
-      if (version.token !== host.token()) await host.changed(version);
+      // Our own save or creation may have answered while this check was in
+      // flight; its reply is newer than this answer, which is then stale.
+      if (host.token() === token && version.token !== token) await host.changed(version);
     } catch {
       // Unreachable (restart, network): retry soon, then less often.
       failures++;
@@ -50,5 +52,5 @@ export function createLiveUpdates(host: LiveHost, interval = LIVE_INTERVAL_MS) {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) now(); else clearTimeout(timer); });
   window.addEventListener('focus', now);
   window.addEventListener('online', () => { failures = 0; now(); });
-  return {start: now};
+  return {start: now, stop: () => { stopped = true; clearTimeout(timer); }};
 }

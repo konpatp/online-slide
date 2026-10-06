@@ -22,6 +22,8 @@
       add.disabled = !options.ready() || posting || !chosen;
     };
     const refresh = this.refresh;
+    // A creation in flight: its reply carries the new deck, so live updates wait.
+    this.busy = () => posting;
 
     function payload() {
       return {schema: 'online-slide/state@4', revision: 0, order: ['layout-preview'], hidden: [],

@@ -1449,12 +1449,12 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     });
   }
   function pullRemote() {
-    // Our own save in flight will bring the newer deck back with its reply.
-    if (!state || saves.pending || saves.inFlight) return null;
+    // Our own save or slide creation brings the newer deck back with its reply.
+    if (!state || saves.pending || saves.inFlight || (creator && creator.busy())) return null;
     return window.slidekitRequest('api/bootstrap?slide=' + encodeURIComponent(currentId), {cache: 'no-store'})
       .then(function(response) {if (!response.ok) throw new Error('Could not refresh the deck'); return response.json();})
       .then(function(payload) {
-        if (saves.pending || saves.inFlight) return;
+        if (saves.pending || saves.inFlight || (creator && creator.busy())) return;
         var before = accepted, beforeCurrent = currentSignature();
         var remote = acceptPayload(payload);
         var changedSlides = sourceChangedSlides(before, remote);

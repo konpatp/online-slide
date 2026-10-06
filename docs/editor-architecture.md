@@ -56,7 +56,10 @@ shown slide waits until typing, composition, a drag or a range selection ends
 the slide being edited, the server refuses the save; the editor rebases the
 edits automatically when the agent changed none of the components (and, for
 object or table edits, none of the slide data) the edits target, otherwise it is
-an ordinary conflict with the draft retained. A renderer release is detected by
+an ordinary conflict with the draft retained. An answer that arrives after the editor's own save or slide creation
+already delivered a newer deck is stale and ignored, and no pull starts while
+a creation is in flight, so creating a slide costs one request, not a second
+full deck download. A renderer release is detected by
 the request layer's runtime header, which every check carries.
 `browser_live_updates.py` proves agent publication of the shown slide, another
 slide and a new slide, another editor's save, protected typing, the automatic
@@ -111,6 +114,13 @@ The `slidekit` package preserves `from slidekit import ...`. Dependencies flow
 from `common` to overlay validation, source validation, catalog discovery and
 state reconciliation/merging. HTTP and file serving remain in `server.py`.
 On-disk and transport schemas are unchanged.
+
+`SourceCatalog` keeps every validated source between requests: a file is
+re-read only when its stat identity changes, a created slide is validated only
+when its content changes, and revisions are assembled from cached per-slide
+serializations, equal to `catalog_revision`/`source_revisions` by test. Adding
+a slide therefore costs ~0.1 s on the 150-slide Looped deck, not a ~2 s
+revalidation of every source.
 
 ## Build and checks
 

@@ -516,3 +516,37 @@ class SlideKitContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IncrementalCatalogTests(unittest.TestCase):
+    """A request must not revalidate the whole deck, and must agree with it."""
+
+    def test_incremental_refresh_equals_a_full_load(self):
+        import copy, tempfile, json, shutil
+        from slidekit.catalog import SourceCatalog, load_catalog, catalog_revision, source_revisions
+        from slide_templates import make_starter
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp:
+            slides = Path(temp) / 'slides'
+            shutil.copytree(root / 'slides', slides)
+            first = sorted(slides.glob('*.json'))[0]
+            anchor = json.loads(first.read_text())['id']
+            source = SourceCatalog(slides, {})
+            def agree(created):
+                full = load_catalog(slides, created)
+                self.assertEqual(list(source.catalog), list(full))
+                self.assertEqual(source.revision, catalog_revision(full))
+                self.assertEqual(source.revisions, source_revisions(full))
+            created = {'user-a': make_starter('section-divider', 'user-a', '2026-01-01T00:00:00Z', anchor)}
+            self.assertTrue(source.refresh(created)); agree(created)
+            created = copy.deepcopy(created)
+            created['user-a']['components']['headline']['text'] = 'Renamed'
+            self.assertTrue(source.refresh(created)); agree(created)
+            spec = json.loads(first.read_text()); spec['components'][spec['headline']]['text'] = 'Edited file'
+            first.write_text(json.dumps(spec))
+            self.assertTrue(source.refresh(created)); agree(created)
+            self.assertFalse(source.refresh(created))
+            bad = copy.deepcopy(created); bad['user-b'] = dict(created['user-a'], id='user-b', recipe='nope')
+            with self.assertRaises(Exception):
+                source.refresh(bad)
+            self.assertFalse(source.refresh(created)); agree(created)
