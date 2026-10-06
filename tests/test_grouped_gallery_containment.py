@@ -1,4 +1,4 @@
-# test-tier: every-time
+# test-tier: maintenance
 """Grouped cells keep their image sub-grid and caption inside each grid cell."""
 from pathlib import Path
 from playwright.sync_api import sync_playwright
