@@ -108,6 +108,8 @@ function reserveFootprint(host: HTMLElement, region: Region, scale: {x: number; 
   // only an inline element needs inline-block to take a size at all.
   var style = getComputedStyle(host);
   if (style.display === "inline") host.style.display = "inline-block";
+  // Out of flex grow/shrink: a shared row must not stretch or squeeze it.
+  host.style.flex = "0 0 auto";
   host.style.marginRight = (parseFloat(style.marginRight) + (region.footprint.width - region.width) * scale.x).toFixed(2) + "px";
   host.style.marginBottom = (parseFloat(style.marginBottom) + (region.footprint.height - region.height) * scale.y).toFixed(2) + "px";
 }

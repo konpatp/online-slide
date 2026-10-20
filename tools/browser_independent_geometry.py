@@ -31,7 +31,10 @@ def hero_slide(after):
     spec = make_starter('hero-equation', HERO, '2030-01-01T00:00:00Z', after)
     text = spec['components']
     spec['data']['definitions'] = []
-    for index, words in enumerate(('fixed cost per step', 'number of steps', 'depth of each step')):
+    # Long definitions wrap, so the row shrinks and stretches them to share it.
+    for index, words in enumerate(('κ — fixed cost: examples one skill needs once its prerequisites are learned',
+                                   'T — share of the data at depth i or deeper: uniform order\'s rate',
+                                   'F — share shallower than k: where the curriculum\'s block starts')):
         key = f'definition-{index}'
         text[key] = {'kind': 'text', 'text': words}
         spec['data']['definitions'].append(key)
