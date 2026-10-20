@@ -1343,6 +1343,49 @@
   function createScientificSlideRecipes(api) {
     const global = window;
     const { editableText, effectiveComponent, galleryImage, bindTextRegion } = api;
+    var facetAutoplay = global.__scientificFacetAutoplay || (global.__scientificFacetAutoplay = {});
+    function autoplayButton(slide, selector, selection, onChange) {
+      var key = slide.id + "/" + selector.id;
+      var state = facetAutoplay[key] || (facetAutoplay[key] = { timer: null });
+      Object.assign(state, { selector, current: selection[selector.id], onChange });
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "gallery-play";
+      function stop() {
+        clearInterval(state.timer);
+        state.timer = null;
+      }
+      function show() {
+        button.textContent = state.timer ? "\u275A\u275A Pause" : "\u25B6 Play";
+        button.setAttribute("aria-pressed", String(Boolean(state.timer)));
+      }
+      show();
+      button.addEventListener("keydown", function(event) {
+        event.stopPropagation();
+      });
+      button.addEventListener("click", function(event) {
+        event.stopPropagation();
+        if (state.timer) {
+          stop();
+          show();
+          return;
+        }
+        state.timer = setInterval(function() {
+          if (!document.querySelector('[data-selector-slide="' + slide.id + '"]')) {
+            stop();
+            return;
+          }
+          var opts = state.selector.options;
+          var index = opts.findIndex(function(option) {
+            return option.value === state.current;
+          });
+          state.current = opts[(index + 1) % opts.length].value;
+          state.onChange(state.selector.id, state.current);
+        }, Number(selector.autoplay.intervalMs) || 1200);
+        show();
+      });
+      return button;
+    }
     global.renderScientificFacetControls = function(host, slide, selectors, selection, onChange) {
       host.textContent = "";
       selectors.forEach(function(selector) {
@@ -1385,6 +1428,7 @@
           input.addEventListener("input", selectValue2);
           input.addEventListener("change", selectValue2);
           group.setAttribute("data-selector-slide", slide.id);
+          if (selector.autoplay) options.appendChild(autoplayButton(slide, selector, selection, onChange));
           options.appendChild(input);
           options.appendChild(output);
           group.appendChild(options);

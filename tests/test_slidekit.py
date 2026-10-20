@@ -60,6 +60,17 @@ class SlideKitContractTests(unittest.TestCase):
             validate_slide_spec(broken)
         self.assertEqual(len(columns), len(spec['data']['columns']))
 
+    def test_gallery_autoplay_requires_a_bounded_slider(self):
+        spec = json.loads((ROOT / 'slides/04-matched-gallery.json').read_text())
+        selector = spec['data']['selectors'][0]
+        selector.update(control='slider', autoplay={'intervalMs': 800})
+        validate_slide_spec(spec)
+        for change in ({'control': 'buttons'}, {'autoplay': {'intervalMs': 50}}, {'autoplay': True}):
+            broken = copy.deepcopy(spec)
+            broken['data']['selectors'][0].update(change)
+            with self.assertRaisesRegex(ContractError, 'autoplay'):
+                validate_slide_spec(broken)
+
     def test_index_routes_are_source_bound_and_unique(self):
         target=copy.deepcopy(next(iter(self.catalog.values())))
         index={'schema':'online-slide/slide@1','id':'contents-proof','recipe':'slide-index',

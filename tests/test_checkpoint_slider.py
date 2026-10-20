@@ -58,3 +58,32 @@ class CheckpointSliderTests(unittest.TestCase):
             slider.fill('0');slider.dispatch_event('change')
             self.assertEqual(page.evaluate('window.changed')[-1],'early')
             browser.close()
+
+    def test_play_advances_through_rebuilt_controls_and_pause_stops(self):
+        with sync_playwright() as p:
+            browser=p.chromium.launch()
+            page=browser.new_page()
+            page.set_content('<main></main>')
+            page.add_script_tag(path=str(Path(__file__).resolve().parents[1]/'public/recipes.js'))
+            page.evaluate('''() => {
+              const slide={id:'play',components:{label:{text:'Step'},a:{text:'0'},b:{text:'10'},c:{text:'20'}}};
+              window.createScientificSlideRecipes({editableText:(_,key)=>Object.assign(document.createElement('span'),{textContent:slide.components[key].text}),effectiveComponent:(_,key)=>slide.components[key]});
+              const selectors=[{id:'step',label:'label',control:'slider',autoplay:{intervalMs:200},
+                options:[{value:'s0',label:'a'},{value:'s1',label:'b'},{value:'s2',label:'c'}]}];
+              window.seen=[];
+              function render(value){
+                window.renderScientificFacetControls(document.querySelector('main'),slide,selectors,{step:value},
+                  (_,v)=>{window.seen.push(v);render(v);});
+              }
+              render('s0');
+            }''')
+            page.locator('button.gallery-play').click()
+            page.wait_for_function('window.seen.length>=4',timeout=5000)
+            self.assertEqual(page.evaluate('window.seen.slice(0,4)'),['s1','s2','s0','s1'])
+            self.assertEqual(page.locator('button.gallery-play').get_attribute('aria-pressed'),'true')
+            page.locator('button.gallery-play').click()
+            count=page.evaluate('window.seen.length')
+            page.wait_for_timeout(700)
+            self.assertEqual(page.evaluate('window.seen.length'),count)
+            self.assertEqual(page.locator('button.gallery-play').get_attribute('aria-pressed'),'false')
+            browser.close()

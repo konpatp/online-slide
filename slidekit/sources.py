@@ -502,6 +502,13 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
                 values.add(value)
                 ref(option.get("label"), f"selectors[{selector_index}].options[{option_index}].label")
             selector_values[selector_id] = values
+            autoplay = selector.get("autoplay")
+            if autoplay is not None:
+                _require(selector.get("control") == "slider" and isinstance(autoplay, dict)
+                         and set(autoplay) <= {"intervalMs"}
+                         and isinstance(autoplay.get("intervalMs", 1200), int)
+                         and 200 <= autoplay.get("intervalMs", 1200) <= 10000,
+                         f"{source}: selector {selector_id} autoplay needs a slider and intervalMs in 200..10000")
         for page_set_id, pages in page_sets.items():
             _require(COMPONENT_ID.fullmatch(page_set_id) is not None,
                      f"{source}: invalid page set id {page_set_id!r}")

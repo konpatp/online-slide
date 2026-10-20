@@ -539,6 +539,7 @@ body.selecting-table-range, body.selecting-table-range * { user-select: none !im
 
 /* Sliders keep their historical 600px default; layouts may narrow them. */
 .gallery-slider { width: var(--gallery-slider-width, 600px); max-width: 70vw; accent-color: #2f6fed; }
+.gallery-option-row .gallery-play { flex: 0 0 auto; white-space: nowrap; }
 
 /* Grouped cells (data.cellImages): each grid cell is one condition's small
    image sub-grid with its caption beneath. Tighter frame than the default
