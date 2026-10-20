@@ -24,7 +24,7 @@ Strict TypeScript owns the editing behavior:
 | `editor/table-range.ts` | Rectangular cell ranges: drag across cells (a drag inside one cell still selects text), Shift-click, row/column/table selection, highlight; formatting, Delete and Row−/Col− act on every cell of a range as one change |
 | `editor/boxes.ts` | Pure box geometry: move, eight-handle and proportional resize, nudge, click-versus-drag, snapping (lines, equal spacing, matching sizes), align, distribute, group scaling |
 | `editor/transform.ts` | The one selection and move/resize layer for every box-shaped object: single and multiple selection (Shift-click, box select, select all), direct and group drag, handles, border and grip moves, snapping guides (Alt disables), nudge, align/distribute, click-to-edit text, change boundaries |
-| `editor/regions.ts` | Bounded text/chart regions, fitting, and their transform adapter (offset-from-flow storage) |
+| `editor/regions.ts` | Bounded text/chart regions, fitting, and their transform adapter (offset from flow position, size, and the layout footprint the object keeps) |
 | `editor/fit.ts` | Fitting and observer lifetime |
 | `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
 | `editor/navigation.ts` | Visible-only audience sequence, counters, and hidden-route resolution |
@@ -78,7 +78,21 @@ frame is drawn outside the clipped slide so handles at the slide edge stay
 reachable. The layer owns the selection: the editor's own click handlers run
 after every layer gesture, so a request to select an already selected object
 keeps the group, and the click ending a layer-owned press cannot override the
-layer's decision. `browser_direct_manipulation.py` (exact geometry, snapping
+layer's decision.
+
+Editing one object never moves or resizes another (PI, 2026-10-19). Recipes
+lay objects out in flex rows, grids and stacks, so an edited size used to
+reflow every neighbour. A region therefore keeps reserving its footprint, the
+layout space it occupied when first edited (its natural box), and margins
+absorb the difference between that footprint and its edited size; it also
+keeps its natural display. Regions saved before footprints existed occupy
+their own size exactly as before, and their first new edit records that size
+as the footprint, so nothing already arranged moves. `browser_independent_geometry.py`
+resizes and moves every object on every demo slide and a three-definition hero
+equation and requires every other object to paint where it painted before.
+Text edits still follow the recipe's flow for objects that were never moved.
+
+`browser_direct_manipulation.py` (exact geometry, snapping
 off) and `browser_snap_multiselect.py` prove each gesture with real input, and `browser_interaction_fuzz.py` mixes them at random: after every
 step saved geometry must equal the painted editor and no other slide may
 change; undoing everything must restore the pristine deck; a reload must paint

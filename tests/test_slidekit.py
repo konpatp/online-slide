@@ -573,3 +573,14 @@ class IncrementalCatalogTests(unittest.TestCase):
             with self.assertRaises(Exception):
                 source.refresh(bad)
             self.assertFalse(source.refresh(created)); agree(created)
+
+
+class RegionFootprintTests(unittest.TestCase):
+    def test_footprint_is_optional_and_validated(self):
+        from slidekit.common import _validate_text_region
+        region = {'x': 0, 'y': 0, 'width': 300, 'height': 80}
+        _validate_text_region(region, 'bad')
+        _validate_text_region({**region, 'footprint': {'width': 212.37, 'height': 40.5}}, 'bad')
+        for footprint in ({'width': 10}, {'width': -1, 'height': 4}, {'width': 1, 'height': True}, [1, 2]):
+            with self.assertRaises(ContractError):
+                _validate_text_region({**region, 'footprint': footprint}, 'bad')

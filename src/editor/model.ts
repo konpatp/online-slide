@@ -9,7 +9,9 @@ export interface TextMark { start: number; end: number; bold?: boolean; italic?:
 /** Per-line settings; `level` indents list items (0–2). */
 export interface Paragraph { align?: 'left' | 'center' | 'right'; list?: 'bullet' | 'number'; level?: number }
 export interface RichText { text: string; marks: TextMark[]; paragraphs?: Paragraph[] }
-export interface Region { x: number; y: number; width: number; height: number }
+/** Canonical slide pixels. ``footprint`` is the space the object reserves in
+ * its recipe's layout (fixed at its first edit); absent means its own size. */
+export interface Region { x: number; y: number; width: number; height: number; footprint?: {width: number; height: number} }
 export interface TextStyle { color?: string; fontScale?: number; hidden?: boolean; deleted?: boolean; region?: Region }
 // Marks are offsets into THIS text, never an independent property command.
 export type TextOverlay = TextStyle & ({ text: string; marks?: TextMark[]; paragraphs?: Paragraph[] } | { text?: never; marks?: never; paragraphs?: never });

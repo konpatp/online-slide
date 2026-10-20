@@ -68,16 +68,22 @@ function applyTextRegion(binding: Binding) {
   if (!component) return;
   binding.host.classList.toggle('curator-deleted', Boolean(component.deleted));
   var region = component.region;
+  var host = binding.host;
   if (!region) {
+    if (host.classList.contains("text-region-bounded")) {
+      for (const name of ["translate", "width", "height", "margin-right", "margin-bottom", "flex", "display"]) host.style.removeProperty(name);
+      host.classList.remove("text-region-bounded", "region-footprint");
+    }
     if (binding.alwaysFit) ensureTextRegionFit(binding);
     return;
   }
   var scale = canvasCoordinateScale(canvas);
-  binding.host.style.translate = (region.x * scale.x).toFixed(2) + "px " +
+  host.style.translate = (region.x * scale.x).toFixed(2) + "px " +
     (region.y * scale.y).toFixed(2) + "px";
-  binding.host.style.width = (region.width * scale.x).toFixed(2) + "px";
-  binding.host.style.height = (region.height * scale.y).toFixed(2) + "px";
-  binding.host.classList.add("text-region-bounded");
+  host.style.width = (region.width * scale.x).toFixed(2) + "px";
+  host.style.height = (region.height * scale.y).toFixed(2) + "px";
+  reserveFootprint(host, region, scale);
+  host.classList.add("text-region-bounded");
   if(component.kind==='chart') {
     binding.host.style.flex='none';
     resizeChart(binding.host);
@@ -88,6 +94,22 @@ function applyTextRegion(binding: Binding) {
     mode: binding.fitMode,
     minSize: binding.minSize
   });
+}
+
+/** The object keeps occupying its footprint in the recipe's layout whatever
+ * its edited size: margins absorb the difference, so a resize never reflows
+ * a neighbour (flex rows, grids and stacks all lay out margin boxes). */
+function reserveFootprint(host: HTMLElement, region: Region, scale: {x: number; y: number}) {
+  for (const name of ["margin-right", "margin-bottom", "display"]) host.style.removeProperty(name);
+  // Regions saved before footprints occupy their own size, drawn inline-block.
+  host.classList.toggle("region-footprint", Boolean(region.footprint));
+  if (!region.footprint) return;
+  // Keep the element's own display so its layout box is its natural one;
+  // only an inline element needs inline-block to take a size at all.
+  var style = getComputedStyle(host);
+  if (style.display === "inline") host.style.display = "inline-block";
+  host.style.marginRight = (parseFloat(style.marginRight) + (region.footprint.width - region.width) * scale.x).toFixed(2) + "px";
+  host.style.marginBottom = (parseFloat(style.marginBottom) + (region.footprint.height - region.height) * scale.y).toFixed(2) + "px";
 }
 
 function applyAllTextRegions() {
@@ -122,15 +144,24 @@ function registerRegion(binding: Binding) {
 
 /** Regions store an offset from the object's flow position plus a size.
  * Convert absolute boxes to that form, correcting any flow shift a new width
- * causes so the object lands exactly where it was dragged. */
+ * causes so the object lands exactly where it was dragged. The first edit
+ * fixes the footprint at the space the object occupies now (its natural box,
+ * or the size an older region already occupies), so neighbours never move. */
 function regionEdit(binding: Binding, canvas: HTMLElement) {
   var measured = measureBox(binding.host, canvas);
   var current = getComponent(binding.slideId, binding.componentId)?.region;
   var region: Region = current ? Object.assign({}, current)
     : {x: 0, y: 0, width: measured.width, height: measured.height};
+  var exact = (value: number) => Math.round(value * 100) / 100; // sub-pixel: any error would reflow neighbours
+  var footprint = region.footprint || (current ? {width: current.width, height: current.height}
+    : {width: exact(measured.width), height: exact(measured.height)});
   var origin = {x: measured.x - region.x, y: measured.y - region.y};
   function write(next: Box) {
-    var value = roundBox({x: next.x - origin.x, y: next.y - origin.y, width: next.width, height: next.height});
+    var box = roundBox({x: next.x - origin.x, y: next.y - origin.y, width: next.width, height: next.height});
+    var value: Region = {...box, footprint: {width: footprint.width, height: footprint.height}};
+    if (!current && Math.abs(next.width - measured.width) < .05 && Math.abs(next.height - measured.height) < .05) {
+      value.width = footprint.width; value.height = footprint.height; // untouched size stays exact
+    }
     updateOverlay(binding.slideId, binding.componentId, 'region', value);
     applyTextRegion(binding);
     return value;

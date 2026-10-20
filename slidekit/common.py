@@ -22,18 +22,28 @@ def _validate_text_region(value: Any, message: str) -> None:
     """Validate a region in canonical 1920x1080 slide coordinates.
 
     ``x`` and ``y`` are displacements from the recipe-authored anchor.  Width
-    and height are explicit content bounds.  Keeping the durable values in
-    slide coordinates makes an edit invariant to editor zoom and fullscreen.
+    and height are explicit content bounds.  ``footprint`` (optional) is the
+    space the object keeps reserving in its recipe's layout, fixed when it was
+    first edited, so resizing it never reflows its neighbours; without it the
+    footprint is the region's own size (regions saved before 2026-10-19).
+    Keeping the durable values in slide coordinates makes an edit invariant
+    to editor zoom and fullscreen.
     """
 
-    _require(isinstance(value, dict) and set(value) == {"x", "y", "width", "height"},
-             message)
+    _require(isinstance(value, dict) and {"x", "y", "width", "height"} <= set(value)
+             <= {"x", "y", "width", "height", "footprint"}, message)
     _require(all(isinstance(value[key], (int, float)) and not isinstance(value[key], bool)
                  for key in ("x", "y", "width", "height")), message)
     _require(-1920 <= value["x"] <= 1920 and -1080 <= value["y"] <= 1080,
              message)
     _require(24 <= value["width"] <= 1920 and 18 <= value["height"] <= 1080,
              message)
+    if "footprint" in value:
+        footprint = value["footprint"]
+        _require(isinstance(footprint, dict) and set(footprint) == {"width", "height"}
+                 and all(isinstance(footprint[key], (int, float)) and not isinstance(footprint[key], bool)
+                         for key in ("width", "height"))
+                 and 0 <= footprint["width"] <= 1920 and 0 <= footprint["height"] <= 1080, message)
 
 
 class ContractError(ValueError):

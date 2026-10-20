@@ -990,15 +990,21 @@
       if (!component) return;
       binding.host.classList.toggle("curator-deleted", Boolean(component.deleted));
       var region = component.region;
+      var host = binding.host;
       if (!region) {
+        if (host.classList.contains("text-region-bounded")) {
+          for (const name of ["translate", "width", "height", "margin-right", "margin-bottom", "flex", "display"]) host.style.removeProperty(name);
+          host.classList.remove("text-region-bounded", "region-footprint");
+        }
         if (binding.alwaysFit) ensureTextRegionFit(binding);
         return;
       }
       var scale = canvasCoordinateScale(canvas);
-      binding.host.style.translate = (region.x * scale.x).toFixed(2) + "px " + (region.y * scale.y).toFixed(2) + "px";
-      binding.host.style.width = (region.width * scale.x).toFixed(2) + "px";
-      binding.host.style.height = (region.height * scale.y).toFixed(2) + "px";
-      binding.host.classList.add("text-region-bounded");
+      host.style.translate = (region.x * scale.x).toFixed(2) + "px " + (region.y * scale.y).toFixed(2) + "px";
+      host.style.width = (region.width * scale.x).toFixed(2) + "px";
+      host.style.height = (region.height * scale.y).toFixed(2) + "px";
+      reserveFootprint(host, region, scale);
+      host.classList.add("text-region-bounded");
       if (component.kind === "chart") {
         binding.host.style.flex = "none";
         resizeChart(binding.host);
@@ -1009,6 +1015,15 @@
         mode: binding.fitMode,
         minSize: binding.minSize
       });
+    }
+    function reserveFootprint(host, region, scale) {
+      for (const name of ["margin-right", "margin-bottom", "display"]) host.style.removeProperty(name);
+      host.classList.toggle("region-footprint", Boolean(region.footprint));
+      if (!region.footprint) return;
+      var style = getComputedStyle(host);
+      if (style.display === "inline") host.style.display = "inline-block";
+      host.style.marginRight = (parseFloat(style.marginRight) + (region.footprint.width - region.width) * scale.x).toFixed(2) + "px";
+      host.style.marginBottom = (parseFloat(style.marginBottom) + (region.footprint.height - region.height) * scale.y).toFixed(2) + "px";
     }
     function applyAllTextRegions() {
       textRegionBindings.forEach(function(binding) {
@@ -1044,9 +1059,16 @@
       var measured = measureBox(binding.host, canvas);
       var current = getComponent(binding.slideId, binding.componentId)?.region;
       var region = current ? Object.assign({}, current) : { x: 0, y: 0, width: measured.width, height: measured.height };
+      var exact = (value) => Math.round(value * 100) / 100;
+      var footprint = region.footprint || (current ? { width: current.width, height: current.height } : { width: exact(measured.width), height: exact(measured.height) });
       var origin = { x: measured.x - region.x, y: measured.y - region.y };
       function write(next) {
-        var value = roundBox({ x: next.x - origin.x, y: next.y - origin.y, width: next.width, height: next.height });
+        var box = roundBox({ x: next.x - origin.x, y: next.y - origin.y, width: next.width, height: next.height });
+        var value = { ...box, footprint: { width: footprint.width, height: footprint.height } };
+        if (!current && Math.abs(next.width - measured.width) < 0.05 && Math.abs(next.height - measured.height) < 0.05) {
+          value.width = footprint.width;
+          value.height = footprint.height;
+        }
         updateOverlay(binding.slideId, binding.componentId, "region", value);
         applyTextRegion(binding);
         return value;
