@@ -434,8 +434,12 @@ python3 tools/review_deck.py --slide YOUR-SLIDE-ID --output artifacts/review
 
 Use `--all` for a shared renderer change. `--root` accepts a packaged deck;
 `--url` captures an already served deck without saving edits. The receipt checks
-canvas containment, fitting, images, and math; the author still inspects the
-PNG for scientific meaning and readability. Full interaction tests belong at
+canvas containment, fitting, images, and math, and chart legibility: a panel
+(one x/y subplot) may draw at most four data series, excluding one trace
+declared `"meta": {"role": "reference"}`, and no drawn data label or annotation
+may overlap another label or a data marker. Split a family comparison into
+small multiples instead (`tools/browser_chart_clutter.py`). The author still
+inspects the PNG for scientific meaning and readability. Full interaction tests belong at
 shared-editor changes, not every content edit.
 
 Start from a starter rather than copying an old slide:

@@ -16,6 +16,60 @@ from server import make_server
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 
+# Chart legibility (PI 2026-10-22: "too cluttered fix. never do this again"):
+# a panel draws at most MAX_SERIES data series, and no drawn label or
+# annotation may overlap another label or a data marker. Measured on the
+# rendered chart, so it sees what the reader sees.
+MAX_SERIES = 4
+CHART_AUDIT = """(maxSeries) => {
+  const errors = [], s = document.querySelector('.slide-canvas').getBoundingClientRect().width / 1920;
+  const visible = t => t.visible !== false && t.visible !== 'legendonly';
+  const isSeries = t => t.type === 'bar' || ((!t.type || /^scatter/.test(t.type)) && /lines|markers/.test(t.mode || 'lines+markers'));
+  for (const chart of document.querySelectorAll('.slide-canvas .native-chart')) {
+    const id = chart.dataset.chartId || 'chart', panels = {};
+    for (const t of (chart._fullData || chart.data || []).filter(visible).filter(isSeries)) {
+      const key = (t.xaxis || 'x') + (t.yaxis || 'y');
+      (panels[key] = panels[key] || []).push(t);
+    }
+    for (const [key, traces] of Object.entries(panels)) {
+      const references = traces.filter(t => (t.meta || {}).role === 'reference').length;
+      const series = traces.length - Math.min(1, references);
+      if (series > maxSeries) errors.push(`chart clutter: ${id} panel ${key} draws ${series} data series (limit ${maxSeries}; one line may be declared meta.role="reference"); split it into small multiples, one panel per group with at most ~3 lines each`);
+    }
+    // Drawn boxes in canonical pixels; text boxes trimmed to their glyphs.
+    const box = (node, trim) => {
+      const r = node.getBoundingClientRect(); if (!r.width || !r.height) return null;
+      const dy = r.height * trim;
+      return {l: r.left / s, r: r.right / s, t: (r.top + dy) / s, b: (r.bottom - dy) / s};
+    };
+    const overlap = (a, b) => Math.min(a.r, b.r) - Math.max(a.l, b.l) > 1.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 1.5;
+    const labels = [], markers = [];
+    for (const trace of chart.querySelectorAll('.scatterlayer .trace')) {
+      const curve = (trace.__data__ && trace.__data__[0] && trace.__data__[0].trace) || {};
+      trace.querySelectorAll('.textpoint text').forEach(node => {
+        const b = box(node, .18); if (b) labels.push({b, text: node.textContent, curve: curve.index, point: (node.parentNode.__data__ || {}).i});
+      });
+      trace.querySelectorAll('.points path.point').forEach(node => {
+        const b = box(node, 0); if (b) markers.push({b, curve: curve.index, point: (node.__data__ || {}).i});
+      });
+    }
+    chart.querySelectorAll('.annotation-text').forEach(node => {
+      const b = box(node, .18); if (b && node.textContent.trim()) labels.push({b, text: node.textContent, curve: null, point: null});
+    });
+    const name = l => JSON.stringify(l.text.trim().slice(0, 40));
+    for (let i = 0; i < labels.length; i++) {
+      for (let j = i + 1; j < labels.length; j++)
+        if (overlap(labels[i].b, labels[j].b)) errors.push(`chart labels collide: ${id} ${name(labels[i])} overlaps ${name(labels[j])}`);
+      for (const m of markers)
+        if (!(m.curve === labels[i].curve && m.point === labels[i].point) && overlap(labels[i].b, m.b)) {
+          errors.push(`chart label covers a data marker: ${id} ${name(labels[i])}`); break;
+        }
+    }
+  }
+  return errors;
+}"""
+
+
 @contextmanager
 def serving(args):
     if args.url:
@@ -133,6 +187,7 @@ def main():
               return {errors, canvas:{x:c.x,y:c.y,width:c.width,height:c.height},
                 components:document.querySelectorAll('.semantic-component').length};
             }""")
+            audit["errors"].extend(page.evaluate(CHART_AUDIT, MAX_SERIES))
             path = args.output / (key + ".png")
             page.screenshot(path=str(path))
             captures[key] = {"png": str(path), **audit}
