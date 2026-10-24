@@ -169,6 +169,25 @@ def main():
                 page.mouse.move(box['x']+4,y,steps=6)
                 page.wait_for_selector('[data-chart-id="evidence"][data-chart-ready="true"]')
                 page.mouse.up()
+                # Several slider facets share the control row instead of overflowing the slide.
+                http.shutdown();http.server_close();thread.join()
+                updated['components']['facet-b']={'kind':'text','text':'Second knob'}
+                updated['components']['facet-c']={'kind':'text','text':'Third knob'}
+                updated['data']['selectors']+=[{'id':'b','label':'facet-b','control':'slider','options':[
+                    {'value':'first','label':'first'},{'value':'second','label':'second'}]},
+                    {'id':'c','label':'facet-c','control':'slider','options':[
+                    {'value':'first','label':'first'},{'value':'second','label':'second'}]}]
+                updated['data']['views']=[{**v,'selection':{**v['selection'],'b':b,'c':c}}
+                    for v in updated['data']['views'] for b in ('first','second') for c in ('first','second')]
+                path.write_text(json.dumps(updated))
+                http,thread,base=start()
+                page.goto(base,wait_until='networkidle')
+                page.wait_for_selector('[data-chart-ready="true"]')
+                canvas=page.locator('.slide-canvas').first.bounding_box()
+                for box in page.locator('.native-chart-controls .gallery-selector').evaluate_all(
+                        'els=>els.map(e=>e.getBoundingClientRect().right)'):
+                    assert box<=canvas['x']+canvas['width']+1, (box,canvas)
+                assert page.locator('.native-chart-controls input[type=range]').count()==3
                 assert not errors, errors
                 browser.close()
                 print(json.dumps({"ok":True,"physicalClickTypeSaveReload":True,"sliderDragFollowsPointer":True,
