@@ -44,16 +44,18 @@
         selection = Object.assign({}, view.selection);
         canvas.querySelectorAll('.native-chart').forEach(global.disposeScientificChart);
         var old = canvas.querySelector('.native-charts'); if (old) old.remove();
-        global.renderScientificFacetControls(controls,slide,slide.data.selectors,selection,function (key,value) {
-          selection[key]=value;
-          localStorage.setItem(storageKey,JSON.stringify(selection));
-          renderView();
-        });
         var resolved = Object.assign({}, slide, {data:Object.assign({},slide.data,view)});
         delete resolved.data.views; delete resolved.data.selectors;
         global.renderScientificChartPanels(canvas,resolved,api);
         canvas.querySelector('.native-charts').classList.add('with-facets');
       }
+      // Controls are built once: rebuilding them on every change replaced a range
+      // input mid-drag, so a pointer drag advanced one step and stopped.
+      global.renderScientificFacetControls(controls,slide,slide.data.selectors,selection,function (key,value) {
+        selection[key]=value;
+        localStorage.setItem(storageKey,JSON.stringify(selection));
+        renderView();
+      });
       renderView();
       return;
     }

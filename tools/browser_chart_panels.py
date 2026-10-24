@@ -149,9 +149,29 @@ def main():
                 page.goto(base+'#mock-native-chart::stage::1',wait_until='networkidle')
                 page.wait_for_selector('[data-chart-id="other-evidence"][data-chart-ready="true"]')
                 assert page.get_by_role('button',name='Second',exact=True).get_attribute('aria-pressed')=='true'
+                # A slider facet keeps its element while the pointer drags, so
+                # the chart follows the drag instead of stopping after one step.
+                http.shutdown();http.server_close();thread.join()
+                updated['data']['selectors'][0]['control']='slider'
+                updated.pop('routes',None)
+                path.write_text(json.dumps(updated))
+                http,thread,base=start()
+                page.evaluate('localStorage.clear()')
+                page.goto(base,wait_until='networkidle')
+                page.wait_for_selector('[data-chart-id="evidence"][data-chart-ready="true"]')
+                page.evaluate('window.dragSlider=document.querySelector(".native-chart-controls input[type=range]")')
+                box=page.locator('.native-chart-controls input[type=range]').bounding_box()
+                y=box['y']+box['height']/2
+                page.mouse.move(box['x']+4,y);page.mouse.down()
+                page.mouse.move(box['x']+box['width']-2,y,steps=6)
+                page.wait_for_selector('[data-chart-id="other-evidence"][data-chart-ready="true"]')
+                assert page.evaluate('window.dragSlider===document.querySelector(".native-chart-controls input[type=range]")')
+                page.mouse.move(box['x']+4,y,steps=6)
+                page.wait_for_selector('[data-chart-id="evidence"][data-chart-ready="true"]')
+                page.mouse.up()
                 assert not errors, errors
                 browser.close()
-                print(json.dumps({"ok":True,"physicalClickTypeSaveReload":True,
+                print(json.dumps({"ok":True,"physicalClickTypeSaveReload":True,"sliderDragFollowsPointer":True,
                                   "semanticInsertionPreserved":True,"facetSelectionPersists":True,
                                   "notesAvailable":True,"componentHideShowPersists":True,
                                   "smoothingSelectionPersists":True,"historicalViewRouteResolves":True,"liveWrites":0}))
