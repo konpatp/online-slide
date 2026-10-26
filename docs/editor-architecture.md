@@ -26,11 +26,20 @@ Strict TypeScript owns the editing behavior:
 | `editor/transform.ts` | The one selection and move/resize layer for every box-shaped object: single and multiple selection (Shift-click, box select, select all), direct and group drag, handles, border and grip moves, snapping guides (Alt disables), nudge, align/distribute, click-to-edit text, change boundaries |
 | `editor/regions.ts` | Bounded text/chart regions, fitting, and their transform adapter (offset from flow position, size, and the layout footprint the object keeps) |
 | `editor/fit.ts` | Fitting and observer lifetime |
-| `editor/viewport.ts` | Proportional canvas and fullscreen behavior |
+| `editor/viewport.ts` | Proportional canvas, fullscreen, and reading scale/pan with a review URL |
 | `editor/navigation.ts` | Visible-only audience sequence, counters, and hidden-route resolution |
 | `editor/order.ts`, `editor/sidebar-order.ts` | Identity-based reorder commands and SortableJS gesture adapter |
 | `editor/live.ts` | Live deck updates: a short version check (`/api/changes`) every 3 s while the tab is visible, immediate on focus/visibility/online, backing off while the server is unreachable |
 | `editor/history.ts`, `editor/keyboard.ts` | Bounded semantic undo and redo (a new edit ends the redo line; both refuse when another editor changed the values) and text-versus-object shortcut ownership |
+
+Reading mode scales the original canvas to 50–150% and pans its viewport; it
+never translates a viewing gesture into an editor or save command. Settled
+`read`, `zoom`, `x` and `y` query parameters retain that view. The two-pointer
+gesture follows [MDN's pointer-event example](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events/Pinch_zoom_gestures),
+using [pointer capture](https://developer.mozilla.org/en-US/docs/Web/API/Element/setPointerCapture)
+to retain a drag outside the initial target. `browser_phone_reading.py` checks
+real touch input, full-canvas reachability, URL restoration and unchanged saved
+state with the same renderer used by ordinary viewing.
 
 Acknowledging our own save does not reconstruct unchanged slide DOM. Equal
 edits compare equal whatever order their keys were written in (the server and

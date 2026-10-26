@@ -19,7 +19,8 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
   "use strict";
 
   var SVG_NS = "http://www.w3.org/2000/svg";
-  var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1";
+  var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1" ||
+    new URLSearchParams(location.search).get("read") === "1";
   var previewMode = Boolean(window.slidekitPreview);
   if (enteredFromPresentationUrl || previewMode) {
     document.body.classList.add("present-only");
@@ -170,7 +171,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
     toastTimer = setTimeout(function () { toast.classList.remove("visible"); }, 2700);
   }
 
-  var {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation,closeNavigator} = createViewport({
+  var {fitStage,revealPresentationExit,removePresentationQuery,setPresentationMode,exitFullscreenPresentation,toggleFullscreenPresentation,closeNavigator,panReading} = createViewport({
     stage, stageWrap, presentationExit, fullscreenToggle,
     applyAllTextRegions: function() {applyAllTextRegions();},
     syncTextRegionFrame: function() {transforms.sync();}, showToast,
@@ -1345,6 +1346,7 @@ import {registerTextFit, registerGroupFit, clearFitObservers, trackFitObserver} 
       event.preventDefault();stage.tabIndex=-1;stage.focus({preventScroll:true});return;
     }
     if (typingTarget(event.target)) return;
+    if (panReading(event)) return;
     // Bold/italic/underline act on the selection even when no text is focused
     // (a whole object, or a table cell range), as in PowerPoint.
     var styleKey = {b: 'bold', i: 'italic', u: 'underline'}[event.key.toLowerCase()];

@@ -64,6 +64,12 @@
     <button class="presentation-exit" type="button" data-presentation-exit>
       Exit presentation <span aria-hidden="true">F</span>
     </button>
+    <nav class="reading-controls" aria-label="Slide reading controls">
+      <button class="button quiet" type="button" data-reading-toggle aria-pressed="false">Read</button>
+      <button class="button quiet" type="button" data-reading-out aria-label="Zoom out" hidden>−</button>
+      <output data-reading-scale aria-label="Slide zoom" hidden></output>
+      <button class="button quiet" type="button" data-reading-in aria-label="Zoom in" hidden>+</button>
+    </nav>
     <header class="topbar">
       <a class="brand" href="./" aria-label="online-slide home">
         <span class="brand-mark" aria-hidden="true">✦</span>
@@ -80,6 +86,7 @@
         <button class="button quiet" type="button" data-redo disabled title="Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y)">Redo</button>
         <button class="button quiet" type="button" data-conflict-draft hidden>Download unsaved edits</button>
         <button class="button quiet" type="button" data-fullscreen-toggle>Present fullscreen</button>
+        <button class="button quiet" type="button" data-reading-toggle aria-pressed="false">Read</button>
         <button class="button primary" type="button" data-edit-toggle>Enable edit</button>
       </div>
     </header>

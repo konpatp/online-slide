@@ -37,7 +37,13 @@ JavaScript references and generated-asset freshness. See
 [editor architecture](docs/editor-architecture.md) for module ownership and
 focused browser checks.
 
-Open <http://127.0.0.1:8000/>. Enable edit mode to:
+Open <http://127.0.0.1:8000/>. On a phone, choose **Read** to enlarge the original
+slide, drag to pan, and pinch or use **+ / −** to zoom. **Fit** returns to the
+complete slide overview. Reading does not alter saved slide geometry or edits.
+`/?read=1#SLIDE_ID` opens reading mode directly; after moving, the address also
+records zoom and position so copying it preserves the view for review.
+
+Enable edit mode to:
 
 - edit any semantic text leaf directly;
 - bold highlighted text with **B** or Command/Ctrl+B (no selection formats the

@@ -7,6 +7,155 @@
   var EDITOR_MAX_SLIDE_WIDTH = 1280;
   function createViewport({ stage, stageWrap, presentationExit, fullscreenToggle, applyAllTextRegions, syncTextRegionFrame, showToast, canPresent, modeChanged }) {
     let presentationExitTimer;
+    const review = new URLSearchParams(location.search);
+    let reading = !document.body.classList.contains("preview-only") && review.get("read") === "1";
+    const bounded = (value, minimum, maximum) => Number.isFinite(value) ? Math.max(minimum, Math.min(maximum, value)) : minimum;
+    let readingScale = bounded(Number(review.get("zoom") || 0.5), 0.5, 1.5);
+    let pendingScroll = reading ? {
+      left: bounded(Number(review.get("x")), 0, CANONICAL_SLIDE_WIDTH) * readingScale,
+      top: bounded(Number(review.get("y")), 0, CANONICAL_SLIDE_HEIGHT) * readingScale
+    } : null;
+    let fitFrame = 0;
+    let reviewTimer;
+    const readingToggles = document.querySelectorAll("[data-reading-toggle]");
+    const zoomIn = document.querySelector("[data-reading-in]");
+    const zoomOut = document.querySelector("[data-reading-out]");
+    const zoomLabel = document.querySelector("[data-reading-scale]");
+    const pointers = /* @__PURE__ */ new Map();
+    let gesture = null;
+    function syncReading() {
+      document.body.classList.toggle("read-mode", reading);
+      readingToggles.forEach((button) => {
+        button.textContent = reading ? "Fit" : "Read";
+        button.setAttribute("aria-pressed", String(reading));
+      });
+      if (zoomIn) {
+        zoomIn.hidden = !reading;
+        zoomIn.disabled = readingScale >= 1.5;
+      }
+      if (zoomOut) {
+        zoomOut.hidden = !reading;
+        zoomOut.disabled = readingScale <= 0.5;
+      }
+      if (zoomLabel) {
+        zoomLabel.hidden = !reading;
+        zoomLabel.value = Math.round(readingScale * 100) + "%";
+      }
+    }
+    function saveReview() {
+      clearTimeout(reviewTimer);
+      reviewTimer = setTimeout(() => {
+        const url = new URL(location.href);
+        for (const key of ["read", "zoom", "x", "y"]) url.searchParams.delete(key);
+        if (reading) {
+          url.searchParams.set("read", "1");
+          url.searchParams.set("zoom", String(readingScale));
+          url.searchParams.set("x", String(Math.round(stageWrap.scrollLeft / readingScale)));
+          url.searchParams.set("y", String(Math.round(stageWrap.scrollTop / readingScale)));
+        }
+        history.replaceState(null, "", url.pathname + url.search + url.hash);
+      }, 200);
+    }
+    function applyPendingScroll() {
+      if (pendingScroll) {
+        stageWrap.scrollLeft = pendingScroll.left;
+        stageWrap.scrollTop = pendingScroll.top;
+        pendingScroll = null;
+      }
+    }
+    function zoomReading(scale, x = stageWrap.clientWidth / 2, y = stageWrap.clientHeight / 2) {
+      if (!reading) return;
+      applyPendingScroll();
+      const padding = getComputedStyle(stageWrap), left = parseFloat(padding.paddingLeft), top = parseFloat(padding.paddingTop);
+      const next = bounded(Math.round(scale * 1e3) / 1e3, 0.5, 1.5);
+      pendingScroll = {
+        left: (stageWrap.scrollLeft + x - left) * next / readingScale - x + left,
+        top: (stageWrap.scrollTop + y - top) * next / readingScale - y + top
+      };
+      readingScale = next;
+      syncReading();
+      fitStage();
+    }
+    function setReadingMode(enabled) {
+      if (enabled && !setPresentationMode(true)) return;
+      if (enabled) readingScale = bounded(Math.max(readingScale, Number(stage.dataset.stageScale) || 0.5), 0.5, 1.5);
+      reading = enabled;
+      pointers.clear();
+      gesture = null;
+      pendingScroll = { left: 0, top: 0 };
+      syncReading();
+      fitStage();
+      saveReview();
+    }
+    readingToggles.forEach((button) => button.addEventListener("click", () => setReadingMode(!reading)));
+    zoomIn?.addEventListener("click", () => zoomReading(readingScale * 1.25));
+    zoomOut?.addEventListener("click", () => zoomReading(readingScale / 1.25));
+    stageWrap.addEventListener("scroll", () => {
+      if (reading) saveReview();
+    }, { passive: true });
+    function resetGesture() {
+      const points = [...pointers.values()];
+      gesture = points.length ? {
+        left: stageWrap.scrollLeft,
+        top: stageWrap.scrollTop,
+        x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+        y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+        distance: points.length === 2 ? Math.max(1, Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y)) : 1,
+        scale: readingScale
+      } : null;
+    }
+    stageWrap.addEventListener("pointerdown", (event) => {
+      if (!reading || event.button > 0 || pointers.size >= 2 || event.target.closest('button,input,select,textarea,a,label,[role="button"],[role="tab"]')) return;
+      applyPendingScroll();
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      resetGesture();
+      stageWrap.setPointerCapture(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+    stageWrap.addEventListener("pointermove", (event) => {
+      if (!reading || !pointers.has(event.pointerId) || !gesture) return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      const points = [...pointers.values()];
+      const x = points.reduce((sum, p) => sum + p.x, 0) / points.length, y = points.reduce((sum, p) => sum + p.y, 0) / points.length;
+      if (points.length === 2) {
+        const box = stageWrap.getBoundingClientRect(), padding = getComputedStyle(stageWrap);
+        const left = parseFloat(padding.paddingLeft), top = parseFloat(padding.paddingTop);
+        readingScale = bounded(Math.round(gesture.scale * Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y) / gesture.distance * 1e3) / 1e3, 0.5, 1.5);
+        pendingScroll = {
+          left: (gesture.left + gesture.x - box.left - left) * readingScale / gesture.scale - (x - box.left) + left,
+          top: (gesture.top + gesture.y - box.top - top) * readingScale / gesture.scale - (y - box.top) + top
+        };
+        syncReading();
+        fitStage();
+      } else {
+        stageWrap.scrollLeft = gesture.left + gesture.x - x;
+        stageWrap.scrollTop = gesture.top + gesture.y - y;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    }, true);
+    for (const eventName of ["pointerup", "pointercancel", "lostpointercapture"]) stageWrap.addEventListener(eventName, (event) => {
+      if (pointers.delete(event.pointerId)) resetGesture();
+    });
+    stageWrap.addEventListener("wheel", (event) => {
+      if (reading && (event.ctrlKey || event.metaKey)) {
+        const box = stageWrap.getBoundingClientRect();
+        zoomReading(readingScale * Math.exp(-event.deltaY / 500), event.clientX - box.left, event.clientY - box.top);
+        event.preventDefault();
+      }
+    }, { passive: false });
+    function panReading(event) {
+      if (!reading || event.ctrlKey || event.metaKey || event.altKey || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return false;
+      stageWrap.scrollBy({
+        left: event.key === "ArrowLeft" ? -stageWrap.clientWidth / 2 : event.key === "ArrowRight" ? stageWrap.clientWidth / 2 : 0,
+        top: event.key === "ArrowUp" ? -stageWrap.clientHeight / 2 : event.key === "ArrowDown" ? stageWrap.clientHeight / 2 : 0
+      });
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    }
+    syncReading();
     const navigatorToggle = document.querySelector("[data-slides-toggle]");
     function closeNavigator() {
       document.body.classList.remove("navigator-open");
@@ -36,16 +185,20 @@
       if (!available.width || !available.height) return;
       var presentation = document.body.classList.contains("present-only");
       var width = presentation ? available.width : Math.min(available.width, EDITOR_MAX_SLIDE_WIDTH);
-      var scale = Math.min(width / CANONICAL_SLIDE_WIDTH, available.height / CANONICAL_SLIDE_HEIGHT);
+      var scale = reading ? readingScale : Math.min(width / CANONICAL_SLIDE_WIDTH, available.height / CANONICAL_SLIDE_HEIGHT);
       if (!Number.isFinite(scale) || scale <= 0) return;
       stage.style.width = (CANONICAL_SLIDE_WIDTH * scale).toFixed(2) + "px";
       stage.style.height = (CANONICAL_SLIDE_HEIGHT * scale).toFixed(2) + "px";
       stage.style.setProperty("--stage-scale", String(scale));
-      stage.dataset.stageFit = "uniform-contain";
+      stage.dataset.stageFit = reading ? "reading" : "uniform-contain";
       stage.dataset.stageScale = scale.toFixed(6);
-      requestAnimationFrame(function() {
+      if (fitFrame) cancelAnimationFrame(fitFrame);
+      fitFrame = requestAnimationFrame(function() {
+        fitFrame = 0;
+        applyPendingScroll();
         applyAllTextRegions();
         syncTextRegionFrame();
+        if (reading) saveReview();
       });
     }
     function revealPresentationExit() {
@@ -59,6 +212,7 @@
     function removePresentationQuery() {
       var url = new URL(location.href);
       url.searchParams.delete("present");
+      for (const key of ["read", "zoom", "x", "y"]) url.searchParams.delete(key);
       history.replaceState(null, "", url.pathname + url.search + url.hash);
     }
     function setPresentationMode(enabled) {
@@ -69,6 +223,13 @@
       }
       const changed2 = document.body.classList.contains("present-only") !== enabled;
       document.body.classList.toggle("present-only", enabled);
+      if (!enabled) {
+        reading = false;
+        pointers.clear();
+        gesture = null;
+        syncReading();
+        saveReview();
+      }
       fullscreenToggle.textContent = enabled ? "Exit presentation" : "Present fullscreen";
       requestAnimationFrame(fitStage);
       if (enabled) revealPresentationExit();
@@ -101,7 +262,7 @@
         });
       }
     }
-    return { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation, closeNavigator };
+    return { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation, closeNavigator, panReading };
   }
 
   // src/editor/fit.ts
@@ -5305,7 +5466,7 @@
   (function() {
     "use strict";
     var SVG_NS = "http://www.w3.org/2000/svg";
-    var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1";
+    var enteredFromPresentationUrl = new URLSearchParams(location.search).get("present") === "1" || new URLSearchParams(location.search).get("read") === "1";
     var previewMode = Boolean(window.slidekitPreview);
     if (enteredFromPresentationUrl || previewMode) {
       document.body.classList.add("present-only");
@@ -5485,7 +5646,7 @@
         toast.classList.remove("visible");
       }, 2700);
     }
-    var { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation, closeNavigator } = createViewport({
+    var { fitStage, revealPresentationExit, removePresentationQuery, setPresentationMode, exitFullscreenPresentation, toggleFullscreenPresentation, closeNavigator, panReading } = createViewport({
       stage,
       stageWrap,
       presentationExit,
@@ -6920,6 +7081,7 @@
         return;
       }
       if (typingTarget(event.target)) return;
+      if (panReading(event)) return;
       var styleKey = { b: "bold", i: "italic", u: "underline" }[event.key.toLowerCase()];
       if (editMode && styleKey && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && formatting.toggle(styleKey)) {
         event.preventDefault();

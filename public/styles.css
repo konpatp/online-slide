@@ -342,9 +342,17 @@ body.present-only .topbar, body.present-only .filmstrip, body.present-only .work
 body.present-only .app-shell, body.present-only .workspace { display: block; width: 100%; height: 100%; padding: 0; }
 body.present-only .stage-wrap { display: grid; width: 100vw; height: 100dvh; padding: 0; place-items: center; }
 body.present-only .slide-canvas { border-radius: 0; box-shadow: none; }
+.reading-controls { display: none; }
+body.present-only:not(.preview-only) .reading-controls { position: fixed; z-index: 100; top: 18px; right: 250px; display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.96); box-shadow: var(--shadow); }
+body.present-only.read-mode .reading-controls { top: auto; right: auto; bottom: max(16px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); }
+.reading-controls output { min-width: 4ch; text-align: center; font-size: 13px; font-variant-numeric: tabular-nums; }
+body.present-only.read-mode .stage-wrap { display: block; place-items: start; overflow: auto; padding: 64px 16px 96px; overscroll-behavior: contain; touch-action: none; cursor: grab; }
+body.read-mode .stage { margin: 0; overflow: hidden; }
+body.read-mode .slide-canvas { user-select: none; }
 html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: white; }
 
 @media (max-width: 960px) {
+  body.present-only:not(.preview-only):not(.read-mode) .reading-controls { left: 18px; right: auto; }
   .component-tools { display: none; }
   .workspace-hint { min-width: 0; }
 }
@@ -358,6 +366,7 @@ html:fullscreen, html:fullscreen body { width: 100%; height: 100%; background: w
   .top-actions > * { flex-shrink: 0; }
   .mobile-slides-toggle { display: inline-block; order: -2; }
   [data-fullscreen-toggle] { order: -1; }
+  .top-actions [data-reading-toggle] { order: -3; }
   .save-state { width: 12px; font-size: 0; }
   .save-state::before { width: 8px; height: 8px; }
   [data-undo], [data-redo] { display: none; }
