@@ -27,6 +27,13 @@ CHART_AUDIT = """(maxSeries) => {
   const isSeries = t => t.type === 'bar' || ((!t.type || /^scatter/.test(t.type)) && /lines|markers/.test(t.mode || 'lines+markers'));
   for (const chart of document.querySelectorAll('.slide-canvas .native-chart')) {
     const id = chart.dataset.chartId || 'chart', panels = {};
+    for (const node of chart.querySelectorAll('.g-xtitle text,.g-ytitle text')) {
+      const svg = node.closest('svg.main-svg');
+      if (!svg || getComputedStyle(svg).overflow === 'visible') continue;
+      const r = node.getBoundingClientRect(), bounds = svg.getBoundingClientRect();
+      if (r.width && r.height && (r.left < bounds.left - s || r.right > bounds.right + s || r.top < bounds.top - s || r.bottom > bounds.bottom + s))
+        errors.push(`chart axis title clipped: ${id} / ${node.textContent.slice(0,80)}`);
+    }
     for (const t of (chart._fullData || chart.data || []).filter(visible).filter(isSeries)) {
       const key = (t.xaxis || 'x') + (t.yaxis || 'y');
       (panels[key] = panels[key] || []).push(t);
@@ -65,6 +72,10 @@ CHART_AUDIT = """(maxSeries) => {
           errors.push(`chart label covers a data marker: ${id} ${name(labels[i])}`); break;
         }
     }
+  }
+  for (const node of document.querySelectorAll('.native-chart-controls .gallery-selector-label,.native-chart-controls .gallery-option-row button')) {
+    if (parseFloat(getComputedStyle(node).fontSize) < 35)
+      errors.push(`scientific chart selector text below audience size: ${node.textContent}`);
   }
   return errors;
 }"""
