@@ -211,7 +211,18 @@ methods × columns of model sizes, four seeds per cell), set
 caption labels the cell beneath it rather than covering the evidence. The
 layout uses a tighter frame and hides the summary, because its sliders and
 buttons already state the selection. It cannot combine with `paired`.
+| `segment-chain` | Which segments of a chain of states a procedure supervises, optionally stepped once | Aligned node/segment rows, supervised highlighting, TeX end labels, one explicit Play that runs once (never autoplay) |
 | `target-accessibility` | Two qualitative target decompositions with nested B4/R3 reach | Aligned component bars, stable reach spans, one shared legend, KaTeX decomposition |
+
+`segment-chain` declares `data.nodes`, optional `ends` (TeX labels over the
+first and last node), an optional LaTeX `edgeLabel` repeated over every segment,
+and one to three `groups` of rows. A row lists `frames`, each a span
+`[from, to]` of node indexes drawn in the one supervised colour. A caption shares
+its group's heading line, or sits below the rows when the group has no heading.
+Rows share one track, so equal nodes align vertically. A row with several frames
+requires `data.play`: the slide opens on the first frame and nothing moves until
+Play is pressed; Play steps every row through its frames once, stops on the
+last, and then offers Replay. There is no autoplay and no looping timer.
 
 The source gives scientific intent and data. The recipe owns repeated spatial
 decisions. Custom layout remains possible by adding another recipe rather than

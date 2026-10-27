@@ -8,6 +8,7 @@ import {createWireVisualObjects} from './wireVisualObjects';
 import {createAnnotations} from './annotations';
 import {createMechanismPipeline} from './mechanismPipeline';
 import {createVectorGeometry} from './vectorGeometry';
+import {createSegmentChain} from './segmentChain';
 import {createHierarchicalGallery} from './hierarchicalGallery';
 
 export function createScientificSlideRecipes(api) {
@@ -110,6 +111,7 @@ global.renderScientificFacetControls = function (host, slide, selectors, selecti
   const mechanismPipeline = createMechanismPipeline(api);
   const vectorGeometry = createVectorGeometry(api);
   const hierarchicalGallery = createHierarchicalGallery(api);
+  const segmentChain = createSegmentChain(api);
 
 return {
   "evidence-figure": function(canvas,slide) {
@@ -144,7 +146,8 @@ return {
   "target-accessibility": targetAccessibility,
   "mechanism-pipeline": mechanismPipeline,
   "vector-geometry": vectorGeometry,
-  "hierarchical-gallery": hierarchicalGallery
+  "hierarchical-gallery": hierarchicalGallery,
+  "segment-chain": segmentChain
 };
 
 }

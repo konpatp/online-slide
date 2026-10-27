@@ -431,6 +431,61 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             component = components.get(component_id, {})
             _require(component.get("kind") == "text" and component.get("render") == "latex",
                      f"{source}: equations[{index}] must reference a LaTeX text component")
+    elif recipe == "segment-chain":
+        nodes = data.get("nodes")
+        _require(isinstance(nodes, int) and not isinstance(nodes, bool) and 2 <= nodes <= 16,
+                 f"{source}: segment chain needs 2..16 nodes")
+        _require(set(data) <= {"nodes", "arrows", "ends", "edgeLabel", "groups", "play"},
+                 f"{source}: unknown segment-chain field")
+        _require(isinstance(data.get("arrows", False), bool), f"{source}: arrows must be a boolean")
+        ends = data.get("ends", {})
+        _require(isinstance(ends, dict) and set(ends) <= {"first", "last"}, f"{source}: ends are first and last")
+        for key, value in ends.items():
+            parts = value if isinstance(value, list) else [value]
+            _require(1 <= len(parts) <= 2, f"{source}: an end label has one or two components")
+            for part in parts:
+                ref(part, f"ends.{key}")
+        if data.get("edgeLabel") is not None:
+            ref(data["edgeLabel"], "edgeLabel")
+            _require(components.get(data["edgeLabel"], {}).get("render") == "latex",
+                     f"{source}: edgeLabel is repeated on every segment and must be LaTeX")
+        groups = data.get("groups")
+        _require(isinstance(groups, list) and 1 <= len(groups) <= 3, f"{source}: one to three groups")
+        longest = 1
+        for group in groups:
+            _require(isinstance(group, dict) and set(group) <= {"heading", "caption", "rows"},
+                     f"{source}: invalid group")
+            for key in ("heading", "caption"):
+                if group.get(key) is not None:
+                    ref(group[key], f"group.{key}")
+            rows = group.get("rows")
+            _require(isinstance(rows, list) and 1 <= len(rows) <= 4, f"{source}: one to four rows per group")
+            for row in rows:
+                _require(isinstance(row, dict) and set(row) <= {"label", "nodeLabels", "frames"},
+                         f"{source}: invalid chain row")
+                if row.get("label") is not None:
+                    ref(row["label"], "row.label")
+                for item in row.get("nodeLabels", []):
+                    _require(isinstance(item, dict) and set(item) == {"node", "label"}
+                             and isinstance(item["node"], int) and 0 <= item["node"] < nodes,
+                             f"{source}: nodeLabels name an existing node")
+                    ref(item["label"], "nodeLabel")
+                frames = row.get("frames")
+                _require(isinstance(frames, list) and 1 <= len(frames) <= 24, f"{source}: one to 24 frames per row")
+                for span in frames:
+                    _require(isinstance(span, list) and len(span) == 2 and all(isinstance(v, int) and not isinstance(v, bool) for v in span)
+                             and 0 <= span[0] < span[1] < nodes, f"{source}: a frame is a span [from, to] of nodes")
+                longest = max(longest, len(frames))
+        play = data.get("play")
+        _require((play is not None) == (longest > 1), f"{source}: play is required exactly when a row has several frames")
+        if play is not None:
+            _require(isinstance(play, dict) and set(play) <= {"label", "replay", "counter", "intervalMs"},
+                     f"{source}: play needs label, replay, counter and optional intervalMs")
+            ref(play.get("label"), "play.label")
+            ref(play.get("counter"), "play.counter")
+            ref(play.get("replay"), "play.replay")
+            _require(isinstance(play.get("intervalMs", 900), int) and 300 <= play.get("intervalMs", 900) <= 3000,
+                     f"{source}: play interval must be 300..3000 ms")
     elif recipe == "target-accessibility":
         panels = data.get("panels")
         _require(isinstance(panels, list) and len(panels) == 2,

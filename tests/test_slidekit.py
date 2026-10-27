@@ -110,6 +110,19 @@ class SlideKitContractTests(unittest.TestCase):
         spec['components']['equation'].pop('render')
         with self.assertRaises(ContractError):validate_slide_spec(spec)
 
+    def test_segment_chain_play_is_explicit_and_spans_are_inside_the_chain(self):
+        spec={'schema':'online-slide/slide@1','id':'chain-proof','recipe':'segment-chain',
+              'createdAt':'2026-10-27','headline':'headline','components':{
+                  'headline':{'kind':'text','text':'One chain'},
+                  'counter':{'kind':'text','text':'step'},'play':{'kind':'text','text':'Play'},'replay':{'kind':'text','text':'Replay'}},
+              'data':{'nodes':5,'groups':[{'rows':[{'frames':[[0,1],[2,4]]}]}],
+                      'play':{'label':'play','replay':'replay','counter':'counter'}}}
+        validate_slide_spec(spec)
+        bad=copy.deepcopy(spec);del bad['data']['play']
+        with self.assertRaisesRegex(ContractError,'play is required'):validate_slide_spec(bad)
+        bad=copy.deepcopy(spec);bad['data']['groups'][0]['rows'][0]['frames'][1]=[2,5]
+        with self.assertRaisesRegex(ContractError,'span'):validate_slide_spec(bad)
+
     def test_hidden_component_is_retained_and_removal_fails_closed(self):
         state=self.initial_state()
         sid=next(iter(self.catalog));key=self.catalog[sid]['headline']

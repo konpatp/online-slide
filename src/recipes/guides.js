@@ -9,6 +9,7 @@ export const scientificRecipeGuides = {
     "mechanism-pipeline": {use: "Explain a process through connected states or models.", owns: "Node sizing, ranked layout, connector routing, and fitted text regions."},
     "vector-geometry": {use: "Explain vectors, projections, angles, and equal-norm constructions.", owns: "Equal-aspect coordinates, proportional scaling, vector handles, and bounded math labels. Authors supply meaningful geometry."},
     "hierarchical-gallery": {use: "Explore images by facets and identity pages.", owns: "Image regions, compact controls, fitted captions, metric placement, and persistent selection."},
+    "segment-chain": {use:"Show which segments of a chain of states a procedure supervises, optionally stepped once by an explicit Play.",owns:"Node and segment geometry, shared horizontal alignment across rows, supervised highlighting, TeX end labels, and a one-shot Play with no autoplay."},
     "target-accessibility": {use: "Compare qualitative target decompositions and model reach.", owns: "Aligned signal regions, reach marks, shared legend, and bounded labels."}
   };
 
