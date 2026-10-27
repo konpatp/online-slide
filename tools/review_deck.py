@@ -63,6 +63,8 @@ CHART_AUDIT = """(maxSeries) => {
     chart.querySelectorAll('.annotation-text').forEach(node => {
       const b = box(node, .18); if (b && node.textContent.trim()) labels.push({b, text: node.textContent, curve: null, point: null});
     });
+    const ticks = [...chart.querySelectorAll('g[class$="tick"] text')]
+      .map(node => ({b: box(node, 0), text: node.textContent})).filter(tick => tick.b);
     const name = l => JSON.stringify(l.text.trim().slice(0, 40));
     for (let i = 0; i < labels.length; i++) {
       for (let j = i + 1; j < labels.length; j++)
@@ -70,6 +72,10 @@ CHART_AUDIT = """(maxSeries) => {
       for (const m of markers)
         if (!(m.curve === labels[i].curve && m.point === labels[i].point) && overlap(labels[i].b, m.b)) {
           errors.push(`chart label covers a data marker: ${id} ${name(labels[i])}`); break;
+        }
+      for (const tick of ticks)
+        if (overlap(labels[i].b, tick.b)) {
+          errors.push(`chart label covers an axis tick: ${id} ${name(labels[i])} / ${name(tick)}`); break;
         }
     }
   }

@@ -44,12 +44,20 @@ def main():
                 page.locator('.native-chart').evaluate("c=>Plotly.relayout(c,{'xaxis.title.text':'Synthetic x','yaxis.title.text':'Synthetic y'})")
                 clear=page.evaluate(CHART_AUDIT,4)
                 assert not clear,clear
+                page.locator('.native-chart').evaluate("""c=>Plotly.relayout(c,{
+                    'xaxis.range':[0,2],'xaxis.tickvals':[0,1,2],
+                    annotations:[{name:'synthetic-caption',text:'Images measured',xref:'paper',yref:'paper',x:.5,y:-.05,showarrow:false,font:{size:36}}]
+                })""")
+                collision=page.evaluate(CHART_AUDIT,4)
+                assert any('covers an axis tick' in f and 'Images measured' in f for f in collision),collision
+                page.locator('.native-chart').evaluate("c=>Plotly.relayout(c,{annotations:[]})")
+                assert not page.evaluate(CHART_AUDIT,4)
                 fonts=page.locator('.native-chart-controls').evaluate("h=>[...h.querySelectorAll('.gallery-selector-label,button')].map(n=>parseFloat(getComputedStyle(n).fontSize))")
                 assert fonts and min(fonts)>=35,fonts
                 browser.close()
         finally:
             http.shutdown();http.server_close();thread.join()
-    print(json.dumps({'ok':True,'clipped_titles_rejected':2,'minimum_selector_font_px':min(fonts)}))
+    print(json.dumps({'ok':True,'clipped_titles_rejected':2,'axis_tick_collision_rejected':True,'minimum_selector_font_px':min(fonts)}))
 
 
 if __name__=='__main__':
