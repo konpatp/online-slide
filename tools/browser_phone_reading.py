@@ -1,6 +1,7 @@
 """One reader lifecycle: actual touch, all corners, review URL and unchanged state."""
 # browser-check: scratch-output
 import argparse
+import copy
 import hashlib
 import json
 from pathlib import Path
@@ -12,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'tests')]
 import server
 from test_annotations import fixture
+from test_chart_panels import slide as chart_fixture
 from playwright.sync_api import sync_playwright
 
 
@@ -34,6 +36,99 @@ def touch(cdp, kind, points):
         {'id': i, 'x': x, 'y': y} for i, (x, y) in enumerate(points)]})
 
 
+def native_chart_slide():
+    spec = chart_fixture()
+    spec['id'] = 'mock-reader-native-chart'
+    for key, label in [('view', 'Comparison'), ('first', 'First'), ('second', 'Second')]:
+        spec['components'][key] = {'kind': 'text', 'text': label}
+    for key, maximum in [('evidence', 206), ('other-evidence', 412)]:
+        spec['components'][key] = copy.deepcopy(spec['components']['evidence'])
+        figure = spec['components'][key]['figure']
+        figure['layout'] = {'xaxis': {'range': [0, maximum], 'title': {'text': 'Training step'}},
+                            'yaxis': {'range': [0, 1], 'title': {'text': 'Measured value'}}}
+        figure['data'] = [{'uid': key, 'type': 'scatter', 'mode': 'lines+markers',
+                           'x': [0, maximum / 2, maximum], 'y': [.25, .75, .5]}]
+    spec['data'] = {'panels': [{'chart': 'evidence'}, {'chart': 'other-evidence'}],
+        'selectors': [{'id': 'view', 'label': 'view', 'options': [
+        {'value': 'first', 'label': 'first'}, {'value': 'second', 'label': 'second'}]}], 'views': [
+        {'selection': {'view': view}, 'panels': [{'chart': key} for key in keys]}
+        for view, keys in [('first', ['evidence', 'other-evidence']), ('second', ['other-evidence', 'evidence'])]]}
+    return spec
+
+
+def native_chart_snapshot(page):
+    return page.evaluate('''() => [...document.querySelectorAll('.native-chart')].map(chart => {
+      const axes = layout => Object.fromEntries(Object.entries(layout).filter(([key]) => /^[xy]axis\\d*$/.test(key))
+        .map(([key, axis]) => [key, {range:axis.range, autorange:axis.autorange}]));
+      return {id:chart.dataset.chartId, axes:axes(chart.layout), fullAxes:axes(chart._fullLayout), data:chart.data};
+    })''')
+
+
+def native_chart_gestures(page, cdp, base, output):
+    page.goto(base + '/?read=1&zoom=.5#mock-reader-native-chart', wait_until='networkidle')
+    ready = "document.querySelectorAll('.native-chart[data-chart-ready=true]').length===2"
+    page.wait_for_function(ready)
+    before = native_chart_snapshot(page)
+    start = geometry_without_label(page)
+    # This is a real Plotly drag layer, not the SVG-only reader fixture. Pick
+    # a point inside the currently visible plotted panel after each canvas pan.
+    def point():
+        return page.evaluate('''() => {
+          for (const node of document.querySelectorAll('.native-chart .nsewdrag')) {
+            const b=node.getBoundingClientRect(), l=Math.max(30,b.left), r=Math.min(innerWidth-30,b.right),
+              t=Math.max(100,b.top), d=Math.min(innerHeight-110,b.bottom);
+            if (r-l>60 && d-t>50) return {x:(l+r)/2,y:(t+d)/2};
+          }
+          throw Error('No plotted panel is visible');
+        }''')
+    for _ in range(4):
+        p = point()
+        touch(cdp, 'touchStart', [(p['x'], p['y'])])
+        for delta in (30, 70, 120, 180):
+            touch(cdp, 'touchMove', [(max(10, p['x'] - delta), p['y'])])
+        touch(cdp, 'touchEnd', [])
+    assert geometry_without_label(page)['left'] > start['left'], 'canvas must pan over a native chart'
+    after_drag = native_chart_snapshot(page)
+    (output / 'native-chart-drag.json').write_text(json.dumps({'before': before, 'after': after_drag}, indent=2))
+    assert after_drag == before, 'canvas touch drag changed native chart axes or trace data'
+    page.screenshot(path=str(output / 'phone-native-chart-pan.png'))
+    # Both fingers begin in the same native plotting panel.
+    p = point()
+    touch(cdp, 'touchStart', [(p['x']-20, p['y']), (p['x']+20, p['y'])])
+    for delta in (30, 45, 65):
+        touch(cdp, 'touchMove', [(p['x']-delta, p['y']), (p['x']+delta, p['y'])])
+    touch(cdp, 'touchEnd', [])
+    page.wait_for_function("Number(document.querySelector('[data-stage]').dataset.stageScale)>.8")
+    assert native_chart_snapshot(page) == before, 'canvas pinch changed native chart axes or trace data'
+    page.screenshot(path=str(output / 'phone-native-chart-pinch.png'))
+    # A fresh reading view makes the scientific selector reachable. It still
+    # receives the native tap, while each selected plot stays gesture-invariant.
+    page.goto(base + '/?read=1&zoom=.5#mock-reader-native-chart', wait_until='networkidle')
+    page.wait_for_function(ready)
+    button = page.get_by_role('button', name='Second', exact=True)
+    button.tap()
+    page.wait_for_function("document.querySelector('.native-chart').dataset.chartId==='other-evidence'")
+    page.wait_for_function(ready)
+    assert button.get_attribute('aria-pressed') == 'true'
+    selected = native_chart_snapshot(page)
+    p = point()
+    touch(cdp, 'touchStart', [(p['x'], p['y'])])
+    touch(cdp, 'touchMove', [(max(10,p['x']-100), p['y'])])
+    touch(cdp, 'touchEnd', [])
+    assert native_chart_snapshot(page) == selected
+    page.locator('[data-reading-toggle]:visible').click()
+    page.wait_for_function("document.querySelector('[data-stage]').dataset.stageFit==='uniform-contain'")
+    assert abs(geometry_without_label(page)['width'] - 390) < 1
+    assert native_chart_snapshot(page) == selected, 'Fit changed native chart axes or trace data'
+    return {'axesAndTraceDataPreserved': True, 'plotlyPanels': 2, 'selectorNativeTap': True,
+            'fitPreserved': True, 'before': before, 'selected': selected}
+
+
+def geometry_without_label(page):
+    return page.locator('[data-stage]').evaluate('''stage => ({
+      width:stage.getBoundingClientRect().width,left:stage.parentElement.scrollLeft})''')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
@@ -45,6 +140,7 @@ def main():
         sources.mkdir()
         spec = fixture()
         (sources / 'plot.json').write_text(json.dumps(spec))
+        (sources / 'native.json').write_text(json.dumps(native_chart_slide()))
         seed = root / 'seed.json'
         seed.write_text(json.dumps({'schema': 'online-slide/state@4', 'revision': 0,
             'order': [], 'hidden': [], 'objects': {}, 'tables': {}, 'overlays': {}}))
@@ -150,12 +246,14 @@ def main():
                     }''')
                     assert not overlap, 'reader controls must leave the canonical headline and kicker clear'
                     canonical.screenshot(path=str(output / 'desktop-canonical.png'))
+                    native = native_chart_gestures(page, cdp, 'http://%s:%s' % http.server_address, output)
                     assert hashlib.sha256(state.read_bytes()).hexdigest() == before_state
                     assert not errors and not writes, (errors, writes)
                     (output / 'receipt.json').write_text(json.dumps({'ok': True, 'phone': {
                         'fit': fit, 'read': read, 'pinch': pinch, 'bottomRight': corner, 'restored': restored},
                         'desktopFit': desktop_after, 'canonicalScale': 1, 'canonicalHeaderClear': True, 'reviewQuery': review_url.split('?', 1)[1],
                         'humanStateSha256': before_state, 'humanStateUnchanged': True,
+                        'nativeCharts': native,
                         'touchTransport': 'native CDP touch events', 'writes': writes, 'errors': errors}, indent=2))
                 finally:
                     browser.close()
