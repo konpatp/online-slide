@@ -22,6 +22,7 @@
     const zoomOut = document.querySelector("[data-reading-out]");
     const zoomLabel = document.querySelector("[data-reading-scale]");
     const pointers = /* @__PURE__ */ new Map();
+    const readingControl = (target) => target instanceof Element && !!target.closest('button,input,select,textarea,a,label,[role="button"],[role="tab"]');
     let gesture = null;
     function syncReading() {
       document.body.classList.toggle("read-mode", reading);
@@ -105,7 +106,7 @@
       } : null;
     }
     stageWrap.addEventListener("pointerdown", (event) => {
-      if (!reading || event.button > 0 || pointers.size >= 2 || event.target.closest('button,input,select,textarea,a,label,[role="button"],[role="tab"]')) return;
+      if (!reading || event.button > 0 || pointers.size >= 2 || readingControl(event.target)) return;
       applyPendingScroll();
       pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       resetGesture();
@@ -138,6 +139,11 @@
     for (const eventName of ["pointerup", "pointercancel", "lostpointercapture"]) stageWrap.addEventListener(eventName, (event) => {
       if (pointers.delete(event.pointerId)) resetGesture();
     });
+    for (const eventName of ["touchstart", "touchmove", "touchend", "touchcancel"]) stageWrap.addEventListener(eventName, (event) => {
+      if (!reading || readingControl(event.target)) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }, { capture: true, passive: false });
     stageWrap.addEventListener("wheel", (event) => {
       if (reading && (event.ctrlKey || event.metaKey)) {
         const box = stageWrap.getBoundingClientRect();

@@ -24,6 +24,8 @@ const zoomIn = document.querySelector<HTMLButtonElement>('[data-reading-in]');
 const zoomOut = document.querySelector<HTMLButtonElement>('[data-reading-out]');
 const zoomLabel = document.querySelector<HTMLOutputElement>('[data-reading-scale]');
 const pointers = new Map<number,{x:number;y:number}>();
+const readingControl = (target:EventTarget|null) => target instanceof Element &&
+ !!target.closest('button,input,select,textarea,a,label,[role="button"],[role="tab"]');
 let gesture:{left:number;top:number;x:number;y:number;distance:number;scale:number}|null = null;
 function syncReading() {
  document.body.classList.toggle('read-mode', reading);
@@ -76,7 +78,7 @@ function resetGesture() {
   scale:readingScale} : null;
 }
 stageWrap.addEventListener('pointerdown',event => {
- if(!reading || event.button>0 || pointers.size>=2 || (event.target as Element).closest('button,input,select,textarea,a,label,[role="button"],[role="tab"]')) return;
+ if(!reading || event.button>0 || pointers.size>=2 || readingControl(event.target)) return;
  applyPendingScroll();
  pointers.set(event.pointerId,{x:event.clientX,y:event.clientY});resetGesture();
  stageWrap.setPointerCapture(event.pointerId);event.preventDefault();event.stopPropagation();
@@ -99,6 +101,13 @@ stageWrap.addEventListener('pointermove',event => {
 for(const eventName of ['pointerup','pointercancel','lostpointercapture']) stageWrap.addEventListener(eventName,event => {
  if(pointers.delete((event as PointerEvent).pointerId)) resetGesture();
 });
+// Pointer capture does not consume the parallel legacy touch stream. Plotly
+// listens to that stream and would zoom its axes during a canvas pan/pinch.
+// The reader owns these gestures; native controls retain their ordinary taps.
+for(const eventName of ['touchstart','touchmove','touchend','touchcancel']) stageWrap.addEventListener(eventName,event => {
+ if(!reading || readingControl(event.target)) return;
+ event.preventDefault();event.stopPropagation();
+},{capture:true,passive:false});
 stageWrap.addEventListener('wheel',event => {
  if(reading && (event.ctrlKey || event.metaKey)) {
   const box=stageWrap.getBoundingClientRect();
