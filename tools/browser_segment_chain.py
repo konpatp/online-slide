@@ -17,7 +17,7 @@ SPEC = {'schema': 'online-slide/slide@1', 'id': 'chain-proof', 'recipe': 'segmen
                        'play': {'kind': 'text', 'text': 'Play'}, 'replay': {'kind': 'text', 'text': 'Replay'},
                        'counter': {'kind': 'text', 'text': 'step'}},
         'data': {'nodes': 5, 'arrows': True,
-                 'groups': [{'rows': [{'frames': [[0, 1], [2, 3], [3, 4]]}]}],
+                 'groups': [{'rows': [{'frames': [[0, 1], [2, 3], [1, 4]]}]}],
                  'play': {'label': 'play', 'replay': 'replay', 'counter': 'counter', 'intervalMs': 300}}}
 SUPERVISED = "e => e.map(x => x.classList.contains('supervised'))"
 
@@ -48,9 +48,10 @@ def main():
                     assert dots() == [True, True, False, False, False], 'autoplay ran'
                     page.locator('.chain-play').click()
                     page.wait_for_function("document.querySelector('.chain-play').textContent.includes('Replay')")
-                    assert dots() == [False, False, False, True, True], dots()
+                    assert dots() == [False, True, False, False, True], dots()  # endpoints only
+                    assert page.locator('.chain-dot.interior').count() == 2, 'interior states must be hollow'
                     page.wait_for_timeout(900)  # the sequence stopped on its last frame
-                    assert dots() == [False, False, False, True, True], 'sequence kept running'
+                    assert dots() == [False, True, False, False, True], 'sequence kept running'
                     assert not errors, errors
                 finally:
                     browser.close()

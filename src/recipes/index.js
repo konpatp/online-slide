@@ -9,6 +9,7 @@ import {createAnnotations} from './annotations';
 import {createMechanismPipeline} from './mechanismPipeline';
 import {createVectorGeometry} from './vectorGeometry';
 import {createSegmentChain} from './segmentChain';
+import {createTrackDiagram} from './trackDiagram';
 import {createHierarchicalGallery} from './hierarchicalGallery';
 
 export function createScientificSlideRecipes(api) {
@@ -112,6 +113,7 @@ global.renderScientificFacetControls = function (host, slide, selectors, selecti
   const vectorGeometry = createVectorGeometry(api);
   const hierarchicalGallery = createHierarchicalGallery(api);
   const segmentChain = createSegmentChain(api);
+  const trackDiagram = createTrackDiagram(api);
 
 return {
   "evidence-figure": function(canvas,slide) {
@@ -147,7 +149,8 @@ return {
   "mechanism-pipeline": mechanismPipeline,
   "vector-geometry": vectorGeometry,
   "hierarchical-gallery": hierarchicalGallery,
-  "segment-chain": segmentChain
+  "segment-chain": segmentChain,
+  "track-diagram": trackDiagram
 };
 
 }

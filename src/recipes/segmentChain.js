@@ -43,7 +43,11 @@ function buildRow(slide, data, row) {
     element: track,
     show: function (frame) {
       var span = frames[Math.min(frame, frames.length - 1)];
-      dots.forEach(function (dot, index) { dot.classList.toggle('supervised', index >= span[0] && index <= span[1]); });
+      // Only a span's endpoints are supervised states; the states between them are the model's own.
+      dots.forEach(function (dot, index) {
+        dot.classList.toggle('supervised', index === span[0] || index === span[1]);
+        dot.classList.toggle('interior', index > span[0] && index < span[1]);
+      });
       segments.forEach(function (seg, index) {
         var on = index >= span[0] && index < span[1];
         seg.classList.toggle('supervised', on);

@@ -486,6 +486,42 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
             ref(play.get("replay"), "play.replay")
             _require(isinstance(play.get("intervalMs", 900), int) and 300 <= play.get("intervalMs", 900) <= 3000,
                      f"{source}: play interval must be 300..3000 ms")
+    elif recipe == "track-diagram":
+        _require(set(data) <= {"units", "panels", "footer"}, f"{source}: unknown track-diagram field")
+        units = data.get("units")
+        _require(isinstance(units, int) and not isinstance(units, bool) and 2 <= units <= 24, f"{source}: units must be 2..24")
+        inside = lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= units
+        panels = data.get("panels")
+        _require(isinstance(panels, list) and 1 <= len(panels) <= 3, f"{source}: one to three panels")
+        for panel in panels:
+            _require(isinstance(panel, dict) and set(panel) <= {"title", "teacher", "student", "links", "bracket", "nodeLabels"},
+                     f"{source}: invalid track panel")
+            ref(panel.get("title"), "panel.title")
+            for role in ("teacher", "student"):
+                track = panel.get(role)
+                _require(isinstance(track, dict) and set(track) <= {"label", "nodes", "supervised"}, f"{source}: invalid {role} track")
+                ref(track.get("label"), f"{role}.label")
+                nodes = track.get("nodes")
+                _require(isinstance(nodes, list) and len(nodes) >= 2 and all(inside(n) for n in nodes) and nodes == sorted(set(nodes)),
+                         f"{source}: {role} nodes are increasing positions inside the axis")
+            _require("supervised" not in panel["teacher"], f"{source}: only the student track has supervised spans")
+            for span in panel["student"].get("supervised", []):
+                _require(isinstance(span, list) and len(span) == 2 and span[0] < span[1]
+                         and all(n in panel["student"]["nodes"] for n in span),
+                         f"{source}: a supervised span runs between two student nodes")
+            for position in panel.get("links", []):
+                _require(position in panel["teacher"]["nodes"] and position in panel["student"]["nodes"],
+                         f"{source}: a link joins a teacher node to the student node at the same position")
+            bracket = panel.get("bracket")
+            if bracket is not None:
+                _require(isinstance(bracket, dict) and set(bracket) == {"from", "to", "label"} and inside(bracket["from"])
+                         and inside(bracket["to"]) and bracket["from"] < bracket["to"], f"{source}: invalid bracket")
+                ref(bracket["label"], "bracket.label")
+            for item in panel.get("nodeLabels", []):
+                _require(isinstance(item, dict) and set(item) == {"at", "label"} and inside(item["at"]), f"{source}: invalid nodeLabel")
+                ref(item["label"], "nodeLabel")
+        for component in data.get("footer", []):
+            ref(component, "footer")
     elif recipe == "target-accessibility":
         panels = data.get("panels")
         _require(isinstance(panels, list) and len(panels) == 2,

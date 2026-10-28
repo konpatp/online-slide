@@ -10,6 +10,7 @@ export const scientificRecipeGuides = {
     "vector-geometry": {use: "Explain vectors, projections, angles, and equal-norm constructions.", owns: "Equal-aspect coordinates, proportional scaling, vector handles, and bounded math labels. Authors supply meaningful geometry."},
     "hierarchical-gallery": {use: "Explore images by facets and identity pages.", owns: "Image regions, compact controls, fitted captions, metric placement, and persistent selection."},
     "segment-chain": {use:"Show which segments of a chain of states a procedure supervises, optionally stepped once by an explicit Play.",owns:"Node and segment geometry, shared horizontal alignment across rows, supervised highlighting, TeX end labels, and a one-shot Play with no autoplay."},
+    "track-diagram": {use:"Compare how a teacher rollout supervises a student path: which student states are supervised, and where a teacher state feeds or checks them.",owns:"Shared position axis across teacher and student tracks, supervised endpoints and spans, dashed teacher-to-student links, brackets, and bounded labels."},
     "target-accessibility": {use: "Compare qualitative target decompositions and model reach.", owns: "Aligned signal regions, reach marks, shared legend, and bounded labels."}
   };
 

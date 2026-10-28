@@ -605,10 +605,33 @@ body.selecting-table-range, body.selecting-table-range * { user-select: none !im
 .chain-node-label { bottom:0; }
 .chain-seg { stroke:var(--chain-grey); stroke-width:8; stroke-linecap:round; transition:stroke .25s, stroke-width .25s; }
 .chain-head { fill:var(--chain-grey); transition:fill .25s; }
-.chain-dot { fill:var(--chain-grey); transition:fill .25s; }
+.chain-dot { fill:var(--chain-grey); stroke:transparent; stroke-width:5; transition:fill .25s, stroke .25s; }
 .chain-seg.supervised { stroke:var(--supervised); stroke-width:14; }
 .chain-head.supervised, .chain-dot.supervised { fill:var(--supervised); }
+.chain-dot.interior { fill:#fff; stroke:var(--supervised); stroke-width:5; }
 @media (prefers-reduced-motion:reduce) { .chain-seg, .chain-head, .chain-dot { transition:none; } }
 .segment-chain-body.unlabelled .chain-header, .segment-chain-body.unlabelled .chain-row { grid-template-columns:minmax(0,1fr); }
 .segment-chain-body.unlabelled .chain-controls { display:none; }
 .segment-chain-body.unlabelled { top:13%; justify-content:center; gap:44px; }
+
+/* track-diagram: teacher and student tracks share one position axis. */
+.track-diagram-body { top:19%; bottom:4%; display:flex; flex-direction:column; justify-content:space-between; --supervised:#d4342a; --teacher:#3d9a4a; --link:#3b6fd4; }
+.track-panel { display:grid; grid-template-columns:19% 10% minmax(0,1fr); column-gap:1.5%; align-items:stretch; }
+.track-panel + .track-panel { border-top:2px solid #e3e8ef; padding-top:8px; }
+.track-title { display:flex; align-items:center; }
+.track-title-text { font-size:38px; font-weight:800; line-height:1.12; letter-spacing:-.02em; }
+.track-names, .track-canvas { position:relative; }
+.track-name { position:absolute; right:0; transform:translateY(-50%); font-size:34px; color:var(--chain-text, #46546b); white-space:nowrap; }
+.track-svg { display:block; width:100%; height:auto; overflow:visible; }
+.track-canvas { min-width:0; }
+.track-teacher-line { stroke:var(--teacher); stroke-width:7; stroke-linecap:round; }
+.track-teacher-node { fill:var(--teacher); }
+.track-student-line { stroke:#8b95a7; stroke-width:5; stroke-linecap:round; }
+.track-student-line.supervised { stroke:var(--supervised); stroke-width:10; }
+.track-student-node { fill:#fff; stroke:#8b95a7; stroke-width:5; }
+.track-student-node.supervised { fill:var(--supervised); stroke:var(--supervised); }
+.track-link { stroke:var(--link); stroke-width:3; stroke-dasharray:7 7; }
+.track-bracket { fill:none; stroke:#8b95a7; stroke-width:3; }
+.track-bracket-label, .track-node-label { position:absolute; transform:translate(-50%,-50%); font-size:36px; white-space:nowrap; }
+.track-bracket-label { color:var(--chain-text, #46546b); font-weight:700; }
+.track-footer { display:flex; flex-wrap:wrap; justify-content:center; align-items:baseline; gap:10px 36px; font-size:36px; color:var(--chain-text, #46546b); text-align:center; }

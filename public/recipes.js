@@ -14,6 +14,7 @@
     "vector-geometry": { use: "Explain vectors, projections, angles, and equal-norm constructions.", owns: "Equal-aspect coordinates, proportional scaling, vector handles, and bounded math labels. Authors supply meaningful geometry." },
     "hierarchical-gallery": { use: "Explore images by facets and identity pages.", owns: "Image regions, compact controls, fitted captions, metric placement, and persistent selection." },
     "segment-chain": { use: "Show which segments of a chain of states a procedure supervises, optionally stepped once by an explicit Play.", owns: "Node and segment geometry, shared horizontal alignment across rows, supervised highlighting, TeX end labels, and a one-shot Play with no autoplay." },
+    "track-diagram": { use: "Compare how a teacher rollout supervises a student path: which student states are supervised, and where a teacher state feeds or checks them.", owns: "Shared position axis across teacher and student tracks, supervised endpoints and spans, dashed teacher-to-student links, brackets, and bounded labels." },
     "target-accessibility": { use: "Compare qualitative target decompositions and model reach.", owns: "Aligned signal regions, reach marks, shared legend, and bounded labels." }
   };
 
@@ -1149,7 +1150,8 @@
         show: function(frame) {
           var span = frames[Math.min(frame, frames.length - 1)];
           dots.forEach(function(dot, index) {
-            dot.classList.toggle("supervised", index >= span[0] && index <= span[1]);
+            dot.classList.toggle("supervised", index === span[0] || index === span[1]);
+            dot.classList.toggle("interior", index > span[0] && index < span[1]);
           });
           segments.forEach(function(seg, index) {
             var on = index >= span[0] && index < span[1];
@@ -1271,6 +1273,105 @@
       canvas.appendChild(body);
     }
     return segmentChain;
+  }
+
+  // src/recipes/trackDiagram.js
+  var SVG2 = "http://www.w3.org/2000/svg";
+  var WIDTH2 = 1e3;
+  var HEIGHT2 = 192;
+  var PAD2 = 30;
+  var TEACHER_Y = 20;
+  var STUDENT_Y = 86;
+  var BRACKET_Y = 140;
+  function createTrackDiagram(api) {
+    const { editableText } = api;
+    function svgNode(name, attributes) {
+      var node = document.createElementNS(SVG2, name);
+      Object.keys(attributes).forEach(function(key) {
+        node.setAttribute(key, attributes[key]);
+      });
+      return node;
+    }
+    function panel(slide, data, spec) {
+      var step = (WIDTH2 - 2 * PAD2) / data.units;
+      var x = function(position) {
+        return PAD2 + position * step;
+      };
+      var block = document.createElement("section");
+      block.className = "track-panel";
+      var title = document.createElement("div");
+      title.className = "track-title";
+      title.appendChild(editableText(slide, spec.title, "div", "track-title-text"));
+      var names = document.createElement("div");
+      names.className = "track-names";
+      var canvas = document.createElement("div");
+      canvas.className = "track-canvas";
+      var svg = svgNode("svg", { viewBox: "0 0 " + WIDTH2 + " " + HEIGHT2, class: "track-svg", role: "img" });
+      var place = function(host, y, text) {
+        var label = editableText(slide, text, "div", "track-name");
+        label.style.top = y / HEIGHT2 * 100 + "%";
+        host.appendChild(label);
+      };
+      var teacher = spec.teacher, student = spec.student;
+      (spec.links || []).forEach(function(position) {
+        svg.appendChild(svgNode("line", { class: "track-link", x1: x(position), x2: x(position), y1: TEACHER_Y + 12, y2: STUDENT_Y - 18 }));
+      });
+      var nodes = teacher.nodes;
+      for (var i = 0; i + 1 < nodes.length; i++) {
+        svg.appendChild(svgNode("line", { class: "track-teacher-line", x1: x(nodes[i]), x2: x(nodes[i + 1]), y1: TEACHER_Y, y2: TEACHER_Y }));
+      }
+      nodes.forEach(function(position) {
+        svg.appendChild(svgNode("circle", { class: "track-teacher-node", cx: x(position), cy: TEACHER_Y, r: 11 }));
+      });
+      var last = student.nodes.length - 1;
+      svg.appendChild(svgNode("line", { class: "track-student-line", x1: x(student.nodes[0]), x2: x(student.nodes[last]), y1: STUDENT_Y, y2: STUDENT_Y }));
+      var supervised = /* @__PURE__ */ new Set();
+      (student.supervised || []).forEach(function(span) {
+        svg.appendChild(svgNode("line", { class: "track-student-line supervised", x1: x(span[0]), x2: x(span[1]), y1: STUDENT_Y, y2: STUDENT_Y }));
+        supervised.add(span[0]);
+        supervised.add(span[1]);
+      });
+      student.nodes.forEach(function(position) {
+        svg.appendChild(svgNode("circle", { class: "track-student-node" + (supervised.has(position) ? " supervised" : ""), cx: x(position), cy: STUDENT_Y, r: 15 }));
+      });
+      if (spec.bracket) {
+        var a = x(spec.bracket.from), b = x(spec.bracket.to);
+        svg.appendChild(svgNode("path", { class: "track-bracket", d: "M" + a + " " + (BRACKET_Y - 9) + " V" + BRACKET_Y + " H" + b + " V" + (BRACKET_Y - 9) }));
+      }
+      canvas.appendChild(svg);
+      var overlay = function(component, left, y, className) {
+        var label = editableText(slide, component, "div", className);
+        label.style.left = left * 100 + "%";
+        label.style.top = y / HEIGHT2 * 100 + "%";
+        canvas.appendChild(label);
+      };
+      if (spec.bracket) overlay(spec.bracket.label, (x(spec.bracket.from) + x(spec.bracket.to)) / 2 / WIDTH2, BRACKET_Y + 30, "track-bracket-label");
+      (spec.nodeLabels || []).forEach(function(item) {
+        overlay(item.label, x(item.at) / WIDTH2, STUDENT_Y + 34, "track-node-label");
+      });
+      place(names, TEACHER_Y, teacher.label);
+      place(names, STUDENT_Y, student.label);
+      block.append(title, names, canvas);
+      return block;
+    }
+    function trackDiagram(canvas, slide) {
+      var data = slide.data;
+      var body = document.createElement("div");
+      body.className = "recipe-body track-diagram-body";
+      data.panels.forEach(function(spec) {
+        body.appendChild(panel(slide, data, spec));
+      });
+      if (data.footer) {
+        var footer = document.createElement("div");
+        footer.className = "track-footer";
+        data.footer.forEach(function(component) {
+          footer.appendChild(editableText(slide, component, "div", "track-footer-part"));
+        });
+        body.appendChild(footer);
+      }
+      canvas.appendChild(body);
+    }
+    return trackDiagram;
   }
 
   // src/recipes/hierarchicalGallery.js
@@ -1637,6 +1738,7 @@
     const vectorGeometry = createVectorGeometry(api);
     const hierarchicalGallery = createHierarchicalGallery(api);
     const segmentChain = createSegmentChain(api);
+    const trackDiagram = createTrackDiagram(api);
     return {
       "evidence-figure": function(canvas, slide) {
         var body = document.createElement("div");
@@ -1687,7 +1789,8 @@
       "mechanism-pipeline": mechanismPipeline,
       "vector-geometry": vectorGeometry,
       "hierarchical-gallery": hierarchicalGallery,
-      "segment-chain": segmentChain
+      "segment-chain": segmentChain,
+      "track-diagram": trackDiagram
     };
   }
 

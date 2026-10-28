@@ -123,6 +123,18 @@ class SlideKitContractTests(unittest.TestCase):
         bad=copy.deepcopy(spec);bad['data']['groups'][0]['rows'][0]['frames'][1]=[2,5]
         with self.assertRaisesRegex(ContractError,'span'):validate_slide_spec(bad)
 
+    def test_track_diagram_links_and_spans_must_land_on_declared_nodes(self):
+        text=lambda value:{'kind':'text','text':value}
+        spec={'schema':'online-slide/slide@1','id':'tracks-proof','recipe':'track-diagram','createdAt':'2026-10-27',
+              'headline':'headline','components':{key:text(key) for key in ('headline','title','teacher','student')},
+              'data':{'units':4,'panels':[{'title':'title','teacher':{'label':'teacher','nodes':[1,2,3]},
+                      'student':{'label':'student','nodes':[0,2,4],'supervised':[[2,4]]},'links':[2]}]}}
+        validate_slide_spec(spec)
+        bad=copy.deepcopy(spec);bad['data']['panels'][0]['links']=[1]
+        with self.assertRaisesRegex(ContractError,'link joins'):validate_slide_spec(bad)
+        bad=copy.deepcopy(spec);bad['data']['panels'][0]['student']['supervised']=[[1,2]]
+        with self.assertRaisesRegex(ContractError,'supervised span'):validate_slide_spec(bad)
+
     def test_hidden_component_is_retained_and_removal_fails_closed(self):
         state=self.initial_state()
         sid=next(iter(self.catalog));key=self.catalog[sid]['headline']
