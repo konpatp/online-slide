@@ -213,6 +213,7 @@ layout uses a tighter frame and hides the summary, because its sliders and
 buttons already state the selection. It cannot combine with `paired`.
 | `segment-chain` | Which segments of a chain of states a procedure supervises, optionally stepped once | Aligned node/segment rows, supervised highlighting, TeX end labels, one explicit Play that runs once (never autoplay) |
 | `track-diagram` | How a teacher rollout supervises a student path | Shared position axis, supervised endpoints/spans, dashed teacher-to-student links, brackets |
+| `compute-grid` | Two training designs that spend equal compute per step | Equal tile geometry across blocks, per-image chains of passes, supervised endpoints, optional teacher/student strip |
 | `target-accessibility` | Two qualitative target decompositions with nested B4/R3 reach | Aligned component bars, stable reach spans, one shared legend, KaTeX decomposition |
 
 `segment-chain` declares `data.nodes`, optional `ends` (TeX labels over the

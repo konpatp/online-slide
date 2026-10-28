@@ -7,6 +7,37 @@ from typing import Any
 from .common import (_validate_text_region, ContractError, _require, _component_ids, _recipe_visual_objects, _finite_number, SLIDE_SCHEMA, RECIPES, COMPONENT_ID, SLIDE_ID, HEX_COLOR)
 from .overlays import (validate_objects, validate_text_formatting)
 
+
+def _validate_track_panel(panel: Any, units: int, ref, source: str) -> None:
+    inside = lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= units
+    _require(isinstance(panel, dict) and set(panel) <= {"title", "teacher", "student", "links", "bracket", "nodeLabels"},
+             f"{source}: invalid track panel")
+    ref(panel.get("title"), "panel.title")
+    for role in ("teacher", "student"):
+        track = panel.get(role)
+        _require(isinstance(track, dict) and set(track) <= {"label", "nodes", "supervised"}, f"{source}: invalid {role} track")
+        ref(track.get("label"), f"{role}.label")
+        nodes = track.get("nodes")
+        _require(isinstance(nodes, list) and len(nodes) >= 2 and all(inside(n) for n in nodes) and nodes == sorted(set(nodes)),
+                 f"{source}: {role} nodes are increasing positions inside the axis")
+    _require("supervised" not in panel["teacher"], f"{source}: only the student track has supervised spans")
+    for span in panel["student"].get("supervised", []):
+        _require(isinstance(span, list) and len(span) == 2 and span[0] < span[1]
+                 and all(n in panel["student"]["nodes"] for n in span),
+                 f"{source}: a supervised span runs between two student nodes")
+    for position in panel.get("links", []):
+        _require(position in panel["teacher"]["nodes"] and position in panel["student"]["nodes"],
+                 f"{source}: a link joins a teacher node to the student node at the same position")
+    bracket = panel.get("bracket")
+    if bracket is not None:
+        _require(isinstance(bracket, dict) and set(bracket) == {"from", "to", "label"} and inside(bracket["from"])
+                 and inside(bracket["to"]) and bracket["from"] < bracket["to"], f"{source}: invalid bracket")
+        ref(bracket["label"], "bracket.label")
+    for item in panel.get("nodeLabels", []):
+        _require(isinstance(item, dict) and set(item) == {"at", "label"} and inside(item["at"]), f"{source}: invalid nodeLabel")
+        ref(item["label"], "nodeLabel")
+
+
 def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any]:
     _require(isinstance(spec, dict), f"{source}: slide must be an object")
     _require(spec.get("schema") == SLIDE_SCHEMA, f"{source}: unsupported slide schema")
@@ -490,38 +521,41 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         _require(set(data) <= {"units", "panels", "footer"}, f"{source}: unknown track-diagram field")
         units = data.get("units")
         _require(isinstance(units, int) and not isinstance(units, bool) and 2 <= units <= 24, f"{source}: units must be 2..24")
-        inside = lambda value: isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= units
         panels = data.get("panels")
         _require(isinstance(panels, list) and 1 <= len(panels) <= 3, f"{source}: one to three panels")
         for panel in panels:
-            _require(isinstance(panel, dict) and set(panel) <= {"title", "teacher", "student", "links", "bracket", "nodeLabels"},
-                     f"{source}: invalid track panel")
-            ref(panel.get("title"), "panel.title")
-            for role in ("teacher", "student"):
-                track = panel.get(role)
-                _require(isinstance(track, dict) and set(track) <= {"label", "nodes", "supervised"}, f"{source}: invalid {role} track")
-                ref(track.get("label"), f"{role}.label")
-                nodes = track.get("nodes")
-                _require(isinstance(nodes, list) and len(nodes) >= 2 and all(inside(n) for n in nodes) and nodes == sorted(set(nodes)),
-                         f"{source}: {role} nodes are increasing positions inside the axis")
-            _require("supervised" not in panel["teacher"], f"{source}: only the student track has supervised spans")
-            for span in panel["student"].get("supervised", []):
-                _require(isinstance(span, list) and len(span) == 2 and span[0] < span[1]
-                         and all(n in panel["student"]["nodes"] for n in span),
-                         f"{source}: a supervised span runs between two student nodes")
-            for position in panel.get("links", []):
-                _require(position in panel["teacher"]["nodes"] and position in panel["student"]["nodes"],
-                         f"{source}: a link joins a teacher node to the student node at the same position")
-            bracket = panel.get("bracket")
-            if bracket is not None:
-                _require(isinstance(bracket, dict) and set(bracket) == {"from", "to", "label"} and inside(bracket["from"])
-                         and inside(bracket["to"]) and bracket["from"] < bracket["to"], f"{source}: invalid bracket")
-                ref(bracket["label"], "bracket.label")
-            for item in panel.get("nodeLabels", []):
-                _require(isinstance(item, dict) and set(item) == {"at", "label"} and inside(item["at"]), f"{source}: invalid nodeLabel")
-                ref(item["label"], "nodeLabel")
+            _validate_track_panel(panel, units, ref, source)
         for component in data.get("footer", []):
             ref(component, "footer")
+    elif recipe == "compute-grid":
+        _require(set(data) <= {"intuition", "blocks", "versus", "notes"}, f"{source}: unknown compute-grid field")
+        intuition = data.get("intuition")
+        if intuition is not None:
+            _require(isinstance(intuition, dict) and {"units", "panel"} <= set(intuition) <= {"units", "panel", "caption"}, f"{source}: invalid intuition strip")
+            if intuition.get("caption") is not None:
+                ref(intuition["caption"], "intuition.caption")
+            _require(isinstance(intuition["units"], int) and 2 <= intuition["units"] <= 24, f"{source}: units must be 2..24")
+            _validate_track_panel(intuition["panel"], intuition["units"], ref, source)
+        blocks = data.get("blocks")
+        _require(isinstance(blocks, list) and 2 <= len(blocks) <= 3, f"{source}: two or three blocks")
+        ref(data.get("versus"), "versus")
+        cells = set()
+        for block in blocks:
+            _require(isinstance(block, dict) and {"title", "subtitle", "rows", "tiles", "supervision"} <= set(block) <= {"title", "subtitle", "rows", "tiles", "supervision", "caption"}, f"{source}: invalid block")
+            if block.get("caption") is not None:
+                ref(block["caption"], "block.caption")
+            ref(block["title"], "block.title"); ref(block["subtitle"], "block.subtitle")
+            _require(all(isinstance(block[k], int) and not isinstance(block[k], bool) and 1 <= block[k] <= 12 for k in ("rows", "tiles")),
+                     f"{source}: block rows and tiles are integers 1..12")
+            _require(block["supervision"] in {"span", "each"}, f"{source}: supervision is span or each")
+            cells.add(block["rows"] * block["tiles"])
+        _require(len(cells) == 1, f"{source}: every block must spend the same number of tiles (equal compute)")
+        notes = data.get("notes")
+        _require(isinstance(notes, list) and 1 <= len(notes) <= 3 and all(isinstance(line, list) and 1 <= len(line) <= 5 for line in notes),
+                 f"{source}: one to three note lines of one to five parts")
+        for line in notes:
+            for part in line:
+                ref(part, "note")
     elif recipe == "target-accessibility":
         panels = data.get("panels")
         _require(isinstance(panels, list) and len(panels) == 2,

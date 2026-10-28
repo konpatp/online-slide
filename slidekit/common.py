@@ -8,7 +8,7 @@ STATE_SCHEMA = "online-slide/state@4"
 LEGACY_STATE_SCHEMAS = {"online-slide/state@2", "online-slide/state@3"}
 RECIPES = {
     "hero-plot", "evidence-table", "mechanism-pipeline",
-    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider", "hero-equation", "evidence-figure", "slide-index", "segment-chain", "track-diagram",
+    "vector-geometry", "hierarchical-gallery", "target-accessibility", "chart-panels", "section-divider", "hero-equation", "evidence-figure", "slide-index", "segment-chain", "track-diagram", "compute-grid",
 }
 COMPONENT_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")
 SLIDE_ID = re.compile(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$")

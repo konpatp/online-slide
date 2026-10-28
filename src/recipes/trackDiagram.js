@@ -2,7 +2,7 @@
 // path, dashed links where a teacher state feeds or checks a student state, and a bracket.
 // Recipe owns geometry; the slide declares positions, spans and text.
 const SVG = 'http://www.w3.org/2000/svg';
-const WIDTH = 1000, HEIGHT = 192, PAD = 30;
+const WIDTH = 1000, FULL_HEIGHT = 192, COMPACT_HEIGHT = 112, PAD = 30;
 const TEACHER_Y = 20, STUDENT_Y = 86, BRACKET_Y = 140;
 
 export function createTrackDiagram(api) {
@@ -15,6 +15,7 @@ function svgNode(name, attributes) {
 }
 
 function panel(slide, data, spec) {
+  var HEIGHT = (spec.bracket || (spec.nodeLabels || []).length) ? FULL_HEIGHT : COMPACT_HEIGHT;
   var step = (WIDTH - 2 * PAD) / data.units;
   var x = function (position) { return PAD + position * step; };
   var block = document.createElement('section');
@@ -84,5 +85,6 @@ function trackDiagram(canvas, slide) {
   }
   canvas.appendChild(body);
 }
+trackDiagram.panel = panel;
 return trackDiagram;
 }

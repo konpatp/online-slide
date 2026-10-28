@@ -135,6 +135,17 @@ class SlideKitContractTests(unittest.TestCase):
         bad=copy.deepcopy(spec);bad['data']['panels'][0]['student']['supervised']=[[1,2]]
         with self.assertRaisesRegex(ContractError,'supervised span'):validate_slide_spec(bad)
 
+    def test_compute_grid_blocks_must_spend_equal_compute(self):
+        text=lambda value:{'kind':'text','text':value}
+        spec={'schema':'online-slide/slide@1','id':'grid-proof','recipe':'compute-grid','createdAt':'2026-10-28',
+              'headline':'headline','components':{key:text(key) for key in ('headline','a','b','c','d','vs','note')},
+              'data':{'versus':'vs','notes':[['note']],'blocks':[
+                  {'title':'a','subtitle':'b','rows':2,'tiles':2,'supervision':'span'},
+                  {'title':'c','subtitle':'d','rows':4,'tiles':1,'supervision':'each'}]}}
+        validate_slide_spec(spec)
+        bad=copy.deepcopy(spec);bad['data']['blocks'][1]['rows']=3
+        with self.assertRaisesRegex(ContractError,'equal compute'):validate_slide_spec(bad)
+
     def test_hidden_component_is_retained_and_removal_fails_closed(self):
         state=self.initial_state()
         sid=next(iter(self.catalog));key=self.catalog[sid]['headline']

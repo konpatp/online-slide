@@ -15,6 +15,7 @@
     "hierarchical-gallery": { use: "Explore images by facets and identity pages.", owns: "Image regions, compact controls, fitted captions, metric placement, and persistent selection." },
     "segment-chain": { use: "Show which segments of a chain of states a procedure supervises, optionally stepped once by an explicit Play.", owns: "Node and segment geometry, shared horizontal alignment across rows, supervised highlighting, TeX end labels, and a one-shot Play with no autoplay." },
     "track-diagram": { use: "Compare how a teacher rollout supervises a student path: which student states are supervised, and where a teacher state feeds or checks them.", owns: "Shared position axis across teacher and student tracks, supervised endpoints and spans, dashed teacher-to-student links, brackets, and bounded labels." },
+    "compute-grid": { use: "Show two training designs that spend the same compute per step: tiles are network passes, rows are images, red nodes are supervised states.", owns: "Equal tile geometry across blocks, per-image chains of passes with supervised endpoints, an optional teacher/student intuition strip, and matched / not-matched note lines." },
     "target-accessibility": { use: "Compare qualitative target decompositions and model reach.", owns: "Aligned signal regions, reach marks, shared legend, and bounded labels." }
   };
 
@@ -1278,7 +1279,8 @@
   // src/recipes/trackDiagram.js
   var SVG2 = "http://www.w3.org/2000/svg";
   var WIDTH2 = 1e3;
-  var HEIGHT2 = 192;
+  var FULL_HEIGHT = 192;
+  var COMPACT_HEIGHT = 112;
   var PAD2 = 30;
   var TEACHER_Y = 20;
   var STUDENT_Y = 86;
@@ -1293,6 +1295,7 @@
       return node;
     }
     function panel(slide, data, spec) {
+      var HEIGHT2 = spec.bracket || (spec.nodeLabels || []).length ? FULL_HEIGHT : COMPACT_HEIGHT;
       var step = (WIDTH2 - 2 * PAD2) / data.units;
       var x = function(position) {
         return PAD2 + position * step;
@@ -1371,7 +1374,97 @@
       }
       canvas.appendChild(body);
     }
+    trackDiagram.panel = panel;
     return trackDiagram;
+  }
+
+  // src/recipes/computeGrid.js
+  var SVG3 = "http://www.w3.org/2000/svg";
+  var SCALE = 1.2;
+  var STEP = 118;
+  var NODE = 13;
+  var TILE_H = 50;
+  var ROW = 66;
+  var PAD3 = 18;
+  function createComputeGrid(api, trackPanel) {
+    const { editableText } = api;
+    function svgNode(name, attributes) {
+      var node = document.createElementNS(SVG3, name);
+      Object.keys(attributes).forEach(function(key) {
+        node.setAttribute(key, attributes[key]);
+      });
+      return node;
+    }
+    function block(slide, spec) {
+      var host = document.createElement("section");
+      host.className = "cg-block";
+      var head = document.createElement("div");
+      head.className = "cg-head";
+      head.appendChild(editableText(slide, spec.title, "div", "cg-title"));
+      head.appendChild(editableText(slide, spec.subtitle, "div", "cg-subtitle"));
+      host.appendChild(head);
+      var width = 2 * PAD3 + spec.tiles * STEP, height = spec.rows * ROW;
+      var svg = svgNode("svg", { viewBox: "0 0 " + width + " " + height, class: "cg-svg", role: "img", width: width * SCALE, height: height * SCALE });
+      for (var r = 0; r < spec.rows; r++) {
+        var y = r * ROW + ROW / 2;
+        var node = function(k2) {
+          return PAD3 + k2 * STEP;
+        };
+        svg.appendChild(svgNode("line", { class: "cg-line", x1: node(0), x2: node(spec.tiles), y1: y, y2: y }));
+        if (spec.supervision === "span") {
+          svg.appendChild(svgNode("line", { class: "cg-line supervised", x1: node(0), x2: node(spec.tiles), y1: y, y2: y }));
+        } else {
+          for (var j = 0; j < spec.tiles; j++) svg.appendChild(svgNode("line", { class: "cg-line supervised", x1: node(j), x2: node(j + 1), y1: y, y2: y }));
+        }
+        for (var k = 0; k < spec.tiles; k++) {
+          svg.appendChild(svgNode("rect", { class: "cg-tile", x: node(k) + NODE + 6, y: y - TILE_H / 2, width: STEP - 2 * NODE - 12, height: TILE_H, rx: 9 }));
+        }
+        for (k = 0; k <= spec.tiles; k++) {
+          var supervised = spec.supervision === "each" || k === 0 || k === spec.tiles;
+          svg.appendChild(svgNode("circle", { class: "cg-node" + (supervised ? " supervised" : ""), cx: node(k), cy: y, r: NODE }));
+        }
+      }
+      host.appendChild(svg);
+      if (spec.caption) host.appendChild(editableText(slide, spec.caption, "div", "cg-caption"));
+      return host;
+    }
+    function computeGrid(canvas, slide) {
+      var data = slide.data;
+      var body = document.createElement("div");
+      body.className = "recipe-body compute-grid-body";
+      if (data.intuition) {
+        var strip = document.createElement("div");
+        strip.className = "cg-intuition";
+        strip.appendChild(trackPanel(slide, { units: data.intuition.units }, data.intuition.panel));
+        if (data.intuition.caption) strip.appendChild(editableText(slide, data.intuition.caption, "div", "cg-intuition-caption"));
+        body.appendChild(strip);
+      }
+      var blocks = document.createElement("div");
+      blocks.className = "cg-blocks";
+      data.blocks.forEach(function(spec, index) {
+        if (index) {
+          var sign = document.createElement("div");
+          sign.className = "cg-versus";
+          sign.appendChild(editableText(slide, data.versus, "div", "cg-versus-text"));
+          blocks.appendChild(sign);
+        }
+        blocks.appendChild(block(slide, spec));
+      });
+      body.appendChild(blocks);
+      var notes = document.createElement("div");
+      notes.className = "cg-notes";
+      data.notes.forEach(function(parts) {
+        var line = document.createElement("div");
+        line.className = "cg-note";
+        parts.forEach(function(component) {
+          line.appendChild(editableText(slide, component, "span", "cg-note-part"));
+        });
+        notes.appendChild(line);
+      });
+      body.appendChild(notes);
+      canvas.appendChild(body);
+    }
+    return computeGrid;
   }
 
   // src/recipes/hierarchicalGallery.js
@@ -1739,6 +1832,7 @@
     const hierarchicalGallery = createHierarchicalGallery(api);
     const segmentChain = createSegmentChain(api);
     const trackDiagram = createTrackDiagram(api);
+    const computeGrid = createComputeGrid(api, trackDiagram.panel);
     return {
       "evidence-figure": function(canvas, slide) {
         var body = document.createElement("div");
@@ -1790,7 +1884,8 @@
       "vector-geometry": vectorGeometry,
       "hierarchical-gallery": hierarchicalGallery,
       "segment-chain": segmentChain,
-      "track-diagram": trackDiagram
+      "track-diagram": trackDiagram,
+      "compute-grid": computeGrid
     };
   }
 
