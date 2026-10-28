@@ -589,6 +589,7 @@ body.selecting-table-range, body.selecting-table-range * { user-select: none !im
 .chain-end-part:not([data-latex-source]) { font-size:36px; color:var(--chain-text); }
 .chain-end-first { left:1.7%; }
 .chain-end-last { right:1.7%; }
+.chain-end-middle { left:50%; top:8px; transform:translateX(-50%); }
 .chain-group { display:flex; flex-direction:column; gap:6px; }
 .chain-group + .chain-group { border-top:2px solid #e3e8ef; padding-top:14px; }
 .chain-group-head { display:flex; align-items:baseline; gap:30px; }

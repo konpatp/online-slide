@@ -1181,7 +1181,7 @@
       var ends = document.createElement("div");
       ends.className = "chain-ends";
       if (data.ends) {
-        ["first", "last"].forEach(function(key) {
+        ["first", "middle", "last"].forEach(function(key) {
           if (!data.ends[key]) return;
           var end = document.createElement("div");
           end.className = "chain-end chain-end-" + key;
@@ -1219,6 +1219,7 @@
         if (group.caption && !group.heading) block.appendChild(editableText(slide, group.caption, "div", "chain-caption chain-footnote"));
         body.appendChild(block);
       });
+      if (data.footnote) body.appendChild(editableText(slide, data.footnote, "div", "chain-caption chain-footnote"));
       var counter = document.createElement("output");
       counter.className = "chain-counter";
       var count = document.createElement("span");

@@ -466,11 +466,13 @@ def validate_slide_spec(spec: Any, *, source: str = "<memory>") -> dict[str, Any
         nodes = data.get("nodes")
         _require(isinstance(nodes, int) and not isinstance(nodes, bool) and 2 <= nodes <= 16,
                  f"{source}: segment chain needs 2..16 nodes")
-        _require(set(data) <= {"nodes", "arrows", "ends", "edgeLabel", "groups", "play"},
+        _require(set(data) <= {"nodes", "arrows", "ends", "edgeLabel", "groups", "play", "footnote"},
                  f"{source}: unknown segment-chain field")
         _require(isinstance(data.get("arrows", False), bool), f"{source}: arrows must be a boolean")
         ends = data.get("ends", {})
-        _require(isinstance(ends, dict) and set(ends) <= {"first", "last"}, f"{source}: ends are first and last")
+        _require(isinstance(ends, dict) and set(ends) <= {"first", "middle", "last"}, f"{source}: ends are first, middle and last")
+        if data.get("footnote") is not None:
+            ref(data["footnote"], "footnote")
         for key, value in ends.items():
             parts = value if isinstance(value, list) else [value]
             _require(1 <= len(parts) <= 2, f"{source}: an end label has one or two components")
