@@ -145,7 +145,7 @@ def write_source_bundle(slides_dir: Path, catalog: dict, destination: Path) -> N
         raw = path.read_bytes()
         spec = json.loads(raw)
         _require(spec == catalog.get(spec.get('id')), f'{path}: source changed while packaging')
-        sources[path.name] = {'sha256': hashlib.sha256(raw).hexdigest(), 'spec': spec}
+        sources[path.name] = hashlib.sha256(raw).hexdigest()
     _write_cache(destination, 'slidekit/source-bundle@1', sources=sources)
 
 
@@ -196,10 +196,10 @@ class SourceCatalog:
             if bundle is None:
                 bundle = _read_cache(self.slides_dir.parent / 'data/source-catalog.json',
                                      'slidekit/source-bundle@1').get('sources', {})
-            proof = bundle.get(path.name, {})
+            proof = bundle.get(path.name)
             raw = path.read_bytes()
-            if proof and hashlib.sha256(raw).hexdigest() == proof.get('sha256'):
-                spec = proof['spec']
+            if proof and hashlib.sha256(raw).hexdigest() == proof:
+                spec = json.loads(raw)
             else:
                 spec = _read_source(path, raw)
             files[path.name] = (key, spec)
