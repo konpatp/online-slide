@@ -156,7 +156,8 @@ def make_server(
         (public_dir / name).read_bytes() for name in runtime_assets
     )).hexdigest()[:16]
     stored = load_state(seed_path, state_path)
-    sources = SourceCatalog(slides_dir, stored.get("createdSlides"))
+    sources = SourceCatalog(slides_dir, stored.get("createdSlides"),
+                            cache_path=state_path.with_name('.' + state_path.name + '.source-cache'))
     state, changed = reconcile_state(stored, sources.catalog)
     if changed:
         atomic_write_json(state_path, state)

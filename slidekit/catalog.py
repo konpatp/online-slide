@@ -2,15 +2,18 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
 import re
+import tempfile
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from .common import (ContractError, _require, _visual_objects, RECIPES)
 from .sources import (validate_slide_spec)
 
-def _read_source(path: Path) -> dict[str, Any]:
+def _read_source(path: Path, raw: bytes | None = None) -> dict[str, Any]:
     try:
-        spec = json.loads(path.read_text(encoding="utf-8"))
+        spec = json.loads(path.read_text(encoding="utf-8") if raw is None else raw)
     except json.JSONDecodeError as exc:
         raise ContractError(f"{path}: invalid JSON: {exc}") from exc
     validate_slide_spec(spec, source=str(path))
@@ -97,6 +100,55 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
+@lru_cache(maxsize=1)
+def _validator_version() -> str:
+    """A cache never carries validation across a change to the toolkit."""
+    return hashlib.sha256(b"".join(path.name.encode() + path.read_bytes()
+        for path in sorted(Path(__file__).parent.glob('*.py')))).hexdigest()
+
+
+def _read_cache(path: Path, schema: str) -> dict:
+    try:
+        envelope = json.loads(path.read_text())
+        payload = envelope['payload']
+        if hashlib.sha256(payload.encode()).hexdigest() != envelope['sha256']:
+            return {}
+        data = json.loads(payload)
+        if data['schema'] == schema and data['validator'] == _validator_version():
+            return data
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        pass
+    return {}
+
+
+def _write_cache(path: Path, schema: str, **data) -> None:
+    """One disposable generation, atomically replaced; no retained history."""
+    # Authored object order can carry paint order. Preserve it in cached specs;
+    # canonicalization is only for the existing revision calculation.
+    payload = json.dumps({'schema': schema, 'validator': _validator_version(), **data},
+                         separators=(',', ':'))
+    body = _canonical({'payload': payload, 'sha256': hashlib.sha256(payload.encode()).hexdigest()})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(body)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def write_source_bundle(slides_dir: Path, catalog: dict, destination: Path) -> None:
+    """Package already-validated sources, bound to their exact authored bytes."""
+    sources = {}
+    for path in sorted(slides_dir.glob('*.json')):
+        raw = path.read_bytes()
+        spec = json.loads(raw)
+        _require(spec == catalog.get(spec.get('id')), f'{path}: source changed while packaging')
+        sources[path.name] = {'sha256': hashlib.sha256(raw).hexdigest(), 'spec': spec}
+    _write_cache(destination, 'slidekit/source-bundle@1', sources=sources)
+
+
 class SourceCatalog:
     """Validated slide sources, re-derived only where their inputs change.
 
@@ -106,11 +158,24 @@ class SourceCatalog:
     identity changes, each created slide is validated only when its content
     changes, and revisions are assembled from cached per-slide serializations,
     so they equal ``catalog_revision``/``source_revisions`` exactly.
+
+    Packaged validation is bound to exact source bytes and toolkit code. A
+    disposable cache beside mutable state then carries unchanged file records
+    across idle process exits. Changed files and created slides retain their
+    ordinary validation; cache loss only costs a fresh read.
     """
 
-    def __init__(self, slides_dir: Path, created_slides=None):
+    def __init__(self, slides_dir: Path, created_slides=None, *, cache_path: Path | None = None):
         self.slides_dir = Path(slides_dir)
         self._files: dict[str, tuple[tuple, dict[str, Any]]] = {}
+        self._cache_path = Path(cache_path) if cache_path is not None else None
+        if self._cache_path is not None:
+            records = _read_cache(self._cache_path, 'slidekit/file-cache@1').get('records', {})
+            try:
+                self._files = {name: (tuple(record[0]), record[1]) for name, record in records.items()}
+            except (TypeError, IndexError, KeyError, AttributeError):
+                self._files = {}
+        self._cached_files = tuple((name, record[0]) for name, record in self._files.items())
         self._created: dict[str, tuple[str, dict[str, Any]]] = {}
         self._serialized: dict[int, tuple[dict[str, Any], str]] = {}
         self._signature: tuple | None = None
@@ -120,11 +185,24 @@ class SourceCatalog:
         paths = sorted(self.slides_dir.glob("*.json"))
         _require(paths, f"{self.slides_dir}: no slide sources found")
         files = {}
+        bundle = None
         for path in paths:
             stat = path.stat()
-            key = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+            key = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
             prior = self._files.get(path.name)
-            files[path.name] = prior if prior and prior[0] == key else (key, _read_source(path))
+            if prior and prior[0] == key:
+                files[path.name] = prior
+                continue
+            if bundle is None:
+                bundle = _read_cache(self.slides_dir.parent / 'data/source-catalog.json',
+                                     'slidekit/source-bundle@1').get('sources', {})
+            proof = bundle.get(path.name, {})
+            raw = path.read_bytes()
+            if proof and hashlib.sha256(raw).hexdigest() == proof.get('sha256'):
+                spec = proof['spec']
+            else:
+                spec = _read_source(path, raw)
+            files[path.name] = (key, spec)
         self._files = files
         return [spec for _, spec in files.values()]
 
@@ -151,7 +229,7 @@ class SourceCatalog:
         files = []
         for path in sorted(self.slides_dir.glob("*.json")):
             stat = path.stat()
-            files.append((path.name, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
+            files.append((path.name, stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns))
         return tuple(files), _canonical(created_slides)
 
     def refresh(self, created_slides=None) -> bool:
@@ -171,6 +249,13 @@ class SourceCatalog:
         self.catalog, self.revisions, self.revision = catalog, revisions, revision
         self.chart_runtime = chart_runtime(catalog)
         self._signature = signature
+        file_keys = tuple((name, record[0]) for name, record in self._files.items())
+        if self._cache_path is not None and file_keys != self._cached_files:
+            try:
+                _write_cache(self._cache_path, 'slidekit/file-cache@1', records=self._files)
+                self._cached_files = file_keys
+            except OSError:
+                pass  # Derived cache loss cannot change source admission.
         return changed
 
 

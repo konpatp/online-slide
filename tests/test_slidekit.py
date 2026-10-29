@@ -591,6 +591,66 @@ if __name__ == "__main__":
 class IncrementalCatalogTests(unittest.TestCase):
     """A request must not revalidate the whole deck, and must agree with it."""
 
+    def test_cold_catalog_reuses_packaged_validation_then_unchanged_file_cache(self):
+        import shutil
+        from unittest.mock import patch
+        import slidekit.catalog as module
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            slides = root / 'slides'
+            shutil.copytree(ROOT / 'slides', slides)
+            path = sorted(slides.glob('*.json'))[0]
+            spec = json.loads(path.read_text())
+            path.write_text(json.dumps(dict(reversed(list(spec.items())))))
+            catalog = module.load_catalog(slides)
+            module.write_source_bundle(slides, catalog, root / 'data/source-catalog.json')
+            cache = root / 'state.source-cache'
+            with patch.object(module, 'validate_slide_spec', side_effect=AssertionError('validation repeated')):
+                first = module.SourceCatalog(slides, cache_path=cache)
+            self.assertEqual(first.catalog, catalog)
+            self.assertEqual(json.dumps(first.catalog), json.dumps(catalog))
+            self.assertEqual(first.revision, module.catalog_revision(catalog))
+            original_read = Path.read_bytes
+            def read(path):
+                if path.parent == slides:
+                    raise AssertionError('unchanged source reread')
+                return original_read(path)
+            before = cache.stat().st_mtime_ns
+            with patch.object(Path, 'read_bytes', read):
+                second = module.SourceCatalog(slides, cache_path=cache)
+            self.assertEqual(second.revisions, first.revisions)
+            self.assertEqual(cache.stat().st_mtime_ns, before)
+
+    def test_cold_cache_never_admits_changed_or_invalid_sources_or_validator(self):
+        import shutil
+        from unittest.mock import patch
+        import slidekit.catalog as module
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); slides = root / 'slides'
+            shutil.copytree(ROOT / 'slides', slides)
+            catalog = module.load_catalog(slides)
+            module.write_source_bundle(slides, catalog, root / 'data/source-catalog.json')
+            cache = root / 'state.source-cache'
+            module.SourceCatalog(slides, cache_path=cache)
+            first = sorted(slides.glob('*.json'))[0]
+            spec = json.loads(first.read_text())
+            spec['components'][spec['headline']]['text'] = 'Changed source'
+            first.write_text(json.dumps(spec))
+            with patch.object(module, 'validate_slide_spec', wraps=module.validate_slide_spec) as validate:
+                changed = module.SourceCatalog(slides, cache_path=cache)
+                self.assertEqual(validate.call_count, 1)
+            self.assertEqual(changed.catalog, module.load_catalog(slides))
+            with patch.object(module, '_validator_version', return_value='changed validator'):
+                with patch.object(module, 'validate_slide_spec', wraps=module.validate_slide_spec) as validate:
+                    module.SourceCatalog(slides, cache_path=cache)
+                    self.assertEqual(validate.call_count, len(catalog))
+            cache.write_text('corrupt cache')
+            self.assertEqual(module.SourceCatalog(slides, cache_path=cache).catalog, changed.catalog)
+            spec['recipe'] = 'unrecognized'
+            first.write_text(json.dumps(spec))
+            with self.assertRaises(ContractError):
+                module.SourceCatalog(slides, cache_path=cache)
+
     def test_incremental_refresh_equals_a_full_load(self):
         import copy, tempfile, json, shutil
         from slidekit.catalog import SourceCatalog, load_catalog, catalog_revision, source_revisions

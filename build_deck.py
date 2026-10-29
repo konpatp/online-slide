@@ -11,6 +11,7 @@ import shutil
 import tempfile
 
 from slidekit import catalog_receipt, empty_state, load_catalog, reconcile_state
+from slidekit.catalog import write_source_bundle
 from display_media import RASTERS, publish_image
 
 TOOLKIT = Path(__file__).resolve().parent
@@ -94,6 +95,7 @@ def build(source: Path, output: Path) -> dict:
         for name in ("server.py", "slide_templates.py", "display_media.py"):
             shutil.copy2(TOOLKIT / name, staging / name)
         (staging / "data").mkdir()
+        write_source_bundle(staging / "slides", catalog, staging / "data/source-catalog.json")
         (staging / "data" / "display-media.json").write_text(
             json.dumps(display_map, sort_keys=True) + "\n")
         (staging / "data" / "seed-state.json").write_text(
